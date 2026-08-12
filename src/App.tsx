@@ -3,12 +3,13 @@ import "./styles.css";
 import { LoginScreen } from "./components/LoginScreen";
 import { CaptureView } from "./components/CaptureView";
 import { ReviewView } from "./components/ReviewView";
+import { ReportView } from "./components/ReportView";
 import { SyncStatus } from "./components/SyncStatus";
 import { useAuth } from "./hooks/useAuth";
 import { useExpenses } from "./hooks/useExpenses";
 import { usePwaInstall } from "./hooks/usePwaInstall";
 
-type View = "capture" | "review";
+type View = "capture" | "review" | "reports";
 
 interface NoticeState {
   id: number;
@@ -78,12 +79,13 @@ function AuthenticatedApp({ onLogout }: { onLogout: () => Promise<void> }) {
       </header>
 
       <main className="app-content">
-        {view === "capture" ? (
+        {view === "capture" && (
           <CaptureView
             onCreate={createExpense}
             onSaved={() => showNotice("Gasto guardado")}
           />
-        ) : (
+        )}
+        {view === "review" && (
           <ReviewView
             expenses={expenses}
             onEdit={editExpense}
@@ -94,9 +96,10 @@ function AuthenticatedApp({ onLogout }: { onLogout: () => Promise<void> }) {
             onNotice={showNotice}
           />
         )}
+        {view === "reports" && <ReportView expenses={expenses} />}
       </main>
 
-      {view === "review" && (
+      {view !== "capture" && (
         <footer className="utility-footer">
           {canInstall && (
             <button type="button" onClick={() => void handleInstall()}>Instalar aplicación</button>
@@ -121,6 +124,10 @@ function AuthenticatedApp({ onLogout }: { onLogout: () => Promise<void> }) {
           <span className="nav-icon" aria-hidden="true">≡</span>
           <span>Revisar</span>
           {pendingExpenses > 0 && <span className="nav-badge">{pendingExpenses > 99 ? "99+" : pendingExpenses}</span>}
+        </button>
+        <button type="button" className={view === "reports" ? "active" : ""} onClick={() => setView("reports")}>
+          <span className="nav-icon" aria-hidden="true">▥</span>
+          <span>Reportes</span>
         </button>
       </nav>
 
