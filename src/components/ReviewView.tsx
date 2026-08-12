@@ -1,6 +1,15 @@
 import { useMemo, useState } from "react";
 import type { Expense, ExpenseStatus } from "../models/expense";
-import { formatMonthTitle, formatShortDate, getMonthKey, getQuincena, toLocalDateKey, type Quincena } from "../lib/date";
+import {
+  formatBudgetCycleRange,
+  formatMonthTitle,
+  formatQuincenaRange,
+  formatShortDate,
+  getMonthKey,
+  getQuincena,
+  toLocalDateKey,
+  type Quincena,
+} from "../lib/date";
 import { expenseToExcelRow, expensesToExcelRows, getExpenseTotalCents } from "../lib/excel";
 import { formatMoney } from "../lib/money";
 import { EditExpenseModal } from "./EditExpenseModal";
@@ -111,9 +120,9 @@ export function ReviewView({
   const periodLabel = useMemo(() => {
     if (period === "all") return "Todos los meses";
     const month = formatMonthTitle(selectedMonth);
-    if (period === "q1") return `${month} · Quincena 1`;
-    if (period === "q2") return `${month} · Quincena 2`;
-    return month;
+    if (period === "q1") return `${month} · Quincena 1 · ${formatQuincenaRange(selectedMonth, 1)}`;
+    if (period === "q2") return `${month} · Quincena 2 · ${formatQuincenaRange(selectedMonth, 2)}`;
+    return `${month} · ${formatBudgetCycleRange(selectedMonth)}`;
   }, [period, selectedMonth]);
 
   const copyOne = async (expense: Expense) => {
@@ -194,7 +203,7 @@ export function ReviewView({
           <span>Mes</span>
           <select value={selectedMonth} onChange={(event) => setSelectedMonth(event.target.value)} disabled={period === "all"}>
             {availableMonths.map((monthKey) => (
-              <option key={monthKey} value={monthKey}>{formatMonthTitle(monthKey)}</option>
+              <option key={monthKey} value={monthKey}>{formatMonthTitle(monthKey)} · {formatBudgetCycleRange(monthKey)}</option>
             ))}
           </select>
         </label>
@@ -227,7 +236,7 @@ export function ReviewView({
         <div className="month-groups">
           {groups.map((group) => (
             <section className="month-group" key={group.monthKey}>
-              <h2 className="month-title">{formatMonthTitle(group.monthKey)}</h2>
+              <h2 className="month-title">{formatMonthTitle(group.monthKey)} · {formatBudgetCycleRange(group.monthKey)}</h2>
               {[1, 2].map((quincenaValue) => {
                 const quincena = quincenaValue as Quincena;
                 const batch = group.quincenas.get(quincena) || [];
@@ -236,7 +245,7 @@ export function ReviewView({
                   <section className="quincena-group" key={quincena}>
                     <div className="quincena-header">
                       <div>
-                        <h3>Quincena {quincena}</h3>
+                        <h3>Quincena {quincena} · {formatQuincenaRange(group.monthKey, quincena)}</h3>
                         <span>{batch.length} gasto{batch.length === 1 ? "" : "s"} · {formatMoney(sumExpenses(batch))}</span>
                       </div>
                       {status === "pending" && (

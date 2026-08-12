@@ -1,6 +1,14 @@
 import { useMemo, useState } from "react";
 import type { Expense } from "../models/expense";
-import { formatMonthTitle, getMonthKey, getQuincena, toLocalDateKey, type Quincena } from "../lib/date";
+import {
+  formatBudgetCycleRange,
+  formatMonthTitle,
+  formatQuincenaRange,
+  getMonthKey,
+  getQuincena,
+  toLocalDateKey,
+  type Quincena,
+} from "../lib/date";
 import { getExpenseTotalCents } from "../lib/excel";
 import { formatMoney } from "../lib/money";
 
@@ -122,7 +130,7 @@ export function ReportView({ expenses }: ReportViewProps) {
                 aria-pressed={selectedSet.has(monthKey)}
                 onClick={() => toggleMonth(monthKey)}
               >
-                {formatMonthTitle(monthKey)}
+                {formatMonthTitle(monthKey)} · {formatBudgetCycleRange(monthKey)}
               </button>
             ))}
           </div>
@@ -160,14 +168,14 @@ export function ReportView({ expenses }: ReportViewProps) {
                 <div className="report-month-main">
                   <div>
                     <h3>{formatMonthTitle(month.monthKey)}</h3>
-                    <span>{month.count} gasto{month.count === 1 ? "" : "s"}</span>
+                    <span>{formatBudgetCycleRange(month.monthKey)} · {month.count} gasto{month.count === 1 ? "" : "s"}</span>
                   </div>
                   <strong>{formatMoney(month.totalCents)}</strong>
                 </div>
                 {period === "month" && (
                   <div className="report-quincena-row">
-                    <span>Quincena 1 <strong>{formatMoney(month.q1Cents)}</strong></span>
-                    <span>Quincena 2 <strong>{formatMoney(month.q2Cents)}</strong></span>
+                    <span>Quincena 1 · {formatQuincenaRange(month.monthKey, 1)} <strong>{formatMoney(month.q1Cents)}</strong></span>
+                    <span>Quincena 2 · {formatQuincenaRange(month.monthKey, 2)} <strong>{formatMoney(month.q2Cents)}</strong></span>
                   </div>
                 )}
               </article>
