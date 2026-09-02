@@ -268,6 +268,8 @@ export interface CurrencyReportTotals {
   expectedIncome: number;
   receivedIncome: number;
   dailySpending: number;
+  dailyCashSpending: number;
+  dailyCardSpending: number;
   monthlyPaid: number;
   monthlyPending: number;
   nonMonthlyPaid: number;
@@ -317,10 +319,14 @@ export const calculateReportTotals = (
   const savingsTransactions = Object.values(data.savingsTransactions).filter((item) =>
     item.currency === currency && !item.reversedAt && isInSelectedPeriod(item.transactionDate, selected, quincena),
   );
-  const dailySpending = currency === "DOP"
-    ? expenses.filter((expense) => expense.status === "transferred" && isInSelectedPeriod(expense.occurredDate, selected, quincena))
-      .reduce((total, expense) => total + getExpenseTotalCents(expense), 0)
-    : 0;
+  const dailyExpenses = expenses.filter((expense) => !expense.deletedAt
+    && (expense.currency === "USD" ? "USD" : "DOP") === currency
+    && isInSelectedPeriod(expense.occurredDate, selected, quincena));
+  const dailySpending = dailyExpenses.reduce((total, expense) => total + getExpenseTotalCents(expense), 0);
+  const dailyCardSpending = dailyExpenses
+    .filter((expense) => expense.paymentMethod === "creditCard")
+    .reduce((total, expense) => total + getExpenseTotalCents(expense), 0);
+  const dailyCashSpending = dailySpending - dailyCardSpending;
   const expectedIncome = income.reduce((total, item) => total + item.expectedAmountMinor, 0);
   const receivedIncome = income.reduce((total, item) => total + (item.status === "received" ? item.actualAmountMinor ?? item.expectedAmountMinor : 0), 0);
   const monthlyPaid = monthly.reduce((total, item) => total + (item.status === "paid" ? item.actualAmountMinor ?? item.expectedAmountMinor : 0), 0);
@@ -354,7 +360,7 @@ export const calculateReportTotals = (
   const endingCardDebt = Object.keys(data.creditCards)
     .reduce((total, cardId) => total + getCardDebtAtDate(data, cardId, currency, reportEndDate), 0);
   const spending = dailySpending + monthlyPaid + nonMonthlyPaid + manualCardSpending;
-  const cashFlow = receivedIncome - dailySpending - cashPaidObligations - cardPaymentCashOutflow - savingsDeposits + savingsWithdrawals;
+  const cashFlow = receivedIncome - dailyCashSpending - cashPaidObligations - cardPaymentCashOutflow - savingsDeposits + savingsWithdrawals;
   const planningIncome = income.reduce(
     (total, item) => total + (item.status === "received" ? item.actualAmountMinor ?? item.expectedAmountMinor : item.expectedAmountMinor),
     0,
@@ -363,11 +369,13 @@ export const calculateReportTotals = (
   // Card debt is not a fixed commitment: the Dashboard subtracts only the
   // payment explicitly planned for the selected period.
   const planningCommitments = cashPaidObligations + monthlyPending + nonMonthlyUnfunded;
-  const planning = planningIncome - dailySpending - planningCommitments;
+  const planning = planningIncome - dailyCashSpending - planningCommitments;
   return {
     expectedIncome,
     receivedIncome,
     dailySpending,
+    dailyCashSpending,
+    dailyCardSpending,
     monthlyPaid,
     monthlyPending,
     nonMonthlyPaid,

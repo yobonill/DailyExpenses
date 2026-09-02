@@ -1,4 +1,4 @@
-# Lista de publicación · Daily Expenses 1.1.0
+# Lista de publicación · Daily Expenses 1.3.0
 
 ## 1. Firebase
 
@@ -38,7 +38,7 @@ El workflow `.github/workflows/deploy-pages.yml` escucha la rama `master`. Sube 
 
 ```bash
 git add .
-git commit -m "Add planned quincenas and flexible Excel rows"
+git commit -m "Unify extra expense registration and card tracking"
 git push origin master
 ```
 
@@ -48,11 +48,13 @@ En GitHub → **Actions**, confirma que `Deploy GitHub Pages` complete instalaci
 
 1. Abre la URL publicada y realiza una recarga completa.
 2. Inicia sesión como Yorki.
-3. Registra un gasto diario y un gasto mensual; asigna una quincena distinta de la sugerida por su vencimiento y crea una fila nueva para Excel.
+3. Registra un gasto extra pagado con débito y confirma que aparece inmediatamente en Historial, Dashboard y Reportes.
 4. Abre otra sesión o dispositivo e inicia como Yisel.
 5. Confirma que ambos registros aparecen y que un cambio realizado por Yisel se refleja para Yorki.
 6. Prueba un registro sin conexión y comprueba su sincronización al reconectar.
-7. Confirma que el gasto aparece en la quincena elegida, genera un respaldo JSON y exporta un Excel donde aparezca la fila nueva.
-8. Pausa `Repetir automáticamente cada mes` y confirma que el período actual y el historial permanecen, pero desaparecen las proyecciones futuras pendientes.
+7. Registra un gasto con tarjeta en DOP y otro en USD. Confirma que ambos aumentan la deuda correcta y no reducen el disponible hasta registrar o planificar el pago de la tarjeta.
+8. Edita y elimina un gasto con tarjeta desde Historial y confirma que el cargo vinculado también se actualiza o revierte.
+9. Genera un respaldo JSON y confirma que incluye gastos extras, tarjeta y módulos financieros.
+10. Pausa `Repetir automáticamente cada mes` y confirma que el período actual y el historial permanecen, pero desaparecen las proyecciones futuras pendientes.
 
 Si la PWA instalada continúa mostrando la versión anterior después de la publicación, ciérrala, abre la URL en el navegador y realiza una recarga completa. Reinstálala únicamente si el navegador conserva la identidad anterior.

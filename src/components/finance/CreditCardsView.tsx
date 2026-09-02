@@ -1,6 +1,5 @@
 import { useMemo, useState, type FormEvent } from "react";
 import type { CreditCardInput } from "../../hooks/useFinanceActions";
-import type { Expense } from "../../models/expense";
 import type {
   CardTransaction,
   CreditCard,
@@ -35,7 +34,6 @@ type AddCardTransaction = (
   amount: number,
   date: string,
   description: string,
-  linkedDailyExpenseId?: string,
   savingsFundId?: string,
   settlementAmountDopMinor?: number,
 ) => Promise<void>;
@@ -147,14 +145,12 @@ function CardForm({
 function CardTransactionModal({
   data,
   card,
-  expenses,
   initialType,
   onSave,
   onClose,
 }: {
   data: FinancialData;
   card: CreditCard;
-  expenses: Expense[];
   initialType: CardTransaction["type"];
   onSave: AddCardTransaction;
   onClose: () => void;
@@ -165,13 +161,11 @@ function CardTransactionModal({
   const [settlementDop, setSettlementDop] = useState("");
   const [date, setDate] = useState(toLocalDateKey());
   const [description, setDescription] = useState(initialType === "payment" ? "Pago de tarjeta" : "");
-  const [dailyExpenseId, setDailyExpenseId] = useState("");
   const [savingsFundId, setSavingsFundId] = useState("");
   const [adjustmentDirection, setAdjustmentDirection] = useState<"increase" | "decrease">("increase");
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
 
-  const candidates = expenses.filter((expense) => expense.status === "transferred" && !expense.deletedAt);
   const paymentSourceCurrency: Currency = type === "payment" && currency === "USD" ? "DOP" : currency;
   const funds = Object.values(data.savingsFunds)
     .filter((fund) => fund.active && !fund.archivedAt && fund.currency === paymentSourceCurrency);
@@ -221,7 +215,6 @@ function CardTransactionModal({
         signed,
         date,
         description,
-        dailyExpenseId || undefined,
         type === "payment" ? savingsFundId || undefined : undefined,
         type === "payment" && currency === "USD" ? parsedSettlementDop || undefined : undefined,
       );
@@ -262,9 +255,6 @@ function CardTransactionModal({
         {type === "payment" && (
           <label className="field"><span>Origen del pago (opcional)</span><select value={savingsFundId} onChange={(event) => setSavingsFundId(event.target.value)}><option value="">Efectivo / banco</option>{funds.map((fund) => <option key={fund.id} value={fund.id}>{fund.name} · {fund.currency}</option>)}</select><small className="field-help">{currency === "USD" ? "Si eliges un fondo, se retirará el monto real pagado en DOP." : "Si eliges un fondo, el retiro y la liberación de cobertura se registran juntos."}</small></label>
         )}
-        {type === "charge" && (
-          <label className="field"><span>Vincular a Gasto diario (opcional)</span><select value={dailyExpenseId} onChange={(event) => setDailyExpenseId(event.target.value)}><option value="">Compra manual independiente</option>{candidates.map((expense) => <option key={expense.id} value={expense.id}>{expense.name} · {formatCurrency(expense.unitPriceCents * expense.quantity, "DOP")}</option>)}</select><small className="field-help">Si lo vinculas, el gasto se contará una sola vez.</small></label>
-        )}
         {error && <p className="form-error">{error}</p>}
         <div className="modal-actions">
           <button type="button" className="button button-secondary" onClick={onClose}>Cancelar</button>
@@ -277,13 +267,11 @@ function CardTransactionModal({
 
 export function CreditCardsView({
   data,
-  expenses,
   onSaveCard,
   onAddTransaction,
   onReverseTransaction,
 }: {
   data: FinancialData;
-  expenses: Expense[];
   onSaveCard: (input: CreditCardInput, id?: string) => Promise<void>;
   onAddTransaction: AddCardTransaction;
   onReverseTransaction: (id: string) => Promise<void>;
@@ -300,7 +288,7 @@ export function CreditCardsView({
 
   return (
     <section className="finance-page">
-      <PageHeading eyebrow="Deudas por moneda" title="Tarjetas" action={<button className="button button-primary heading-action" type="button" onClick={() => setForm("new")}>＋ Tarjeta</button>} />
+      <PageHeading eyebrow="Deudas por moneda" title="Tarjeta" action={!cards.length ? <button className="button button-primary heading-action" type="button" onClick={() => setForm("new")}>＋ Configurar tarjeta</button> : undefined} />
       {!cards.length ? (
         <EmptyPanel title="Sin tarjetas" text="Registra una tarjeta con sus fechas de corte y pago. DOP y USD se manejarán por separado." />
       ) : (
@@ -346,7 +334,7 @@ export function CreditCardsView({
                             {item.settlementAmountDopMinor && <small>Salida real {formatCurrency(item.settlementAmountDopMinor, "DOP")}{effectiveRate ? ` · Tasa RD$${formatExchangeRate(effectiveRate)}/US$1` : ""}</small>}
                           </span>
                           <b className={debtIncrease ? "debt-up" : "debt-down"}>{debtIncrease ? "+" : "−"}{formatCurrency(Math.abs(item.amountMinor), item.currency)}</b>
-                          {!item.linkedPaymentId && <button type="button" onClick={() => { if (window.confirm("¿Revertir este movimiento y sus efectos vinculados?")) void onReverseTransaction(item.id); }}>Revertir</button>}
+                          {item.linkedDailyExpenseId ? <small>Gestionar desde Historial</small> : !item.linkedPaymentId && <button type="button" onClick={() => { if (window.confirm("¿Revertir este movimiento y sus efectos vinculados?")) void onReverseTransaction(item.id); }}>Revertir</button>}
                         </div>
                       );
                     }) : <p>Sin movimientos.</p>}
@@ -358,7 +346,7 @@ export function CreditCardsView({
         </div>
       )}
       {form && <CardForm card={form === "new" ? undefined : form} onSave={onSaveCard} onClose={() => setForm(null)} />}
-      {transaction && <CardTransactionModal data={data} card={transaction.card} expenses={expenses} initialType={transaction.type} onSave={onAddTransaction} onClose={() => setTransaction(null)} />}
+      {transaction && <CardTransactionModal data={data} card={transaction.card} initialType={transaction.type} onSave={onAddTransaction} onClose={() => setTransaction(null)} />}
     </section>
   );
 }

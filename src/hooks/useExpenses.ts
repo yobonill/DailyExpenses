@@ -3,6 +3,8 @@ import { onValue, ref, set, update, type Unsubscribe } from "firebase/database";
 import { getAuthenticatedFirebaseServices } from "../services/firebase";
 import type {
   Expense,
+  ExpenseEditableFields,
+  ExpensePaymentMethod,
   ExpensePatch,
   PendingOperation,
   SyncState,
@@ -23,6 +25,11 @@ const normalizeExpense = (raw: Partial<Expense> & { id: string }): Expense => {
       : toLocalDateKey(new Date(raw.occurredAt || createdAt));
   const quantity = Math.max(1, Math.floor(Number(raw.quantity) || 1));
   const unitPriceCents = Math.max(1, Math.round(Number(raw.unitPriceCents) || 1));
+  const paymentMethod: ExpensePaymentMethod = raw.paymentMethod === "debit"
+    || raw.paymentMethod === "transfer"
+    || raw.paymentMethod === "creditCard"
+    ? raw.paymentMethod
+    : "cash";
 
   return {
     id: raw.id,
@@ -31,7 +38,12 @@ const normalizeExpense = (raw: Partial<Expense> & { id: string }): Expense => {
     quantity,
     occurredDate,
     occurredAt: typeof raw.occurredAt === "string" ? raw.occurredAt : createdAt,
-    status: raw.status === "transferred" ? "transferred" : "pending",
+    category: typeof raw.category === "string" && raw.category.trim() ? raw.category.trim() : undefined,
+    currency: paymentMethod === "creditCard" && raw.currency === "USD" ? "USD" : "DOP",
+    paymentMethod,
+    // Captured expenses are real, completed expenses. Treat legacy pending
+    // records as completed too so the old Excel review queue disappears.
+    status: "transferred",
     transferredAt: typeof raw.transferredAt === "string" ? raw.transferredAt : undefined,
     createdAt,
     updatedAt: typeof raw.updatedAt === "string" ? raw.updatedAt : createdAt,
@@ -84,6 +96,9 @@ export interface NewExpenseInput {
   unitPriceCents: number;
   quantity: number;
   occurredDate?: string;
+  category?: string;
+  currency: "DOP" | "USD";
+  paymentMethod: ExpensePaymentMethod;
 }
 
 export interface UseExpensesResult {
@@ -94,10 +109,8 @@ export interface UseExpensesResult {
   createExpense: (input: NewExpenseInput) => Promise<Expense>;
   editExpense: (
     expenseId: string,
-    changes: Pick<Expense, "name" | "unitPriceCents" | "quantity" | "occurredDate">,
+    changes: ExpenseEditableFields,
   ) => Promise<void>;
-  markTransferred: (expenseIds: string[]) => Promise<void>;
-  markPending: (expenseIds: string[]) => Promise<void>;
   deleteExpense: (expenseId: string) => Promise<void>;
   restoreExpense: (expenseId: string) => Promise<void>;
   retrySync: () => Promise<void>;
@@ -254,7 +267,11 @@ export const useExpenses = (): UseExpensesResult => {
         quantity: Math.max(1, Math.floor(input.quantity)),
         occurredDate: input.occurredDate || toLocalDateKey(now),
         occurredAt: nowIso,
-        status: "pending",
+        category: input.category?.trim() || undefined,
+        currency: input.paymentMethod === "creditCard" && input.currency === "USD" ? "USD" : "DOP",
+        paymentMethod: input.paymentMethod,
+        status: "transferred",
+        transferredAt: nowIso,
         createdAt: nowIso,
         updatedAt: nowIso,
       };
@@ -280,33 +297,17 @@ export const useExpenses = (): UseExpensesResult => {
   const editExpense = useCallback(
     async (
       expenseId: string,
-      changes: Pick<Expense, "name" | "unitPriceCents" | "quantity" | "occurredDate">,
+      changes: ExpenseEditableFields,
     ) => {
       await patchExpense(expenseId, {
         name: changes.name.trim(),
         unitPriceCents: Math.round(changes.unitPriceCents),
         quantity: Math.max(1, Math.floor(changes.quantity)),
         occurredDate: changes.occurredDate,
+        category: changes.category?.trim() || null,
+        currency: changes.paymentMethod === "creditCard" && changes.currency === "USD" ? "USD" : "DOP",
+        paymentMethod: changes.paymentMethod,
       });
-    },
-    [patchExpense],
-  );
-
-  const markTransferred = useCallback(
-    async (expenseIds: string[]) => {
-      const transferredAt = new Date().toISOString();
-      for (const expenseId of expenseIds) {
-        await patchExpense(expenseId, { status: "transferred", transferredAt });
-      }
-    },
-    [patchExpense],
-  );
-
-  const markPending = useCallback(
-    async (expenseIds: string[]) => {
-      for (const expenseId of expenseIds) {
-        await patchExpense(expenseId, { status: "pending", transferredAt: null });
-      }
     },
     [patchExpense],
   );
@@ -402,8 +403,6 @@ export const useExpenses = (): UseExpensesResult => {
     pendingCount,
     createExpense,
     editExpense,
-    markTransferred,
-    markPending,
     deleteExpense,
     restoreExpense,
     retrySync,

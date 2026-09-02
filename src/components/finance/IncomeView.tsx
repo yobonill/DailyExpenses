@@ -5,10 +5,6 @@ import type { Currency, FinancialData, IncomeOccurrence, IncomeTemplate } from "
 import type { IncomeTemplateInput, OneTimeIncomeInput } from "../../hooks/useFinanceActions";
 import { CheckboxField, CurrencyField, EmptyPanel, Modal, MoneyField, PageHeading, PeriodSelector, StatusChip } from "./Shared";
 
-const EXCEL_INCOME_ROWS = ["Nomina yor", "Picota Talo", "Danny Picota", "Jorge reye josue"];
-const NEW_EXCEL_ROW = "__new__";
-const NO_EXCEL_ROW = "__none__";
-
 function IncomeFormModal({ template, onSaveTemplate, onCreateOneTime, onClose }: {
   template?: IncomeTemplate;
   onSaveTemplate: (input: IncomeTemplateInput, id?: string) => Promise<void>;
@@ -24,16 +20,6 @@ function IncomeFormModal({ template, onSaveTemplate, onCreateOneTime, onClose }:
   const [lastDay, setLastDay] = useState(template?.dueRule.kind === "lastDay");
   const [date, setDate] = useState(toLocalDateKey());
   const [active, setActive] = useState(template?.active ?? true);
-  const initialExcelLabel = template?.excelRowLabel || "";
-  const [excelRowSelection, setExcelRowSelection] = useState(
-    !initialExcelLabel
-      ? NEW_EXCEL_ROW
-      : EXCEL_INCOME_ROWS.includes(initialExcelLabel) ? initialExcelLabel : NEW_EXCEL_ROW,
-  );
-  const [customExcelRow, setCustomExcelRow] = useState(
-    initialExcelLabel && !EXCEL_INCOME_ROWS.includes(initialExcelLabel) ? initialExcelLabel : "",
-  );
-  const [exportExpected, setExportExpected] = useState(template?.exportExpectedWhenPending ?? true);
   const [notes, setNotes] = useState(template?.notes || "");
   const [error, setError] = useState(""); const [saving, setSaving] = useState(false);
   const submit = async (event: FormEvent) => {
@@ -42,11 +28,8 @@ function IncomeFormModal({ template, onSaveTemplate, onCreateOneTime, onClose }:
     if (mode === "recurring" && !lastDay && (!Number.isInteger(dueDay) || dueDay < 1 || dueDay > 31)) return setError("El día debe estar entre 1 y 31.");
     setSaving(true); setError("");
     try {
-      const excelRowLabel = excelRowSelection === NEW_EXCEL_ROW
-        ? customExcelRow.trim() || name.trim()
-        : excelRowSelection === NO_EXCEL_ROW ? undefined : excelRowSelection;
-      if (mode === "oneTime") await onCreateOneTime({ name, expectedAmountMinor, currency, expectedDate: date, notes, excelRowLabel, exportExpectedWhenPending: exportExpected });
-      else await onSaveTemplate({ name, expectedAmountMinor, currency, incomeType, dueRule: lastDay ? { kind: "lastDay" } : { kind: "day", day: dueDay }, active, notes, excelRowLabel, exportExpectedWhenPending: exportExpected }, template?.id);
+      if (mode === "oneTime") await onCreateOneTime({ name, expectedAmountMinor, currency, expectedDate: date, notes, exportExpectedWhenPending: true });
+      else await onSaveTemplate({ name, expectedAmountMinor, currency, incomeType, dueRule: lastDay ? { kind: "lastDay" } : { kind: "day", day: dueDay }, active, notes, exportExpectedWhenPending: true }, template?.id);
       onClose();
     } catch (reason) { setError(reason instanceof Error ? reason.message : "No se pudo guardar."); }
     finally { setSaving(false); }
@@ -58,10 +41,6 @@ function IncomeFormModal({ template, onSaveTemplate, onCreateOneTime, onClose }:
     {mode === "recurring" && <label className="field"><span>Tipo</span><select value={incomeType} onChange={(event) => setIncomeType(event.target.value as typeof incomeType)}><option value="salary">Salario</option><option value="recurringOther">Otro recurrente</option></select></label>}
     {mode === "oneTime" ? <label className="field"><span>Fecha esperada</span><input type="date" value={date} onChange={(event) => setDate(event.target.value)} /></label> : <div className="form-columns"><label className="field"><span>Día esperado</span><input type="number" min="1" max="31" value={day} disabled={lastDay} onChange={(event) => setDay(event.target.value)} /></label><CheckboxField checked={lastDay} onChange={setLastDay} label="Último día del mes" /></div>}
     {mode === "recurring" && <CheckboxField checked={active} onChange={setActive} label="Ingreso activo" help="Mientras esté activo, la aplicación seguirá creando este ingreso en los meses siguientes." />}
-    <CheckboxField checked={exportExpected} onChange={setExportExpected} label="Incluir el monto esperado en el Excel antes de recibirlo" help="Activado: se exporta el monto planificado aunque todavía aparezca como Esperado. Desactivado: solo se exporta después de marcarlo como recibido." />
-    <label className="field"><span>Fila en Excel</span><select value={excelRowSelection} onChange={(event) => setExcelRowSelection(event.target.value)}><option value={NEW_EXCEL_ROW}>Crear una nueva fila</option>{EXCEL_INCOME_ROWS.map((row) => <option value={row} key={row}>Usar: {row}</option>)}<option value={NO_EXCEL_ROW}>Sin asignar por ahora</option></select><small className="field-help">Los ingresos asignados a la misma fila se combinan al exportar.</small></label>
-    {excelRowSelection === NEW_EXCEL_ROW && <label className="field"><span>Nombre de la nueva fila</span><input value={customExcelRow} onChange={(event) => setCustomExcelRow(event.target.value)} placeholder={name.trim() || "Nombre de la fila"} /><small className="field-help">Si queda vacío, se utilizará el nombre del ingreso.</small></label>}
-    {excelRowSelection === NO_EXCEL_ROW && <p className="form-warning">Este ingreso bloqueará la exportación del año hasta que le asignes una fila.</p>}
     <label className="field"><span>Notas</span><textarea value={notes} onChange={(event) => setNotes(event.target.value)} /></label>
     {error && <p className="form-error">{error}</p>}<div className="modal-actions"><button type="button" className="button button-secondary" onClick={onClose}>Cancelar</button><button className="button button-primary" disabled={saving}>{saving ? "Guardando…" : "Guardar"}</button></div>
   </form></Modal>;

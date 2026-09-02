@@ -36,6 +36,8 @@ Antes de publicar, confirma que estos UID todavía coinciden con **Authenticatio
    - lectura/escritura válida con cada UID aprobado;
    - rechazo sin autenticación y con otro UID;
    - rechazo de moneda, estado, tipo o forma inválidos;
+   - aceptación de `cash`, `debit`, `transfer` y `creditCard` como formas de pago de gastos extras;
+   - rechazo de un gasto USD que no use tarjeta de crédito;
    - aceptación de `plannedQuincena` con valor 1 o 2 y rechazo de cualquier otro valor.
 5. Publica.
 

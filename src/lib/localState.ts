@@ -1,4 +1,4 @@
-import type { Expense, ExpenseDraft, PendingOperation } from "../models/expense";
+import type { Expense, ExpenseDraft, ExpensePaymentMethod, PendingOperation } from "../models/expense";
 
 const STATE_KEY = "dailyExpenses.localState.v1";
 const DRAFT_KEY = "dailyExpenses.draft.v1";
@@ -37,9 +37,15 @@ export const readDraft = (): ExpenseDraft => {
       name: typeof parsed.name === "string" ? parsed.name : "",
       price: typeof parsed.price === "string" ? parsed.price : "",
       quantity: typeof parsed.quantity === "string" && parsed.quantity ? parsed.quantity : "1",
+      category: typeof parsed.category === "string" ? parsed.category : "",
+      currency: parsed.currency === "USD" ? "USD" : "DOP",
+      paymentMethod: (["cash", "debit", "transfer", "creditCard"] as ExpensePaymentMethod[])
+        .includes(parsed.paymentMethod as ExpensePaymentMethod)
+        ? parsed.paymentMethod as ExpensePaymentMethod
+        : "cash",
     };
   } catch {
-    return { name: "", price: "", quantity: "1" };
+    return { name: "", price: "", quantity: "1", category: "", currency: "DOP", paymentMethod: "cash" };
   }
 };
 

@@ -1,6 +1,6 @@
 # Gastos & Presupuesto
 
-PWA compartida para Yorki y Yisel. Conserva la captura rápida de gastos diarios y añade presupuesto mensual, Dashboard, ingresos, tarjetas, gastos no mensuales, ahorros, reportes, exportación Excel y respaldo/restauración.
+PWA compartida para Yorki y Yisel. Integra gastos extras, presupuesto mensual, Dashboard, ingresos, una tarjeta de crédito, gastos no mensuales, metas de compra, ahorros, reportes y respaldo/restauración.
 
 ## Arquitectura
 
@@ -18,11 +18,11 @@ Los gastos diarios viven en `/expenses`. Los módulos de presupuesto viven en el
 
 ## Áreas funcionales
 
-- **Registrar / Revisar:** flujo original de gastos inesperados, pendientes y registrados.
+- **Registrar / Historial:** un solo flujo para gastos extras realizados. Se elige la forma de pago al registrar y el gasto queda contabilizado inmediatamente.
 - **Dashboard:** obligaciones próximas, vencidas, estados de tarjeta, ingresos y proyección por moneda.
 - **Presupuesto:** gastos recurrentes y puntuales asignados explícitamente a Q1 o Q2, pago normal o con tarjeta, esperado/real y variación.
 - **Ingresos:** salario, otros ingresos recurrentes y puntuales; esperado frente a recibido.
-- **Tarjetas:** varias tarjetas, DOP/USD independientes, cortes, vencimientos, estados, cargos, pagos y ajustes.
+- **Tarjeta:** una tarjeta, deuda DOP/USD independiente, cortes, vencimientos, cargos, pagos y ajustes.
 - **Gastos no mensuales:** una vez, cada N meses o cada N años, horizonte de 12 meses y alertas internas.
 - **Ahorros:** fondos por propósito, depósitos, retiros, correcciones, transferencias y asignaciones.
 - **Reportes:** gastos, flujo de caja, planificación, filtros de quincena/múltiples meses/año, desglose anual y resumen por categorías predefinidas.
@@ -38,33 +38,22 @@ Un mes financiero comienza el día 15 y termina el día 14 del mes siguiente.
 
 La lógica canónica y sus pruebas están en `src/lib/date.ts` y `src/lib/date.test.ts`.
 
-La fecha de vencimiento controla los avisos, pero un gasto de presupuesto puede asignarse manualmente a Q1 o Q2 para indicar de cuál quincena se planifica pagarlo. Esa asignación se conserva en el Dashboard, Presupuesto, Reportes y Excel, aunque la fecha caiga dentro del rango calendario de la otra quincena.
+La fecha de vencimiento controla los avisos, pero un gasto de presupuesto puede asignarse manualmente a Q1 o Q2 para indicar de cuál quincena se planifica pagarlo. Esa asignación se conserva en el Dashboard, Presupuesto y Reportes, aunque la fecha caiga dentro del rango calendario de la otra quincena.
 
 ## Contabilidad esencial
 
-- Un gasto pagado con tarjeta cuenta como gasto una sola vez y crea deuda.
+- Un gasto extra se guarda como realizado desde el formulario; no tiene una etapa posterior de revisión.
+- Efectivo, débito y transferencia reducen inmediatamente el disponible del período.
+- Un gasto pagado con tarjeta cuenta como gasto una sola vez y crea deuda, pero no reduce el efectivo hasta registrar o planificar el pago de la tarjeta.
 - Pagar la tarjeta reduce deuda y flujo de caja; no crea otro gasto.
 - Los fondos de ahorro son activos reservados, no gastos.
 - Una asignación reserva saldo sin moverlo; consumirla genera el retiro correspondiente.
 - Los pagos vinculados, cargos de tarjeta, retiros y cambios de estado se guardan juntos.
 - Las transacciones financieras validan versiones, pagos duplicados y sobreasignación para uso simultáneo.
 
-## Excel
-
-`Reportes → Exportar a Excel` usa `public/templates/Presupuesto-2026.xlsx` y conserva el diseño de la hoja anual. Escribe valores numéricos y totales calculados sin depender de fórmulas. Al crear un gasto se puede elegir una fila existente o escribir el nombre de una fila nueva. La exportación utiliza cualquiera de los 13 espacios disponibles en el bloque de cada quincena y reutiliza una fila predefinida que no se necesite; si se requieren más de 13 filas únicas, avisa antes de generar el archivo.
-
-Antes de descargar también bloquea:
-
-- filas de presupuesto/ingreso sin mapeo;
-- monedas no admitidas por la hoja original;
-- bloques de detalle sin espacio;
-- cualquier registro que no pueda representarse sin pérdida.
-
-Los gastos diarios pendientes se incluyen, pero solo cambian a registrados tras una confirmación separada. El Excel es una presentación; el respaldo JSON es el formato de restauración.
-
 ## Categorías y recurrencia
 
-Las categorías son opcionales y se eligen de una lista predefinida. Se usan únicamente para agrupar obligaciones mensuales y futuras en Reportes; no cambian sus fechas, pagos ni filas de Excel.
+Las categorías son opcionales y se eligen de una lista predefinida. Agrupan gastos extras, obligaciones mensuales y gastos futuros en Reportes; no cambian fechas ni pagos.
 
 `Repetir automáticamente cada mes` controla si una plantilla genera nuevos meses. Al pausarla se conserva la obligación del período financiero actual y todo el historial pagado/cancelado, pero se eliminan sus proyecciones futuras todavía pendientes. Al reactivarla se vuelven a generar los períodos futuros sin duplicados.
 
@@ -111,4 +100,4 @@ El respaldo JSON incluye gastos diarios y todas las entidades financieras versio
 
 ## Verificación
 
-La suite automatizada cubre fechas y febrero bisiesto, generación idempotente, separación DOP/USD, no doble conteo, integridad multiusuario, ahorros, respaldo y exportación XLSX con comparación de celdas. Los pasos manuales de despliegue y dispositivos están en `IMPLEMENTATION_LOG.md`.
+La suite automatizada cubre fechas y febrero bisiesto, generación idempotente, separación DOP/USD, gastos extras por forma de pago, no doble conteo de tarjeta, integridad multiusuario, ahorros y respaldo. Los pasos manuales de despliegue y dispositivos están en `IMPLEMENTATION_LOG.md`.

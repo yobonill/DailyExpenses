@@ -97,7 +97,8 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px s
 
 .field { display: block; }
 .field input,
-.capture-field input {
+.capture-field input,
+.capture-field select {
   width: 100%;
   border: 1px solid var(--border);
   background: #fff;
@@ -108,7 +109,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px s
   font-size: 1rem;
 }
 .field input:focus,
-.capture-field input:focus { border-color: var(--brand); }
+.capture-field input:focus, .capture-field select:focus { border-color: var(--brand); }
 .login-password-field { margin-top: 16px; }
 
 .button {
@@ -170,8 +171,9 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px s
 .capture-heading { margin-bottom: 24px; }
 .capture-heading h1 { font-size: clamp(2rem, 9vw, 3rem); line-height: 1.02; }
 .capture-form { display: grid; gap: 16px; }
-.capture-field input { min-height: 62px; padding: 0 17px; border-radius: 17px; font-size: 1.22rem; box-shadow: 0 1px 0 rgba(255,255,255,.8); }
+.capture-field input, .capture-field select { min-height: 62px; padding: 0 17px; border-radius: 17px; font-size: 1.05rem; box-shadow: 0 1px 0 rgba(255,255,255,.8); }
 .capture-name-field input { font-size: 1.3rem; }
+.capture-card-note { margin: -4px 2px 0; color: var(--muted); font-size: .82rem; line-height: 1.45; }
 .progressive-field { display: grid; gap: 16px; animation: reveal .18s ease-out; }
 @keyframes reveal { from { opacity: 0; transform: translateY(-5px); } to { opacity: 1; transform: translateY(0); } }
 .money-input-wrap { position: relative; }
@@ -243,6 +245,8 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px s
 .review-total-sticky span { display: block; font-size: .8rem; font-weight: 850; color: var(--brand-dark); }
 .review-total-sticky small { display: block; margin-top: 2px; color: var(--muted); font-size: .72rem; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .review-total-sticky strong { flex: 0 0 auto; font-size: 1.25rem; letter-spacing: -.025em; }
+.history-total-values { display: grid; justify-items: end; gap: 2px; }
+.history-total-values strong + strong { color: var(--muted); font-size: .95rem; }
 .batch-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 7px; }
 .batch-register { min-height: 38px; border-radius: 12px; padding-inline: 12px; font-size: .78rem; }
 
@@ -313,6 +317,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px s
 .expense-actions button:last-child { border-right: 0; }
 .expense-actions .action-positive { color: var(--brand); }
 .expense-actions .action-danger { color: var(--danger); }
+.expense-actions.history-expense-actions { grid-template-columns: repeat(2, 1fr); }
 
 .empty-state { text-align: center; padding: 48px 24px; color: var(--muted); }
 .empty-icon { width: 50px; height: 50px; display: grid; place-items: center; margin: 0 auto 14px; border-radius: 16px; background: var(--brand-soft); color: var(--brand); font-size: 1.4rem; font-weight: 900; }
@@ -373,6 +378,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px s
   .capture-view { margin-top: 6vh; }
   .expense-card { display: grid; grid-template-columns: 1fr auto; align-items: stretch; }
   .expense-actions { grid-template-columns: repeat(4, 86px); border-top: 0; border-left: 1px solid var(--border); }
+  .expense-actions.history-expense-actions { grid-template-columns: repeat(2, 86px); }
   .expense-actions button { border-right: 0; border-bottom: 1px solid var(--border); }
   .expense-actions button:last-child { border-bottom: 0; }
   .modal-backdrop { align-items: center; padding: 24px; }

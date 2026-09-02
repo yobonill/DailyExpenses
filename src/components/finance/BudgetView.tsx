@@ -7,10 +7,6 @@ import type { CreditCard, Currency, FinancialData, MonthlyExpenseOccurrence, Mon
 import type { MonthlyTemplateInput, OneTimeMonthlyInput } from "../../hooks/useFinanceActions";
 import { CheckboxField, CurrencyField, EmptyPanel, Modal, MoneyField, PageHeading, PayModal, PeriodSelector, StatusChip, type PayModalValue } from "./Shared";
 
-const EXCEL_EXPENSE_ROWS = ["Diezmo", "Comida", "Comida+Pañales", "Gasolina", "Ahorros", "Mesada Yor", "Mesada Yis", "Gastos Hogar", "Medico", "Internet", "Agua", "Luz", "Basura", "Administradora", "Regalo Padres", "Gastos Extras"];
-const NEW_EXCEL_ROW = "__new__";
-const NO_EXCEL_ROW = "__none__";
-
 const defaultPlannedQuincena = (template?: MonthlyExpenseTemplate): 1 | 2 => {
   if (template?.plannedQuincena) return template.plannedQuincena;
   if (template?.dueRule.kind === "lastDay") return 2;
@@ -46,15 +42,6 @@ function MonthlyFormModal({ template, onSaveTemplate, onCreateOneTime, onClose }
   const [variableAmount, setVariableAmount] = useState(template?.variableAmount ?? false);
   const [canPayWithCard, setCanPayWithCard] = useState(template?.canPayWithCard ?? true);
   const [active, setActive] = useState(template?.active ?? true);
-  const initialExcelLabel = template?.excelRowLabel || "";
-  const [excelRowSelection, setExcelRowSelection] = useState(
-    !initialExcelLabel
-      ? NEW_EXCEL_ROW
-      : EXCEL_EXPENSE_ROWS.includes(initialExcelLabel) ? initialExcelLabel : NEW_EXCEL_ROW,
-  );
-  const [customExcelRow, setCustomExcelRow] = useState(
-    initialExcelLabel && !EXCEL_EXPENSE_ROWS.includes(initialExcelLabel) ? initialExcelLabel : "",
-  );
   const [notes, setNotes] = useState(template?.notes || "");
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
@@ -66,10 +53,7 @@ function MonthlyFormModal({ template, onSaveTemplate, onCreateOneTime, onClose }
     if (mode === "recurring" && !lastDay && (!Number.isInteger(day) || day < 1 || day > 31)) return setError("El día debe estar entre 1 y 31.");
     setSaving(true); setError("");
     try {
-      const excelRowLabel = excelRowSelection === NEW_EXCEL_ROW
-        ? customExcelRow.trim() || name.trim()
-        : excelRowSelection === NO_EXCEL_ROW ? undefined : excelRowSelection;
-      const common = { name, category, estimatedAmountMinor, currency, dueRule: lastDay ? { kind: "lastDay" as const } : { kind: "day" as const, day }, plannedQuincena, variableAmount, canPayWithCard, active, excelRowLabel, notes };
+      const common = { name, category, estimatedAmountMinor, currency, dueRule: lastDay ? { kind: "lastDay" as const } : { kind: "day" as const, day }, plannedQuincena, variableAmount, canPayWithCard, active, notes };
       if (mode === "oneTime") await onCreateOneTime({ ...common, dueDate });
       else await onSaveTemplate(common, template?.id);
       onClose();
@@ -88,9 +72,6 @@ function MonthlyFormModal({ template, onSaveTemplate, onCreateOneTime, onClose }
         <CheckboxField checked={variableAmount} onChange={setVariableAmount} label="Monto variable" help="El estimado se conserva y podrás registrar el valor real al pagar." />
         <CheckboxField checked={canPayWithCard} onChange={setCanPayWithCard} label="Se puede pagar con tarjeta" />
         {mode === "recurring" && <CheckboxField checked={active} onChange={setActive} label="Repetir automáticamente cada mes" help="Si la pausas, se conserva el período actual y se eliminan únicamente las proyecciones futuras sin pagar." />}
-        <label className="field"><span>Fila en Excel</span><select value={excelRowSelection} onChange={(event) => setExcelRowSelection(event.target.value)}><option value={NEW_EXCEL_ROW}>Crear una nueva fila</option>{EXCEL_EXPENSE_ROWS.map((row) => <option value={row} key={row}>Usar: {row}</option>)}<option value={NO_EXCEL_ROW}>Sin asignar por ahora</option></select><small className="field-help">Las obligaciones asignadas a la misma fila se combinan al exportar.</small></label>
-        {excelRowSelection === NEW_EXCEL_ROW && <label className="field"><span>Nombre de la nueva fila</span><input value={customExcelRow} onChange={(event) => setCustomExcelRow(event.target.value)} placeholder={name.trim() || "Nombre de la fila"} /><small className="field-help">Si queda vacío, se utilizará el nombre del gasto.</small></label>}
-        {excelRowSelection === NO_EXCEL_ROW && <p className="form-warning">Este gasto bloqueará la exportación del año hasta que le asignes una fila.</p>}
         <label className="field"><span>Notas (opcional)</span><textarea value={notes} onChange={(event) => setNotes(event.target.value)} /></label>
         {error && <p className="form-error" role="alert">{error}</p>}
         <div className="modal-actions"><button type="button" className="button button-secondary" onClick={onClose}>Cancelar</button><button type="submit" className="button button-primary" disabled={saving}>{saving ? "Guardando…" : "Guardar"}</button></div>

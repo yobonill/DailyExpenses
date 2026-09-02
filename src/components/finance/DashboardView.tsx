@@ -140,11 +140,12 @@ export function DashboardView({ data, expenses, onPay, onSaveCardPaymentPlan, on
           <dl className="projection-breakdown">
             <div><dt>Ingresos proyectados</dt><dd>{formatCurrency(dop.planningIncome, "DOP")}</dd></div>
             <div><dt>Compromisos fijos (sin tarjeta)</dt><dd>− {formatCurrency(dop.planningCommitments, "DOP")}</dd></div>
-            <div><dt>Gastos diarios ya registrados</dt><dd>− {formatCurrency(dop.dailySpending, "DOP")}</dd></div>
+            <div><dt>Gastos extras pagados sin crédito</dt><dd>− {formatCurrency(dop.dailyCashSpending, "DOP")}</dd></div>
+            <div><dt>Compras extras con tarjeta (no descontadas aquí)</dt><dd>{formatCurrency(dop.dailyCardSpending, "DOP")}</dd></div>
             <div><dt>Pago de tarjeta registrado o previsto</dt><dd>− {formatCurrency(cardProjection.totalCashCommitmentDopMinor, "DOP")}</dd></div>
             <div className="projection-shortfall"><dt>Faltante previsto</dt><dd>{formatCurrency(projectedShortfallDop, "DOP")}</dd></div>
           </dl>
-          <small>Monto estimado que todavía podrías gastar durante el período.</small>
+          <small>Las compras con tarjeta aumentan su deuda. Aquí solo se descuenta el pago de tarjeta registrado o previsto para este período.</small>
         </article>
         <article className="projection-card card-payment-projection">
           <span>Tarjeta de crédito</span><strong>{card?.name || "Sin tarjeta configurada"}</strong>

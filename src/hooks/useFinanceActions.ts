@@ -5,6 +5,7 @@ import { dateFromFinancialMonthRule, nextOccurrenceDate } from "../lib/financeDa
 import { getCardCurrentDebt, getCardPaymentPlanId, getFundAllocated, getFundBalance, getObligationAllocations, getPurchaseGoalReserved } from "../lib/financialCalculations";
 import { buildGenerationUpdates, buildPausedMonthlyOccurrenceUpdates } from "../lib/financialGeneration";
 import { createId } from "../lib/id";
+import type { Expense } from "../models/expense";
 import type {
   AppSettings,
   CardPaymentPlan,
@@ -937,9 +938,74 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
     await commitUpdates({ [`cardPaymentPlans/${id}`]: plan });
   }, [commitUpdates, data.cardPaymentPlans, meta]);
 
+  const syncDailyExpenseCardCharge = useCallback(async (expense: Expense) => {
+    const linkedTransactions = Object.values(data.cardTransactions)
+      .filter((transaction) => transaction.linkedDailyExpenseId === expense.id
+        && transaction.type === "charge"
+        && !transaction.reversedAt)
+      .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+    const updates: Record<string, unknown> = {};
+    const now = new Date().toISOString();
+
+    if (expense.paymentMethod !== "creditCard") {
+      linkedTransactions.forEach((transaction) => {
+        updates[`cardTransactions/${transaction.id}`] = {
+          ...transaction,
+          reversedAt: now,
+          ...meta(transaction),
+        };
+      });
+    } else {
+      const card = Object.values(data.creditCards).find((item) => item.active && !item.archivedAt);
+      if (!card) throw new Error("Configura una tarjeta activa antes de registrar una compra con crédito.");
+      const existing = linkedTransactions[0];
+      const transactionId = existing?.id || createId();
+      const transaction: CardTransaction = {
+        ...(existing || {}),
+        id: transactionId,
+        cardId: card.id,
+        currency: expense.currency === "USD" ? "USD" : "DOP",
+        type: "charge",
+        amountMinor: expense.unitPriceCents * expense.quantity,
+        transactionDate: expense.occurredDate,
+        description: expense.name,
+        linkedDailyExpenseId: expense.id,
+        ...meta(existing),
+      };
+      updates[`cardTransactions/${transactionId}`] = transaction;
+      linkedTransactions.slice(1).forEach((duplicate) => {
+        updates[`cardTransactions/${duplicate.id}`] = {
+          ...duplicate,
+          reversedAt: now,
+          ...meta(duplicate),
+        };
+      });
+    }
+
+    if (Object.keys(updates).length) await commitUpdates(updates);
+  }, [commitUpdates, data.cardTransactions, data.creditCards, meta]);
+
+  const removeDailyExpenseCardCharge = useCallback(async (expenseId: string) => {
+    const now = new Date().toISOString();
+    const updates: Record<string, unknown> = {};
+    Object.values(data.cardTransactions)
+      .filter((transaction) => transaction.linkedDailyExpenseId === expenseId && !transaction.reversedAt)
+      .forEach((transaction) => {
+        updates[`cardTransactions/${transaction.id}`] = {
+          ...transaction,
+          reversedAt: now,
+          ...meta(transaction),
+        };
+      });
+    if (Object.keys(updates).length) await commitUpdates(updates);
+  }, [commitUpdates, data.cardTransactions, meta]);
+
   const saveCreditCard = useCallback(async (input: CreditCardInput, id?: string) => {
     const cardId = id || createId();
     const existing = data.creditCards[cardId];
+    if (!existing && Object.values(data.creditCards).some((card) => !card.archivedAt)) {
+      throw new Error("La aplicación utiliza una sola tarjeta. Edita la tarjeta existente.");
+    }
     if (existing) {
       const hasLedger = Object.values(data.cardTransactions).some((transaction) => transaction.cardId === cardId)
         || Object.values(data.cardStatements).some((statement) => statement.cardId === cardId);
@@ -971,7 +1037,6 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
     amountMinor: number,
     transactionDate: string,
     description: string,
-    linkedDailyExpenseId?: string,
     savingsFundId?: string,
     settlementAmountDopMinor?: number,
   ) => {
@@ -999,7 +1064,6 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
         : undefined,
       transactionDate,
       description: description.trim(),
-      linkedDailyExpenseId,
       ...meta(),
     };
     const updates: Record<string, unknown> = { [`cardTransactions/${id}`]: transaction };
@@ -1081,6 +1145,7 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
     const transaction = data.cardTransactions[id];
     if (!transaction || transaction.reversedAt) return;
     if (transaction.linkedPaymentId) throw new Error("Reabre la obligación vinculada para revertir este cargo.");
+    if (transaction.linkedDailyExpenseId) throw new Error("Edita o elimina este gasto desde Historial para mantener ambos registros sincronizados.");
     const now = new Date().toISOString();
     const updates: Record<string, unknown> = {
       [`cardTransactions/${id}`]: { ...transaction, reversedAt: now, ...meta(transaction) },
@@ -1145,6 +1210,8 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
     purchaseGoalWithCard,
     discardPurchaseGoal,
     saveCardPaymentPlan,
+    syncDailyExpenseCardCharge,
+    removeDailyExpenseCardCharge,
     saveCreditCard,
     addCardTransaction,
     reverseCardTransaction,

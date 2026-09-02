@@ -9,7 +9,6 @@ import {
   toLocalDateKey,
   type Quincena,
 } from "../lib/date";
-import { getExpenseTotalCents } from "../lib/excel";
 import { formatMoney } from "../lib/money";
 
 type ReportPeriod = "month" | "q1" | "q2";
@@ -21,7 +20,7 @@ interface ReportViewProps {
 const getCurrentMonthKey = (): string => getMonthKey(toLocalDateKey());
 
 const sumExpenses = (expenses: Expense[]): number =>
-  expenses.reduce((total, expense) => total + getExpenseTotalCents(expense), 0);
+  expenses.reduce((total, expense) => total + expense.unitPriceCents * expense.quantity, 0);
 
 const getPeriodQuincena = (period: ReportPeriod): Quincena | null => {
   if (period === "q1") return 1;
@@ -53,11 +52,11 @@ export function ReportView({ expenses }: ReportViewProps) {
   );
 
   const totalCents = useMemo(() => sumExpenses(reportExpenses), [reportExpenses]);
-  const pendingCents = useMemo(
-    () => sumExpenses(reportExpenses.filter((expense) => expense.status === "pending")),
+  const creditCardCents = useMemo(
+    () => sumExpenses(reportExpenses.filter((expense) => expense.paymentMethod === "creditCard")),
     [reportExpenses],
   );
-  const transferredCents = totalCents - pendingCents;
+  const immediatePaymentCents = totalCents - creditCardCents;
 
   const monthBreakdown = useMemo(
     () =>
@@ -146,12 +145,12 @@ export function ReportView({ expenses }: ReportViewProps) {
 
       <div className="report-status-grid">
         <article>
-          <span>Pendiente de registrar</span>
-          <strong>{formatMoney(pendingCents)}</strong>
+          <span>Pago inmediato</span>
+          <strong>{formatMoney(immediatePaymentCents)}</strong>
         </article>
         <article>
-          <span>Registrado en Excel</span>
-          <strong>{formatMoney(transferredCents)}</strong>
+          <span>Cargado a tarjeta</span>
+          <strong>{formatMoney(creditCardCents)}</strong>
         </article>
       </div>
 
