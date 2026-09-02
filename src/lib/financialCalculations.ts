@@ -162,6 +162,73 @@ export const getCardSavingsCoverage = (data: FinancialData, cardId: string, curr
 export const getPurchaseGoalReserved = (data: FinancialData, goalId: string): number =>
   getObligationReserved(data, "purchaseGoal", goalId);
 
+export const getCardPaymentPlanId = (financialMonth: string, quincena: 1 | 2): string =>
+  `${financialMonth}_Q${quincena}`;
+
+export interface CardPaymentProjection {
+  plannedDopMinor: number;
+  plannedUsdMinor: number;
+  paidDopDebtMinor: number;
+  paidUsdDebtMinor: number;
+  actualCashOutflowDopMinor: number;
+  remainingPlannedDopMinor: number;
+  remainingPlannedUsdMinor: number;
+  estimatedRemainingUsdDopMinor: number;
+  totalCashCommitmentDopMinor: number;
+}
+
+/**
+ * Projects only the payment the user explicitly planned for the card.
+ * The complete card statement/debt remains informational and is never treated
+ * as a cash commitment automatically.
+ */
+export const calculateCardPaymentProjection = (
+  data: FinancialData,
+  monthKeys: string[],
+  quincena: 1 | 2 | "all",
+  estimatedUsdToDopRate: number,
+): CardPaymentProjection => {
+  const selectedMonths = new Set(monthKeys);
+  const selectedPlans = Object.values(data.cardPaymentPlans).filter((plan) =>
+    selectedMonths.has(plan.financialMonth) && (quincena === "all" || plan.quincena === quincena),
+  );
+  const payments = Object.values(data.cardTransactions).filter((transaction) =>
+    transaction.type === "payment"
+      && !transaction.reversedAt
+      && isInSelectedPeriod(transaction.transactionDate, selectedMonths, quincena),
+  );
+  const plannedDopMinor = selectedPlans.reduce((total, plan) => total + plan.plannedDopMinor, 0);
+  const plannedUsdMinor = selectedPlans.reduce((total, plan) => total + plan.plannedUsdMinor, 0);
+  const paidDopDebtMinor = payments
+    .filter((transaction) => transaction.currency === "DOP")
+    .reduce((total, transaction) => total + Math.abs(transaction.amountMinor), 0);
+  const paidUsdDebtMinor = payments
+    .filter((transaction) => transaction.currency === "USD")
+    .reduce((total, transaction) => total + Math.abs(transaction.amountMinor), 0);
+  const actualCashOutflowDopMinor = payments.reduce(
+    (total, transaction) => total + getCardPaymentCashOutflow(transaction, "DOP"),
+    0,
+  );
+  const remainingPlannedDopMinor = Math.max(0, plannedDopMinor - paidDopDebtMinor);
+  const remainingPlannedUsdMinor = Math.max(0, plannedUsdMinor - paidUsdDebtMinor);
+  const estimatedRemainingUsdDopMinor = estimatedUsdToDopRate > 0
+    ? Math.round(remainingPlannedUsdMinor * estimatedUsdToDopRate)
+    : 0;
+  return {
+    plannedDopMinor,
+    plannedUsdMinor,
+    paidDopDebtMinor,
+    paidUsdDebtMinor,
+    actualCashOutflowDopMinor,
+    remainingPlannedDopMinor,
+    remainingPlannedUsdMinor,
+    estimatedRemainingUsdDopMinor,
+    totalCashCommitmentDopMinor: actualCashOutflowDopMinor
+      + remainingPlannedDopMinor
+      + estimatedRemainingUsdDopMinor,
+  };
+};
+
 export const getStatementRemaining = (data: FinancialData, statement: CardStatement): number => {
   const amount = statement.correctedAmountMinor ?? statement.statementAmountMinor;
   const reductions = Object.values(data.cardTransactions)
@@ -292,13 +359,10 @@ export const calculateReportTotals = (
     (total, item) => total + (item.status === "received" ? item.actualAmountMinor ?? item.expectedAmountMinor : item.expectedAmountMinor),
     0,
   );
-  const statementCommitments = latestStatements(data)
-    .filter((statement) => statement.currency === currency && isInSelectedPeriod(statement.dueDate, selected, quincena))
-    .reduce((total, statement) => total + getStatementRemaining(data, statement), 0);
   // Cash-paid fixed obligations must remain in the selected period's budget.
-  // Card-paid obligations are represented later by their statement, avoiding
-  // counting both the original charge and the card settlement.
-  const planningCommitments = cashPaidObligations + monthlyPending + nonMonthlyUnfunded + statementCommitments;
+  // Card debt is not a fixed commitment: the Dashboard subtracts only the
+  // payment explicitly planned for the selected period.
+  const planningCommitments = cashPaidObligations + monthlyPending + nonMonthlyUnfunded;
   const planning = planningIncome - dailySpending - planningCommitments;
   return {
     expectedIncome,

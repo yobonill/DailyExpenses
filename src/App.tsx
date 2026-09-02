@@ -116,7 +116,7 @@ function AuthenticatedApp({ user, onLogout }: { user: AppUserDefinition; onLogou
     switch (view) {
       case "capture": return <CaptureView onCreate={expensesState.createExpense} onSaved={() => showNotice("Gasto guardado")} />;
       case "review": return <ReviewView expenses={expensesState.expenses} onEdit={expensesState.editExpense} onTransfer={expensesState.markTransferred} onPending={expensesState.markPending} onDelete={expensesState.deleteExpense} onRestore={expensesState.restoreExpense} onNotice={showNotice} />;
-      case "dashboard": return <DashboardView data={financial.data} expenses={expensesState.expenses} onPay={(value) => actions.payObligation(value)} onNavigate={setView} />;
+      case "dashboard": return <DashboardView data={financial.data} expenses={expensesState.expenses} onPay={(value) => actions.payObligation(value)} onSaveCardPaymentPlan={actions.saveCardPaymentPlan} onNavigate={setView} />;
       case "budget": return <BudgetView data={financial.data} onSaveTemplate={actions.saveMonthlyTemplate} onArchiveTemplate={actions.archiveMonthlyTemplate} onCreateOneTime={actions.createOneTimeMonthly} onPay={(value) => actions.payObligation(value)} onReopen={(id) => actions.reopenObligation("monthly", id)} onCancel={actions.cancelMonthlyOccurrence} />;
       case "income": return <IncomeView data={financial.data} onSaveTemplate={actions.saveIncomeTemplate} onCreateOneTime={actions.createOneTimeIncome} onReceive={actions.receiveIncome} onReopen={actions.reopenIncome} />;
       case "future": return <FutureExpensesView data={financial.data} onSave={actions.saveNonMonthly} onPay={(value) => actions.payObligation(value)} onReopen={(id) => actions.reopenObligation("nonMonthly", id)} onAllocate={actions.allocateSavings} />;

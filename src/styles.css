@@ -440,6 +440,13 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px s
 .projection-breakdown div { display: flex; justify-content: space-between; gap: 1rem; font-size: .82rem; }
 .projection-breakdown dt { color: var(--muted); }
 .projection-breakdown dd { margin: 0; font-weight: 750; text-align: right; }
+.projection-breakdown .projection-shortfall { margin-top: .35rem; padding-top: .55rem; border-top: 1px solid var(--border); font-weight: 850; }
+.projection-shortfall dd { color: var(--danger); }
+.card-payment-projection { align-content: start; }
+.card-payment-projection > .button { justify-self: start; margin-top: .55rem; }
+.card-plan-warning { margin: .45rem 0; padding: .65rem .75rem; border-radius: 11px; background: #f8eed5; color: #7f5b18; font-size: .78rem; line-height: 1.4; }
+.card-plan-fieldset { display: grid; gap: 12px; margin: 0; padding: 14px; border: 1px solid var(--border); border-radius: 15px; }
+.card-plan-fieldset legend { padding: 0 7px; color: var(--brand-dark); font-size: .8rem; font-weight: 850; }
 .projection-card.positive { border-color: #bad6c2; }
 .projection-card.negative { border-color: #e6bbb6; background: linear-gradient(145deg, #fff, #f9ecea); }
 .projection-card.negative strong { color: var(--danger); }

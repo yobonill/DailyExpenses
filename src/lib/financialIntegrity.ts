@@ -60,6 +60,12 @@ export const isFinanciallyConsistent = (candidate: FinancialData): boolean => {
     if (getCardCurrentDebt(candidate, cardId, "DOP") < 0
       || getCardCurrentDebt(candidate, cardId, "USD") < 0) return false;
   }
+  for (const plan of Object.values(candidate.cardPaymentPlans)) {
+    if (!/^\d{4}-\d{2}$/.test(plan.financialMonth)
+      || (plan.quincena !== 1 && plan.quincena !== 2)
+      || plan.plannedDopMinor < 0
+      || plan.plannedUsdMinor < 0) return false;
+  }
   for (const allocation of Object.values(candidate.savingsAllocations)) {
     if (!allocation.active || allocation.releasedAt || allocation.consumedAt) continue;
     const fund = candidate.savingsFunds[allocation.fundId];

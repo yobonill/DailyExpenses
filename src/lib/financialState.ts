@@ -34,6 +34,7 @@ export const createEmptyFinancialData = (): FinancialData => ({
   creditCards: {},
   cardTransactions: {},
   cardStatements: {},
+  cardPaymentPlans: {},
   settings: createDefaultSettings(),
 });
 
@@ -61,6 +62,7 @@ export const normalizeFinancialData = (value: unknown): FinancialData => {
     creditCards: asRecord(raw.creditCards),
     cardTransactions: asRecord(raw.cardTransactions),
     cardStatements: asRecord(raw.cardStatements),
+    cardPaymentPlans: asRecord(raw.cardPaymentPlans),
     settings: raw.settings && typeof raw.settings === "object"
       ? { ...defaults.settings, ...raw.settings }
       : defaults.settings,

@@ -52,6 +52,7 @@ export const validateBackupText = (text: string): BackupPreview => {
     gastosMensuales: Object.keys(financial.monthlyOccurrences).length,
     ingresos: Object.keys(financial.incomeOccurrences).length,
     tarjetas: Object.keys(financial.creditCards).length,
+    pagosDeTarjetaPlanificados: Object.keys(financial.cardPaymentPlans).length,
     gastosNoMensuales: Object.keys(financial.nonMonthlyOccurrences).length,
     metasDeCompra: Object.keys(financial.purchaseGoals).length,
     fondos: Object.keys(financial.savingsFunds).length,

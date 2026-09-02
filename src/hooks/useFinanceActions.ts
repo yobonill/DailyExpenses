@@ -2,11 +2,12 @@ import { useCallback } from "react";
 import type { AppUserDefinition } from "../config/appUsers";
 import { getMonthKey, getQuincena, toLocalDateKey } from "../lib/date";
 import { dateFromFinancialMonthRule, nextOccurrenceDate } from "../lib/financeDates";
-import { getCardCurrentDebt, getFundAllocated, getFundBalance, getObligationAllocations, getPurchaseGoalReserved } from "../lib/financialCalculations";
+import { getCardCurrentDebt, getCardPaymentPlanId, getFundAllocated, getFundBalance, getObligationAllocations, getPurchaseGoalReserved } from "../lib/financialCalculations";
 import { buildGenerationUpdates, buildPausedMonthlyOccurrenceUpdates } from "../lib/financialGeneration";
 import { createId } from "../lib/id";
 import type {
   AppSettings,
+  CardPaymentPlan,
   CardTransaction,
   CreditCard,
   Currency,
@@ -110,6 +111,7 @@ export interface CreditCardInput {
 export interface SavingsFundInput {
   name: string;
   currency: Currency;
+  initialBalanceMinor?: number;
   targetAmountMinor?: number;
   targetDate?: string;
   active: boolean;
@@ -557,14 +559,29 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
         || Object.values(data.savingsAllocations).some((allocation) => allocation.fundId === fundId);
       if (hasHistory) throw new Error("No se puede cambiar la moneda de un fondo con movimientos o asignaciones.");
     }
+    const { initialBalanceMinor, ...fundInput } = input;
     const fund: SavingsFund = {
       id: fundId,
-      ...input,
+      ...fundInput,
       name: input.name.trim(),
       notes: cleanOptional(input.notes),
       ...meta(existing),
     };
-    await commitUpdates({ [`savingsFunds/${fundId}`]: fund });
+    const updates: Record<string, unknown> = { [`savingsFunds/${fundId}`]: fund };
+    if (!existing && initialBalanceMinor && initialBalanceMinor > 0) {
+      const transactionId = createId();
+      updates[`savingsTransactions/${transactionId}`] = {
+        id: transactionId,
+        fundId,
+        type: "deposit",
+        amountMinor: initialBalanceMinor,
+        currency: input.currency,
+        transactionDate: toLocalDateKey(),
+        notes: "Saldo inicial",
+        ...meta(),
+      } satisfies SavingsTransaction;
+    }
+    await commitUpdates(updates);
   }, [commitUpdates, data.savingsAllocations, data.savingsFunds, data.savingsTransactions, meta]);
 
   const addSavingsTransaction = useCallback(async (
@@ -576,6 +593,9 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
   ) => {
     const fund = data.savingsFunds[fundId];
     if (!fund) throw new Error("Fondo no encontrado.");
+    if (!fund.active && (type === "deposit" || type === "transferIn")) {
+      throw new Error("Activa el fondo antes de añadir dinero nuevo.");
+    }
     if ((type === "withdrawal" || type === "transferOut") && amountMinor > getFundBalance(data, fundId) - getFundAllocated(data, fundId)) {
       throw new Error("El monto excede el balance no asignado del fondo.");
     }
@@ -597,6 +617,7 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
     const from = data.savingsFunds[fromFundId];
     const to = data.savingsFunds[toFundId];
     if (!from || !to || from.currency !== to.currency) throw new Error("Los fondos deben existir y usar la misma moneda.");
+    if (!to.active) throw new Error("El fondo de destino está inactivo.");
     if (amountMinor > getFundBalance(data, fromFundId) - getFundAllocated(data, fromFundId)) throw new Error("El monto excede el balance no asignado.");
     const transferId = createId();
     const outId = createId();
@@ -612,6 +633,7 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
     const fund = data.savingsFunds[fundId];
     const occurrence = data.nonMonthlyOccurrences[occurrenceId];
     if (!fund || !occurrence) throw new Error("Fondo u obligación no disponible.");
+    if (!fund.active) throw new Error("El fondo está inactivo.");
     if (fund.currency !== occurrence.currency) throw new Error("El fondo y la obligación deben usar la misma moneda.");
     const available = getFundBalance(data, fundId) - getFundAllocated(data, fundId);
     if (amountMinor > available) throw new Error("La asignación excede el balance no asignado del fondo.");
@@ -890,6 +912,31 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
     await commitUpdates(updates);
   }, [commitUpdates, data, meta]);
 
+  const saveCardPaymentPlan = useCallback(async (
+    financialMonth: string,
+    quincena: 1 | 2,
+    plannedDopMinor: number,
+    plannedUsdMinor: number,
+  ) => {
+    const id = getCardPaymentPlanId(financialMonth, quincena);
+    const existing = data.cardPaymentPlans[id];
+    const dop = Math.max(0, Math.round(plannedDopMinor));
+    const usd = Math.max(0, Math.round(plannedUsdMinor));
+    if (dop === 0 && usd === 0) {
+      await commitUpdates({ [`cardPaymentPlans/${id}`]: null });
+      return;
+    }
+    const plan: CardPaymentPlan = {
+      id,
+      financialMonth,
+      quincena,
+      plannedDopMinor: dop,
+      plannedUsdMinor: usd,
+      ...meta(existing),
+    };
+    await commitUpdates({ [`cardPaymentPlans/${id}`]: plan });
+  }, [commitUpdates, data.cardPaymentPlans, meta]);
+
   const saveCreditCard = useCallback(async (input: CreditCardInput, id?: string) => {
     const cardId = id || createId();
     const existing = data.creditCards[cardId];
@@ -1097,6 +1144,7 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
     purchaseGoalWithCash,
     purchaseGoalWithCard,
     discardPurchaseGoal,
+    saveCardPaymentPlan,
     saveCreditCard,
     addCardTransaction,
     reverseCardTransaction,

@@ -245,6 +245,18 @@ export interface CardStatement extends RecordMetadata {
   correctedAmountMinor?: number;
 }
 
+/**
+ * Total card payment the user intends to make during one quincena.
+ * The app has one working card; DOP and USD debt remain separate ledgers.
+ */
+export interface CardPaymentPlan extends RecordMetadata {
+  id: string;
+  financialMonth: string;
+  quincena: 1 | 2;
+  plannedDopMinor: number;
+  plannedUsdMinor: number;
+}
+
 export interface AppSettings {
   dueSoonDaysMonthly: number;
   dueSoonDaysCards: number;
@@ -271,6 +283,7 @@ export interface FinancialData {
   creditCards: Record<string, CreditCard>;
   cardTransactions: Record<string, CardTransaction>;
   cardStatements: Record<string, CardStatement>;
+  cardPaymentPlans: Record<string, CardPaymentPlan>;
   settings: AppSettings;
   lastBackupAt?: string;
 }

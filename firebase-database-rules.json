@@ -69,6 +69,11 @@
             ".validate": "!newData.exists() || (newData.hasChildren(['id','cardId','currency','cycleStartDate','cutDate','dueDate','statementAmountMinor','status','createdAt','createdBy','updatedAt','updatedBy','version']) && newData.child('id').val() === $id && (newData.child('currency').val() === 'DOP' || newData.child('currency').val() === 'USD') && newData.child('statementAmountMinor').isNumber() && (newData.child('status').val() === 'open' || newData.child('status').val() === 'paid' || newData.child('status').val() === 'corrected'))"
           }
         },
+        "cardPaymentPlans": {
+          "$id": {
+            ".validate": "!newData.exists() || (newData.hasChildren(['id','financialMonth','quincena','plannedDopMinor','plannedUsdMinor','createdAt','createdBy','updatedAt','updatedBy','version']) && newData.child('id').val() === $id && newData.child('financialMonth').isString() && (newData.child('quincena').val() === 1 || newData.child('quincena').val() === 2) && newData.child('plannedDopMinor').isNumber() && newData.child('plannedDopMinor').val() >= 0 && newData.child('plannedUsdMinor').isNumber() && newData.child('plannedUsdMinor').val() >= 0)"
+          }
+        },
         "savingsFunds": {
           "$id": {
             ".validate": "!newData.exists() || (newData.hasChildren(['id','name','currency','active','createdAt','createdBy','updatedAt','updatedBy','version']) && newData.child('id').val() === $id && (newData.child('currency').val() === 'DOP' || newData.child('currency').val() === 'USD'))"
