@@ -4,6 +4,8 @@ export type Currency = "DOP" | "USD";
 export type FinancialStatus = "upcoming" | "paid" | "cancelled";
 export type RecurrenceKind = "once" | "monthly" | "months" | "years";
 export type PaymentMethod = "cash" | "creditCard";
+export type PurchaseGoalPriority = "low" | "medium" | "high";
+export type PurchaseGoalStatus = "active" | "scheduled" | "purchased" | "discarded";
 
 export interface RecordMetadata {
   createdAt: string;
@@ -115,6 +117,7 @@ export interface NonMonthlyExpense extends RecordMetadata {
   canPayWithCard: boolean;
   active: boolean;
   notes?: string;
+  sourcePurchaseGoalId?: string;
 }
 
 export interface NonMonthlyOccurrence extends RecordMetadata {
@@ -130,6 +133,7 @@ export interface NonMonthlyOccurrence extends RecordMetadata {
   paymentId?: string;
   canPayWithCard: boolean;
   notes?: string;
+  sourcePurchaseGoalId?: string;
   completedAt?: string;
 }
 
@@ -160,7 +164,7 @@ export interface SavingsTransaction extends RecordMetadata {
 export interface SavingsAllocation extends RecordMetadata {
   id: string;
   fundId: string;
-  obligationType: "nonMonthly" | "cardStatement";
+  obligationType: "nonMonthly" | "cardStatement" | "purchaseGoal";
   obligationId: string;
   amountMinor: number;
   currency: Currency;
@@ -168,6 +172,26 @@ export interface SavingsAllocation extends RecordMetadata {
   releasedAt?: string;
   consumedAt?: string;
   linkedCardTransactionId?: string;
+}
+
+export interface PurchaseGoal extends RecordMetadata {
+  id: string;
+  name: string;
+  estimatedAmountMinor: number;
+  currency: Currency;
+  priority: PurchaseGoalPriority;
+  category?: string;
+  notes?: string;
+  status: PurchaseGoalStatus;
+  scheduledPlanId?: string;
+  scheduledOccurrenceId?: string;
+  actualAmountMinor?: number;
+  actualPaymentDopMinor?: number;
+  purchaseMethod?: PaymentMethod;
+  linkedDailyExpenseId?: string;
+  linkedCardTransactionId?: string;
+  purchasedAt?: string;
+  discardedAt?: string;
 }
 
 export interface CreditCard extends RecordMetadata {
@@ -194,11 +218,17 @@ export interface CardTransaction extends RecordMetadata {
   currency: Currency;
   type: "charge" | "payment" | "credit" | "adjustment";
   amountMinor: number;
+  /**
+   * Actual DOP amount withdrawn when a USD card balance is paid.
+   * The USD amount remains authoritative for reducing the card debt.
+   */
+  settlementAmountDopMinor?: number;
   transactionDate: string;
   description: string;
   linkedPaymentId?: string;
   linkedExpenseId?: string;
   linkedDailyExpenseId?: string;
+  linkedPurchaseGoalId?: string;
   notes?: string;
   reversedAt?: string;
 }
@@ -219,6 +249,8 @@ export interface AppSettings {
   dueSoonDaysMonthly: number;
   dueSoonDaysCards: number;
   nonMonthlyWarningMonths: number;
+  /** Informational rate used only to estimate USD commitments in DOP projections. */
+  estimatedUsdToDopRate: number;
   updatedAt: string;
   updatedBy: string;
 }
@@ -232,6 +264,7 @@ export interface FinancialData {
   incomeOccurrences: Record<string, IncomeOccurrence>;
   nonMonthlyExpenses: Record<string, NonMonthlyExpense>;
   nonMonthlyOccurrences: Record<string, NonMonthlyOccurrence>;
+  purchaseGoals: Record<string, PurchaseGoal>;
   savingsFunds: Record<string, SavingsFund>;
   savingsTransactions: Record<string, SavingsTransaction>;
   savingsAllocations: Record<string, SavingsAllocation>;

@@ -1,5 +1,5 @@
 import type { FinancialData, RecordMetadata } from "../models/finance";
-import { getFundAllocated, getFundBalance } from "./financialCalculations";
+import { getCardCurrentDebt, getFundAllocated, getFundBalance, getPurchaseGoalReserved } from "./financialCalculations";
 
 const getAtPath = (target: unknown, path: string): unknown => {
   let cursor = target;
@@ -45,6 +45,21 @@ export const isFinanciallyConsistent = (candidate: FinancialData): boolean => {
     const balance = getFundBalance(candidate, fundId);
     if (balance < 0 || getFundAllocated(candidate, fundId) > balance) return false;
   }
+  for (const transaction of Object.values(candidate.cardTransactions)) {
+    if (transaction.settlementAmountDopMinor !== undefined
+      && (transaction.type !== "payment"
+        || transaction.currency !== "USD"
+        || transaction.amountMinor <= 0
+        || transaction.settlementAmountDopMinor <= 0)) return false;
+    if (transaction.linkedPurchaseGoalId) {
+      const goal = candidate.purchaseGoals[transaction.linkedPurchaseGoalId];
+      if (!goal || goal.currency !== transaction.currency) return false;
+    }
+  }
+  for (const cardId of Object.keys(candidate.creditCards)) {
+    if (getCardCurrentDebt(candidate, cardId, "DOP") < 0
+      || getCardCurrentDebt(candidate, cardId, "USD") < 0) return false;
+  }
   for (const allocation of Object.values(candidate.savingsAllocations)) {
     if (!allocation.active || allocation.releasedAt || allocation.consumedAt) continue;
     const fund = candidate.savingsFunds[allocation.fundId];
@@ -52,9 +67,25 @@ export const isFinanciallyConsistent = (candidate: FinancialData): boolean => {
     if (allocation.obligationType === "nonMonthly") {
       const obligation = candidate.nonMonthlyOccurrences[allocation.obligationId];
       if (!obligation || obligation.currency !== allocation.currency) return false;
-    } else {
+    } else if (allocation.obligationType === "cardStatement") {
       const statement = candidate.cardStatements[allocation.obligationId];
       if (!statement || statement.currency !== allocation.currency) return false;
+    } else {
+      const goal = candidate.purchaseGoals[allocation.obligationId];
+      if (!goal || goal.currency !== allocation.currency || goal.status === "discarded") return false;
+    }
+  }
+  for (const goal of Object.values(candidate.purchaseGoals)) {
+    if (goal.estimatedAmountMinor <= 0) return false;
+    const reserved = getPurchaseGoalReserved(candidate, goal.id);
+    if (reserved > goal.estimatedAmountMinor) return false;
+    if (reserved > 0 && (goal.status === "scheduled"
+      || goal.status === "discarded"
+      || (goal.status === "purchased" && goal.purchaseMethod !== "creditCard"))) return false;
+    if (goal.status === "scheduled" && (!goal.scheduledOccurrenceId || !candidate.nonMonthlyOccurrences[goal.scheduledOccurrenceId])) return false;
+    if (goal.linkedCardTransactionId) {
+      const transaction = candidate.cardTransactions[goal.linkedCardTransactionId];
+      if (!transaction || transaction.linkedPurchaseGoalId !== goal.id || transaction.reversedAt) return false;
     }
   }
   return true;

@@ -2,7 +2,7 @@ import { useCallback } from "react";
 import type { AppUserDefinition } from "../config/appUsers";
 import { getMonthKey, getQuincena, toLocalDateKey } from "../lib/date";
 import { dateFromFinancialMonthRule, nextOccurrenceDate } from "../lib/financeDates";
-import { getFundAllocated, getFundBalance, getObligationAllocations } from "../lib/financialCalculations";
+import { getCardCurrentDebt, getFundAllocated, getFundBalance, getObligationAllocations, getPurchaseGoalReserved } from "../lib/financialCalculations";
 import { buildGenerationUpdates, buildPausedMonthlyOccurrenceUpdates } from "../lib/financialGeneration";
 import { createId } from "../lib/id";
 import type {
@@ -20,6 +20,8 @@ import type {
   NonMonthlyOccurrence,
   Payment,
   PaymentMethod,
+  PurchaseGoal,
+  PurchaseGoalPriority,
   RecordMetadata,
   SavingsAllocation,
   SavingsFund,
@@ -111,6 +113,15 @@ export interface SavingsFundInput {
   targetAmountMinor?: number;
   targetDate?: string;
   active: boolean;
+  notes?: string;
+}
+
+export interface PurchaseGoalInput {
+  name: string;
+  estimatedAmountMinor: number;
+  currency: Currency;
+  priority: PurchaseGoalPriority;
+  category?: string;
   notes?: string;
 }
 
@@ -271,6 +282,9 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
         description: occurrence.name,
         linkedPaymentId: paymentId,
         linkedExpenseId: input.sourceId,
+        linkedPurchaseGoalId: input.sourceType === "nonMonthly" && "sourcePurchaseGoalId" in occurrence
+          ? occurrence.sourcePurchaseGoalId
+          : undefined,
         notes: cleanOptional(input.notes),
         ...meta(),
       };
@@ -287,6 +301,21 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
     };
     const occurrencePath = input.sourceType === "monthly" ? "monthlyOccurrences" : "nonMonthlyOccurrences";
     updates[`${occurrencePath}/${input.sourceId}`] = updatedOccurrence;
+
+    if (input.sourceType === "nonMonthly" && "sourcePurchaseGoalId" in occurrence && occurrence.sourcePurchaseGoalId) {
+      const goal = data.purchaseGoals[occurrence.sourcePurchaseGoalId];
+      if (goal) {
+        updates[`purchaseGoals/${goal.id}`] = {
+          ...goal,
+          status: "purchased",
+          actualAmountMinor: input.amountMinor,
+          purchaseMethod: input.method,
+          linkedCardTransactionId: cardTransactionId,
+          purchasedAt: input.paidDate,
+          ...meta(goal),
+        };
+      }
+    }
 
     const savingsTransactionIds: string[] = [];
     if (input.sourceType === "nonMonthly" && input.method === "cash" && input.consumeReservedSavings) {
@@ -350,6 +379,20 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
       },
       [`payments/${payment.id}`]: { ...payment, reversedAt: now, ...meta(payment) },
     };
+    if (sourceType === "nonMonthly" && "sourcePurchaseGoalId" in occurrence && occurrence.sourcePurchaseGoalId) {
+      const goal = data.purchaseGoals[occurrence.sourcePurchaseGoalId];
+      if (goal) {
+        updates[`purchaseGoals/${goal.id}`] = {
+          ...goal,
+          status: "scheduled",
+          actualAmountMinor: undefined,
+          purchaseMethod: undefined,
+          linkedCardTransactionId: undefined,
+          purchasedAt: undefined,
+          ...meta(goal),
+        };
+      }
+    }
     if (payment.cardTransactionId && data.cardTransactions[payment.cardTransactionId]) {
       const cardTransaction = data.cardTransactions[payment.cardTransactionId];
       updates[`cardTransactions/${cardTransaction.id}`] = { ...cardTransaction, reversedAt: now, ...meta(cardTransaction) };
@@ -599,6 +642,254 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
     });
   }, [commitUpdates, data.savingsAllocations, meta]);
 
+  const savePurchaseGoal = useCallback(async (input: PurchaseGoalInput, id?: string) => {
+    const goalId = id || createId();
+    const existing = data.purchaseGoals[goalId];
+    if (existing && existing.status !== "active") throw new Error("Solo se pueden editar metas activas.");
+    if (existing && existing.currency !== input.currency && getPurchaseGoalReserved(data, goalId) > 0) {
+      throw new Error("Libera los ahorros reservados antes de cambiar la moneda.");
+    }
+    const goal: PurchaseGoal = {
+      id: goalId,
+      name: input.name.trim(),
+      estimatedAmountMinor: input.estimatedAmountMinor,
+      currency: input.currency,
+      priority: input.priority,
+      category: cleanOptional(input.category),
+      notes: cleanOptional(input.notes),
+      status: existing?.status || "active",
+      ...meta(existing),
+    };
+    await commitUpdates({ [`purchaseGoals/${goalId}`]: goal });
+  }, [commitUpdates, data, meta]);
+
+  const allocatePurchaseGoalSavings = useCallback(async (fundId: string, goalId: string, amountMinor: number) => {
+    const fund = data.savingsFunds[fundId];
+    const goal = data.purchaseGoals[goalId];
+    if (!fund?.active || !goal || goal.status !== "active") throw new Error("El fondo o la meta ya no está disponible.");
+    if (fund.currency !== goal.currency) throw new Error("El fondo y la meta deben usar la misma moneda.");
+    const available = getFundBalance(data, fundId) - getFundAllocated(data, fundId);
+    if (amountMinor > available) throw new Error("El monto excede el balance disponible del fondo.");
+    const remainingGoal = Math.max(0, goal.estimatedAmountMinor - getPurchaseGoalReserved(data, goalId));
+    if (amountMinor > remainingGoal) throw new Error("El monto excede lo que falta para completar la meta.");
+    const allocationId = createId();
+    const allocation: SavingsAllocation = {
+      id: allocationId,
+      fundId,
+      obligationType: "purchaseGoal",
+      obligationId: goalId,
+      amountMinor,
+      currency: goal.currency,
+      active: true,
+      ...meta(),
+    };
+    await commitUpdates({ [`savingsAllocations/${allocationId}`]: allocation });
+  }, [commitUpdates, data, meta]);
+
+  const schedulePurchaseGoal = useCallback(async (goalId: string, dueDate: string) => {
+    const goal = data.purchaseGoals[goalId];
+    if (!goal || goal.status !== "active") throw new Error("La meta ya no está disponible para programar.");
+    const planId = createId();
+    const occurrenceId = `${planId}_${dueDate}`;
+    const plan: NonMonthlyExpense = {
+      id: planId,
+      name: goal.name,
+      category: goal.category,
+      estimatedAmountMinor: goal.estimatedAmountMinor,
+      currency: goal.currency,
+      nextDueDate: dueDate,
+      recurrenceKind: "once",
+      recurrenceInterval: 1,
+      warningMonths: data.settings.nonMonthlyWarningMonths,
+      canPayWithCard: true,
+      active: true,
+      notes: goal.notes,
+      sourcePurchaseGoalId: goalId,
+      ...meta(),
+    };
+    const occurrence: NonMonthlyOccurrence = {
+      id: occurrenceId,
+      planId,
+      name: goal.name,
+      category: goal.category,
+      expectedAmountMinor: goal.estimatedAmountMinor,
+      currency: goal.currency,
+      dueDate,
+      status: "upcoming",
+      canPayWithCard: true,
+      notes: goal.notes,
+      sourcePurchaseGoalId: goalId,
+      ...meta(),
+    };
+    const updates: Record<string, unknown> = {
+      [`nonMonthlyExpenses/${planId}`]: plan,
+      [`nonMonthlyOccurrences/${occurrenceId}`]: occurrence,
+      [`purchaseGoals/${goalId}`]: {
+        ...goal,
+        status: "scheduled",
+        scheduledPlanId: planId,
+        scheduledOccurrenceId: occurrenceId,
+        ...meta(goal),
+      },
+    };
+    getObligationAllocations(data, "purchaseGoal", goalId).forEach((allocation) => {
+      updates[`savingsAllocations/${allocation.id}`] = {
+        ...allocation,
+        obligationType: "nonMonthly",
+        obligationId: occurrenceId,
+        ...meta(allocation),
+      };
+    });
+    await commitUpdates(updates);
+  }, [commitUpdates, data, meta]);
+
+  const purchaseGoalWithCash = useCallback(async (
+    goalId: string,
+    actualAmountMinor: number,
+    actualPaymentDopMinor: number,
+    purchaseDate: string,
+    linkedDailyExpenseId: string,
+  ) => {
+    const goal = data.purchaseGoals[goalId];
+    if (!goal || goal.status !== "active") throw new Error("La meta ya no está disponible para comprar.");
+    if (actualAmountMinor <= 0 || actualPaymentDopMinor <= 0) throw new Error("Escribe montos válidos para la compra.");
+    const now = new Date().toISOString();
+    const updates: Record<string, unknown> = {
+      [`purchaseGoals/${goalId}`]: {
+        ...goal,
+        status: "purchased",
+        actualAmountMinor,
+        actualPaymentDopMinor: goal.currency === "USD" ? actualPaymentDopMinor : undefined,
+        purchaseMethod: "cash",
+        linkedDailyExpenseId,
+        purchasedAt: purchaseDate,
+        ...meta(goal),
+      },
+    };
+    let amountLeft = actualAmountMinor;
+    for (const allocation of getObligationAllocations(data, "purchaseGoal", goalId)) {
+      if (amountLeft <= 0) {
+        updates[`savingsAllocations/${allocation.id}`] = {
+          ...allocation,
+          active: false,
+          releasedAt: now,
+          ...meta(allocation),
+        };
+        continue;
+      }
+      const used = Math.min(allocation.amountMinor, amountLeft);
+      const withdrawalId = createId();
+      updates[`savingsTransactions/${withdrawalId}`] = {
+        id: withdrawalId,
+        fundId: allocation.fundId,
+        type: "withdrawal",
+        amountMinor: used,
+        currency: allocation.currency,
+        transactionDate: purchaseDate,
+        notes: `Compra de ${goal.name}`,
+        ...meta(),
+      } satisfies SavingsTransaction;
+      updates[`savingsAllocations/${allocation.id}`] = {
+        ...allocation,
+        amountMinor: used,
+        active: false,
+        consumedAt: now,
+        ...meta(allocation),
+      };
+      if (used < allocation.amountMinor) {
+        const releasedId = createId();
+        updates[`savingsAllocations/${releasedId}`] = {
+          ...allocation,
+          id: releasedId,
+          amountMinor: allocation.amountMinor - used,
+          active: false,
+          releasedAt: now,
+          ...meta(),
+        } satisfies SavingsAllocation;
+      }
+      amountLeft -= used;
+    }
+    await commitUpdates(updates);
+  }, [commitUpdates, data, meta]);
+
+  const purchaseGoalWithCard = useCallback(async (
+    goalId: string,
+    actualAmountMinor: number,
+    purchaseDate: string,
+    cardId: string,
+  ) => {
+    const goal = data.purchaseGoals[goalId];
+    const card = data.creditCards[cardId];
+    if (!goal || goal.status !== "active") throw new Error("La meta ya no está disponible para comprar.");
+    if (!card?.active) throw new Error("Selecciona una tarjeta activa.");
+    if (actualAmountMinor <= 0) throw new Error("Escribe un monto válido para la compra.");
+    const transactionId = createId();
+    const transaction: CardTransaction = {
+      id: transactionId,
+      cardId,
+      currency: goal.currency,
+      type: "charge",
+      amountMinor: actualAmountMinor,
+      transactionDate: purchaseDate,
+      description: goal.name,
+      linkedPurchaseGoalId: goalId,
+      ...meta(),
+    };
+    const updates: Record<string, unknown> = {
+      [`cardTransactions/${transactionId}`]: transaction,
+      [`purchaseGoals/${goalId}`]: {
+        ...goal,
+        status: "purchased",
+        actualAmountMinor,
+        purchaseMethod: "creditCard",
+        linkedCardTransactionId: transactionId,
+        purchasedAt: purchaseDate,
+        ...meta(goal),
+      },
+    };
+    let coverageLeft = actualAmountMinor;
+    const now = new Date().toISOString();
+    for (const allocation of getObligationAllocations(data, "purchaseGoal", goalId)) {
+      if (coverageLeft <= 0) {
+        updates[`savingsAllocations/${allocation.id}`] = { ...allocation, active: false, releasedAt: now, ...meta(allocation) };
+        continue;
+      }
+      const kept = Math.min(allocation.amountMinor, coverageLeft);
+      if (kept < allocation.amountMinor) {
+        updates[`savingsAllocations/${allocation.id}`] = { ...allocation, amountMinor: kept, ...meta(allocation) };
+        const releasedId = createId();
+        updates[`savingsAllocations/${releasedId}`] = {
+          ...allocation,
+          id: releasedId,
+          amountMinor: allocation.amountMinor - kept,
+          active: false,
+          releasedAt: now,
+          ...meta(),
+        } satisfies SavingsAllocation;
+      }
+      coverageLeft -= kept;
+    }
+    await commitUpdates(updates);
+  }, [commitUpdates, data, meta]);
+
+  const discardPurchaseGoal = useCallback(async (goalId: string) => {
+    const goal = data.purchaseGoals[goalId];
+    if (!goal || goal.status !== "active") return;
+    const now = new Date().toISOString();
+    const updates: Record<string, unknown> = {
+      [`purchaseGoals/${goalId}`]: { ...goal, status: "discarded", discardedAt: now, ...meta(goal) },
+    };
+    getObligationAllocations(data, "purchaseGoal", goalId).forEach((allocation) => {
+      updates[`savingsAllocations/${allocation.id}`] = {
+        ...allocation,
+        active: false,
+        releasedAt: now,
+        ...meta(allocation),
+      };
+    });
+    await commitUpdates(updates);
+  }, [commitUpdates, data, meta]);
+
   const saveCreditCard = useCallback(async (input: CreditCardInput, id?: string) => {
     const cardId = id || createId();
     const existing = data.creditCards[cardId];
@@ -635,10 +926,20 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
     description: string,
     linkedDailyExpenseId?: string,
     savingsFundId?: string,
+    settlementAmountDopMinor?: number,
   ) => {
     const card = data.creditCards[cardId];
     if (!card) throw new Error("Tarjeta no encontrada.");
     if (type === "charge" && !card.active) throw new Error("La tarjeta está inactiva.");
+    if (amountMinor <= 0 && type !== "adjustment") throw new Error("El monto debe ser mayor que cero.");
+    if (type === "payment") {
+      const currentDebt = getCardCurrentDebt(data, cardId, currency);
+      if (currentDebt <= 0) throw new Error(`La tarjeta no tiene deuda pendiente en ${currency}.`);
+      if (amountMinor > currentDebt) throw new Error("El pago no puede exceder la deuda pendiente. Para corregir el balance, registra un ajuste.");
+      if (currency === "USD" && (!settlementAmountDopMinor || settlementAmountDopMinor <= 0)) {
+        throw new Error("Escribe el monto real pagado en pesos dominicanos.");
+      }
+    }
     const id = createId();
     const transaction: CardTransaction = {
       id,
@@ -646,6 +947,9 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
       currency,
       type,
       amountMinor,
+      settlementAmountDopMinor: type === "payment" && currency === "USD"
+        ? settlementAmountDopMinor
+        : undefined,
       transactionDate,
       description: description.trim(),
       linkedDailyExpenseId,
@@ -654,41 +958,53 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
     const updates: Record<string, unknown> = { [`cardTransactions/${id}`]: transaction };
     if (type === "payment" && savingsFundId) {
       const fund = data.savingsFunds[savingsFundId];
-      if (!fund?.active || fund.currency !== currency) throw new Error("Selecciona un fondo activo en la misma moneda.");
-      const coveredObligations = new Set(Object.values(data.cardTransactions)
+      const paymentCurrency: Currency = currency === "USD" ? "DOP" : currency;
+      const paymentAmountMinor = currency === "USD"
+        ? Math.abs(settlementAmountDopMinor || 0)
+        : Math.abs(amountMinor);
+      if (!fund?.active || fund.currency !== paymentCurrency) {
+        throw new Error(`Selecciona un fondo activo en ${paymentCurrency}.`);
+      }
+      const coveredCharges = Object.values(data.cardTransactions)
         .filter((item) => item.cardId === cardId
           && item.currency === currency
           && item.type === "charge"
           && !item.reversedAt
-          && item.linkedExpenseId)
-        .map((item) => item.linkedExpenseId as string));
-      const matchingAllocations = Object.values(data.savingsAllocations)
+          && (item.linkedExpenseId || item.linkedPurchaseGoalId));
+      const coveredObligations = new Set(coveredCharges
+        .map((item) => item.linkedExpenseId)
+        .filter((value): value is string => Boolean(value)));
+      const coveredGoals = new Set(coveredCharges
+        .map((item) => item.linkedPurchaseGoalId)
+        .filter((value): value is string => Boolean(value)));
+      const matchingAllocations = fund.currency === currency ? Object.values(data.savingsAllocations)
         .filter((allocation) => allocation.fundId === savingsFundId
           && allocation.currency === currency
           && allocation.active
           && !allocation.releasedAt
           && !allocation.consumedAt
           && ((allocation.obligationType === "nonMonthly" && coveredObligations.has(allocation.obligationId))
+            || (allocation.obligationType === "purchaseGoal" && coveredGoals.has(allocation.obligationId))
             || (allocation.obligationType === "cardStatement"
               && data.cardStatements[allocation.obligationId]?.cardId === cardId
               && data.cardStatements[allocation.obligationId]?.currency === currency)))
-        .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+        .sort((a, b) => a.createdAt.localeCompare(b.createdAt)) : [];
       const matchingReserved = matchingAllocations.reduce((total, allocation) => total + allocation.amountMinor, 0);
       const unallocated = getFundBalance(data, savingsFundId) - getFundAllocated(data, savingsFundId);
-      if (amountMinor > unallocated + matchingReserved) throw new Error("El fondo no tiene balance disponible o reservado suficiente para esta tarjeta.");
+      if (paymentAmountMinor > unallocated + matchingReserved) throw new Error("El fondo no tiene balance disponible o reservado suficiente para esta tarjeta.");
       const withdrawalId = createId();
       updates[`savingsTransactions/${withdrawalId}`] = {
         id: withdrawalId,
         fundId: savingsFundId,
         type: "withdrawal",
-        amountMinor: Math.abs(amountMinor),
-        currency,
+        amountMinor: paymentAmountMinor,
+        currency: paymentCurrency,
         transactionDate,
         linkedCardTransactionId: id,
         notes: `Pago de ${card.name}`,
         ...meta(),
       } satisfies SavingsTransaction;
-      let reservedToRelease = Math.min(Math.abs(amountMinor), matchingReserved);
+      let reservedToRelease = Math.min(paymentAmountMinor, matchingReserved);
       const now = new Date().toISOString();
       for (const allocation of matchingAllocations) {
         if (reservedToRelease <= 0) break;
@@ -722,6 +1038,20 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
     const updates: Record<string, unknown> = {
       [`cardTransactions/${id}`]: { ...transaction, reversedAt: now, ...meta(transaction) },
     };
+    if (transaction.linkedPurchaseGoalId) {
+      const goal = data.purchaseGoals[transaction.linkedPurchaseGoalId];
+      if (goal?.linkedCardTransactionId === transaction.id) {
+        updates[`purchaseGoals/${goal.id}`] = {
+          ...goal,
+          status: "active",
+          actualAmountMinor: undefined,
+          purchaseMethod: undefined,
+          linkedCardTransactionId: undefined,
+          purchasedAt: undefined,
+          ...meta(goal),
+        };
+      }
+    }
     Object.values(data.savingsTransactions)
       .filter((item) => item.linkedCardTransactionId === id && !item.reversedAt)
       .forEach((item) => { updates[`savingsTransactions/${item.id}`] = { ...item, reversedAt: now, ...meta(item) }; });
@@ -737,7 +1067,7 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
         };
       });
     await commitUpdates(updates);
-  }, [commitUpdates, data.cardTransactions, data.savingsAllocations, data.savingsTransactions, meta]);
+  }, [commitUpdates, data.cardTransactions, data.purchaseGoals, data.savingsAllocations, data.savingsTransactions, meta]);
 
   const updateSettings = useCallback(async (settings: AppSettings) => {
     await commitUpdates({ settings: { ...settings, updatedAt: new Date().toISOString(), updatedBy: actor } });
@@ -761,6 +1091,12 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
     transferSavings,
     allocateSavings,
     releaseAllocation,
+    savePurchaseGoal,
+    allocatePurchaseGoalSavings,
+    schedulePurchaseGoal,
+    purchaseGoalWithCash,
+    purchaseGoalWithCard,
+    discardPurchaseGoal,
     saveCreditCard,
     addCardTransaction,
     reverseCardTransaction,

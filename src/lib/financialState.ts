@@ -13,6 +13,7 @@ export const createDefaultSettings = (): AppSettings => ({
   dueSoonDaysMonthly: 7,
   dueSoonDaysCards: 7,
   nonMonthlyWarningMonths: 3,
+  estimatedUsdToDopRate: 0,
   updatedAt: new Date(0).toISOString(),
   updatedBy: "system",
 });
@@ -26,6 +27,7 @@ export const createEmptyFinancialData = (): FinancialData => ({
   incomeOccurrences: {},
   nonMonthlyExpenses: {},
   nonMonthlyOccurrences: {},
+  purchaseGoals: {},
   savingsFunds: {},
   savingsTransactions: {},
   savingsAllocations: {},
@@ -52,6 +54,7 @@ export const normalizeFinancialData = (value: unknown): FinancialData => {
     incomeOccurrences: asRecord(raw.incomeOccurrences),
     nonMonthlyExpenses: asRecord(raw.nonMonthlyExpenses),
     nonMonthlyOccurrences: asRecord(raw.nonMonthlyOccurrences),
+    purchaseGoals: asRecord(raw.purchaseGoals),
     savingsFunds: asRecord(raw.savingsFunds),
     savingsTransactions: asRecord(raw.savingsTransactions),
     savingsAllocations: asRecord(raw.savingsAllocations),

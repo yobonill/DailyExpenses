@@ -1,5 +1,5 @@
 const CACHE_PREFIX = "daily-expenses-budget-shell-";
-const CACHE_NAME = `${CACHE_PREFIX}v2`;
+const CACHE_NAME = `${CACHE_PREFIX}v3`;
 const APP_ROOT = self.registration.scope;
 const SHELL_URLS = [
   APP_ROOT,

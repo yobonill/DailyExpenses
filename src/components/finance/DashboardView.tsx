@@ -62,6 +62,9 @@ export function DashboardView({ data, expenses, onPay, onNavigate }: DashboardVi
 
   const dop = calculateReportTotals(data, expenses, [monthKey], quincena, "DOP");
   const usd = calculateReportTotals(data, expenses, [monthKey], quincena, "USD");
+  const estimatedUsdRate = data.settings.estimatedUsdToDopRate;
+  const estimatedUsdPlanningDop = estimatedUsdRate > 0 ? Math.round(usd.planning * estimatedUsdRate) : 0;
+  const availableForDailySpendingDop = dop.planning + estimatedUsdPlanningDop;
 
   return (
     <section className="finance-page">
@@ -69,19 +72,25 @@ export function DashboardView({ data, expenses, onPay, onNavigate }: DashboardVi
       <PeriodSelector monthKey={monthKey} onMonthChange={setMonthKey} quincena={quincena} onQuincenaChange={setQuincena} />
       <p className="period-caption">{formatBudgetCycleRange(monthKey)} · Los valores son una proyección, no un balance bancario.</p>
 
-      <div className="projection-grid">
-        <article className={`projection-card ${dop.planning < 0 ? "negative" : "positive"}`}>
-          <span>Proyección DOP</span><strong>{formatCurrency(dop.planning, "DOP")}</strong>
-          <small>{dop.planning < 0 ? "Faltante previsto" : "Disponible previsto"}</small>
+      <div className="projection-grid dashboard-projection-grid">
+        <article className={`projection-card projection-card-featured ${availableForDailySpendingDop < 0 ? "negative" : "positive"}`}>
+          <span>Disponible para gastos diarios</span><strong>{formatCurrency(availableForDailySpendingDop, "DOP")}</strong>
+          <dl className="projection-breakdown">
+            <div><dt>Ingresos proyectados</dt><dd>{formatCurrency(dop.planningIncome, "DOP")}</dd></div>
+            <div><dt>Compromisos fijos</dt><dd>− {formatCurrency(dop.planningCommitments, "DOP")}</dd></div>
+            <div><dt>Gastos diarios ya registrados</dt><dd>− {formatCurrency(dop.dailySpending, "DOP")}</dd></div>
+            {estimatedUsdRate > 0 && usd.planning !== 0 && <div><dt>Balance USD estimado en DOP</dt><dd>{estimatedUsdPlanningDop >= 0 ? "+ " : "− "}{formatCurrency(Math.abs(estimatedUsdPlanningDop), "DOP")}</dd></div>}
+          </dl>
+          <small>{availableForDailySpendingDop < 0 ? "Faltante previsto para el período" : "Monto estimado que aún podrías gastar en el período"}</small>
         </article>
         <article className={`projection-card ${usd.planning < 0 ? "negative" : "positive"}`}>
-          <span>Proyección USD</span><strong>{formatCurrency(usd.planning, "USD")}</strong>
-          <small>{usd.planning < 0 ? "Faltante previsto" : "Disponible previsto"}</small>
+          <span>Balance proyectado USD</span><strong>{formatCurrency(usd.planning, "USD")}</strong>
+          <small>{estimatedUsdRate > 0 ? `Equivalencia calculada a RD$${estimatedUsdRate.toFixed(2)} por USD` : "Configura una tasa estimada para incluirlo en el disponible DOP"}</small>
         </article>
       </div>
 
       <div className="summary-strip">
-        <button type="button" onClick={() => onNavigate("income")}><span>Ingresos recibidos</span><strong>{formatCurrency(dop.receivedIncome, "DOP")}</strong><small>Esperados: {formatCurrency(dop.expectedIncome, "DOP")}</small></button>
+        <button type="button" onClick={() => onNavigate("income")}><span>Ingresos proyectados</span><strong>{formatCurrency(dop.planningIncome, "DOP")}</strong><small>Recibidos: {formatCurrency(dop.receivedIncome, "DOP")}</small></button>
         <button type="button" onClick={() => onNavigate("budget")}><span>Mensuales pendientes</span><strong>{formatCurrency(dop.monthlyPending, "DOP")}</strong><small>Pagados: {formatCurrency(dop.monthlyPaid, "DOP")}</small></button>
         <button type="button" onClick={() => onNavigate("future")}><span>No mensuales pendientes</span><strong>{formatCurrency(dop.nonMonthlyPending, "DOP")}</strong><small>USD: {formatCurrency(usd.nonMonthlyPending, "USD")}</small></button>
       </div>

@@ -1,5 +1,6 @@
 import type { Expense } from "../models/expense";
 import type {
+  CardTransaction,
   CardStatement,
   Currency,
   FinancialData,
@@ -53,7 +54,7 @@ export const getFundAllocated = (data: FinancialData, fundId: string): number =>
 
 export const getObligationAllocations = (
   data: FinancialData,
-  obligationType: "nonMonthly" | "cardStatement",
+  obligationType: "nonMonthly" | "cardStatement" | "purchaseGoal",
   obligationId: string,
 ) => Object.values(data.savingsAllocations).filter(
   (allocation) => allocation.obligationType === obligationType
@@ -65,7 +66,7 @@ export const getObligationAllocations = (
 
 export const getObligationReserved = (
   data: FinancialData,
-  obligationType: "nonMonthly" | "cardStatement",
+  obligationType: "nonMonthly" | "cardStatement" | "purchaseGoal",
   obligationId: string,
 ): number => getObligationAllocations(data, obligationType, obligationId)
   .reduce((total, allocation) => total + allocation.amountMinor, 0);
@@ -83,6 +84,36 @@ export const getCardTransactionEffect = (type: string, amountMinor: number): num
   if (type === "charge") return Math.abs(amountMinor);
   if (type === "payment" || type === "credit") return -Math.abs(amountMinor);
   return amountMinor;
+};
+
+export const getUsdPaymentEffectiveRate = (transaction: CardTransaction): number | null => {
+  if (transaction.type !== "payment"
+    || transaction.currency !== "USD"
+    || transaction.amountMinor <= 0
+    || !transaction.settlementAmountDopMinor
+    || transaction.settlementAmountDopMinor <= 0) return null;
+  return transaction.settlementAmountDopMinor / transaction.amountMinor;
+};
+
+const getCardPaymentAmountForCurrency = (
+  transaction: CardTransaction,
+  currency: Currency,
+): number => {
+  if (transaction.type !== "payment" || transaction.reversedAt) return 0;
+  if (currency === "DOP") {
+    if (transaction.currency === "DOP") return Math.abs(transaction.amountMinor);
+    return Math.abs(transaction.settlementAmountDopMinor || 0);
+  }
+  return transaction.currency === "USD" ? Math.abs(transaction.amountMinor) : 0;
+};
+
+const getCardPaymentCashOutflow = (
+  transaction: CardTransaction,
+  currency: Currency,
+): number => {
+  if (currency === "DOP") return getCardPaymentAmountForCurrency(transaction, "DOP");
+  if (transaction.currency !== "USD" || transaction.settlementAmountDopMinor) return 0;
+  return getCardPaymentAmountForCurrency(transaction, "USD");
 };
 
 export const getCardCurrentDebt = (data: FinancialData, cardId: string, currency: Currency): number => {
@@ -107,22 +138,29 @@ export const getCardDebtAtDate = (data: FinancialData, cardId: string, currency:
 };
 
 export const getCardSavingsCoverage = (data: FinancialData, cardId: string, currency: Currency): number => {
-  const chargesByObligation = new Map<string, number>();
+  const chargesByObligation = new Map<string, { type: "nonMonthly" | "purchaseGoal"; id: string; charged: number }>();
   Object.values(data.cardTransactions)
     .filter((transaction) => transaction.cardId === cardId
       && transaction.currency === currency
       && transaction.type === "charge"
       && !transaction.reversedAt
-      && transaction.linkedExpenseId)
+      && (transaction.linkedExpenseId || transaction.linkedPurchaseGoalId))
     .forEach((transaction) => {
-      const obligationId = transaction.linkedExpenseId as string;
-      chargesByObligation.set(obligationId, (chargesByObligation.get(obligationId) || 0) + Math.abs(transaction.amountMinor));
+      const type = transaction.linkedExpenseId ? "nonMonthly" : "purchaseGoal";
+      const id = (transaction.linkedExpenseId || transaction.linkedPurchaseGoalId) as string;
+      const key = `${type}:${id}`;
+      const current = chargesByObligation.get(key);
+      chargesByObligation.set(key, { type, id, charged: (current?.charged || 0) + Math.abs(transaction.amountMinor) });
     });
-  return [...chargesByObligation.entries()].reduce(
-    (total, [obligationId, charged]) => total + Math.min(charged, getObligationReserved(data, "nonMonthly", obligationId)),
+  const reservedCoverage = [...chargesByObligation.values()].reduce(
+    (total, item) => total + Math.min(item.charged, getObligationReserved(data, item.type, item.id)),
     0,
   );
+  return Math.min(reservedCoverage, Math.max(0, getCardCurrentDebt(data, cardId, currency)));
 };
+
+export const getPurchaseGoalReserved = (data: FinancialData, goalId: string): number =>
+  getObligationReserved(data, "purchaseGoal", goalId);
 
 export const getStatementRemaining = (data: FinancialData, statement: CardStatement): number => {
   const amount = statement.correctedAmountMinor ?? statement.statementAmountMinor;
@@ -173,6 +211,8 @@ export interface CurrencyReportTotals {
   endingCardDebt: number;
   spending: number;
   cashFlow: number;
+  planningIncome: number;
+  planningCommitments: number;
   planning: number;
 }
 
@@ -197,7 +237,7 @@ export const calculateReportTotals = (
     item.currency === currency && !item.reversedAt && isInSelectedPeriod(item.paidDate, selected, quincena),
   );
   const cardPayments = Object.values(data.cardTransactions).filter((item) =>
-    item.currency === currency && item.type === "payment" && !item.reversedAt && isInSelectedPeriod(item.transactionDate, selected, quincena),
+    item.type === "payment" && !item.reversedAt && isInSelectedPeriod(item.transactionDate, selected, quincena),
   );
   const manualCardSpending = Object.values(data.cardTransactions)
     .filter((item) => item.currency === currency
@@ -226,7 +266,14 @@ export const calculateReportTotals = (
   );
   const cashPaidObligations = payments.filter((payment) => payment.method === "cash")
     .reduce((total, payment) => total + payment.amountMinor, 0);
-  const cardPaymentTotal = cardPayments.reduce((total, transaction) => total + Math.abs(transaction.amountMinor), 0);
+  const cardPaymentTotal = cardPayments.reduce(
+    (total, transaction) => total + getCardPaymentAmountForCurrency(transaction, currency),
+    0,
+  );
+  const cardPaymentCashOutflow = cardPayments.reduce(
+    (total, transaction) => total + getCardPaymentCashOutflow(transaction, currency),
+    0,
+  );
   const savingsDeposits = savingsTransactions
     .filter((transaction) => transaction.type === "deposit" || transaction.type === "transferIn")
     .reduce((total, transaction) => total + Math.abs(transaction.amountMinor), 0);
@@ -240,15 +287,19 @@ export const calculateReportTotals = (
   const endingCardDebt = Object.keys(data.creditCards)
     .reduce((total, cardId) => total + getCardDebtAtDate(data, cardId, currency, reportEndDate), 0);
   const spending = dailySpending + monthlyPaid + nonMonthlyPaid + manualCardSpending;
-  const cashFlow = receivedIncome - dailySpending - cashPaidObligations - cardPaymentTotal - savingsDeposits + savingsWithdrawals;
+  const cashFlow = receivedIncome - dailySpending - cashPaidObligations - cardPaymentCashOutflow - savingsDeposits + savingsWithdrawals;
   const planningIncome = income.reduce(
     (total, item) => total + (item.status === "received" ? item.actualAmountMinor ?? item.expectedAmountMinor : item.expectedAmountMinor),
     0,
   );
-  const planning = planningIncome - dailySpending - monthlyPending - nonMonthlyUnfunded
-    - latestStatements(data)
-      .filter((statement) => statement.currency === currency && isInSelectedPeriod(statement.dueDate, selected, quincena))
-      .reduce((total, statement) => total + getStatementRemaining(data, statement), 0);
+  const statementCommitments = latestStatements(data)
+    .filter((statement) => statement.currency === currency && isInSelectedPeriod(statement.dueDate, selected, quincena))
+    .reduce((total, statement) => total + getStatementRemaining(data, statement), 0);
+  // Cash-paid fixed obligations must remain in the selected period's budget.
+  // Card-paid obligations are represented later by their statement, avoiding
+  // counting both the original charge and the card settlement.
+  const planningCommitments = cashPaidObligations + monthlyPending + nonMonthlyUnfunded + statementCommitments;
+  const planning = planningIncome - dailySpending - planningCommitments;
   return {
     expectedIncome,
     receivedIncome,
@@ -263,6 +314,8 @@ export const calculateReportTotals = (
     endingCardDebt,
     spending,
     cashFlow,
+    planningIncome,
+    planningCommitments,
     planning,
   };
 };

@@ -10,6 +10,7 @@ import { DashboardView } from "./components/finance/DashboardView";
 import { FinanceReportView } from "./components/finance/FinanceReportView";
 import { FutureExpensesView } from "./components/finance/FutureExpensesView";
 import { IncomeView } from "./components/finance/IncomeView";
+import { PurchaseGoalsView } from "./components/finance/PurchaseGoalsView";
 import { SavingsView } from "./components/finance/SavingsView";
 import { SettingsView } from "./components/finance/SettingsView";
 import { useAuth } from "./hooks/useAuth";
@@ -18,8 +19,9 @@ import { useFinancialData } from "./hooks/useFinancialData";
 import { useFinanceActions } from "./hooks/useFinanceActions";
 import { usePwaInstall } from "./hooks/usePwaInstall";
 import type { AppUserDefinition } from "./config/appUsers";
+import type { PurchaseGoal } from "./models/finance";
 
-type View = "capture" | "review" | "dashboard" | "budget" | "future" | "savings" | "income" | "cards" | "reports" | "settings" | "more";
+type View = "capture" | "review" | "dashboard" | "budget" | "future" | "goals" | "savings" | "income" | "cards" | "reports" | "settings" | "more";
 
 interface NoticeState {
   id: number;
@@ -28,11 +30,12 @@ interface NoticeState {
   action?: () => void;
 }
 
-const overflowViews: View[] = ["future", "savings", "income", "cards", "reports", "settings", "more"];
+const overflowViews: View[] = ["future", "goals", "savings", "income", "cards", "reports", "settings", "more"];
 
 function MoreView({ onNavigate }: { onNavigate: (view: View) => void }) {
   const items: Array<{ view: View; icon: string; title: string; text: string }> = [
     { view: "future", icon: "◷", title: "Gastos no mensuales", text: "Seguros, renovaciones y próximos 12 meses" },
+    { view: "goals", icon: "☆", title: "Metas de compra", text: "Compras deseadas sin fecha ni impacto en proyecciones" },
     { view: "savings", icon: "◎", title: "Ahorros", text: "Fondos, movimientos y dinero reservado" },
     { view: "income", icon: "↓", title: "Ingresos", text: "Salarios, otros ingresos y valores recibidos" },
     { view: "cards", icon: "▰", title: "Tarjetas", text: "Deuda DOP/USD, cortes, estados y pagos" },
@@ -84,6 +87,27 @@ function AuthenticatedApp({ user, onLogout }: { user: AppUserDefinition; onLogou
     else if (result === "browser-instructions") showNotice("Usa “Instalar aplicación” o “Añadir a pantalla de inicio” del navegador.");
   };
 
+  const handlePurchaseGoalCash = async (
+    goal: PurchaseGoal,
+    actualAmountMinor: number,
+    actualPaymentDopMinor: number,
+    date: string,
+  ) => {
+    const expense = await expensesState.createExpense({
+      name: goal.name,
+      unitPriceCents: actualPaymentDopMinor,
+      quantity: 1,
+      occurredDate: date,
+    });
+    try {
+      await expensesState.markTransferred([expense.id]);
+      await actions.purchaseGoalWithCash(goal.id, actualAmountMinor, actualPaymentDopMinor, date, expense.id);
+    } catch (reason) {
+      await expensesState.deleteExpense(expense.id);
+      throw reason;
+    }
+  };
+
   const combinedSync = financial.pendingCount > 0 || financial.syncState === "error" || financial.syncState === "offline"
     ? { state: financial.syncState, message: financial.syncMessage, count: financial.pendingCount + expensesState.pendingCount, retry: financial.retrySync }
     : { state: expensesState.syncState, message: expensesState.syncMessage, count: expensesState.pendingCount, retry: expensesState.retrySync };
@@ -96,6 +120,7 @@ function AuthenticatedApp({ user, onLogout }: { user: AppUserDefinition; onLogou
       case "budget": return <BudgetView data={financial.data} onSaveTemplate={actions.saveMonthlyTemplate} onArchiveTemplate={actions.archiveMonthlyTemplate} onCreateOneTime={actions.createOneTimeMonthly} onPay={(value) => actions.payObligation(value)} onReopen={(id) => actions.reopenObligation("monthly", id)} onCancel={actions.cancelMonthlyOccurrence} />;
       case "income": return <IncomeView data={financial.data} onSaveTemplate={actions.saveIncomeTemplate} onCreateOneTime={actions.createOneTimeIncome} onReceive={actions.receiveIncome} onReopen={actions.reopenIncome} />;
       case "future": return <FutureExpensesView data={financial.data} onSave={actions.saveNonMonthly} onPay={(value) => actions.payObligation(value)} onReopen={(id) => actions.reopenObligation("nonMonthly", id)} onAllocate={actions.allocateSavings} />;
+      case "goals": return <PurchaseGoalsView data={financial.data} onSave={actions.savePurchaseGoal} onAllocate={actions.allocatePurchaseGoalSavings} onSchedule={actions.schedulePurchaseGoal} onPurchaseCash={handlePurchaseGoalCash} onPurchaseCard={actions.purchaseGoalWithCard} onDiscard={actions.discardPurchaseGoal} onRelease={actions.releaseAllocation} />;
       case "savings": return <SavingsView data={financial.data} onSave={actions.saveSavingsFund} onAddTransaction={actions.addSavingsTransaction} onTransfer={actions.transferSavings} onRelease={actions.releaseAllocation} />;
       case "cards": return <CreditCardsView data={financial.data} expenses={expensesState.expenses} onSaveCard={actions.saveCreditCard} onAddTransaction={actions.addCardTransaction} onReverseTransaction={actions.reverseCardTransaction} />;
       case "reports": return <FinanceReportView data={financial.data} expenses={expensesState.expenses} onMarkRegistered={expensesState.markTransferred} />;

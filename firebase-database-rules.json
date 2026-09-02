@@ -44,6 +44,11 @@
             ".validate": "!newData.exists() || (newData.hasChildren(['id','planId','name','expectedAmountMinor','currency','dueDate','status','canPayWithCard','createdAt','createdBy','updatedAt','updatedBy','version']) && newData.child('id').val() === $id && newData.child('expectedAmountMinor').isNumber() && newData.child('expectedAmountMinor').val() > 0 && (newData.child('currency').val() === 'DOP' || newData.child('currency').val() === 'USD') && (newData.child('status').val() === 'upcoming' || newData.child('status').val() === 'paid' || newData.child('status').val() === 'cancelled'))"
           }
         },
+        "purchaseGoals": {
+          "$id": {
+            ".validate": "!newData.exists() || (newData.hasChildren(['id','name','estimatedAmountMinor','currency','priority','status','createdAt','createdBy','updatedAt','updatedBy','version']) && newData.child('id').val() === $id && newData.child('name').isString() && newData.child('name').val().length > 0 && newData.child('estimatedAmountMinor').isNumber() && newData.child('estimatedAmountMinor').val() > 0 && (newData.child('currency').val() === 'DOP' || newData.child('currency').val() === 'USD') && (newData.child('priority').val() === 'low' || newData.child('priority').val() === 'medium' || newData.child('priority').val() === 'high') && (newData.child('status').val() === 'active' || newData.child('status').val() === 'scheduled' || newData.child('status').val() === 'purchased' || newData.child('status').val() === 'discarded'))"
+          }
+        },
         "payments": {
           "$id": {
             ".validate": "!newData.exists() || (newData.hasChildren(['id','sourceType','sourceId','amountMinor','currency','paidDate','method','createdAt','createdBy','updatedAt','updatedBy','version']) && newData.child('id').val() === $id && newData.child('amountMinor').isNumber() && newData.child('amountMinor').val() > 0 && (newData.child('currency').val() === 'DOP' || newData.child('currency').val() === 'USD') && (newData.child('method').val() === 'cash' || newData.child('method').val() === 'creditCard'))"
@@ -56,7 +61,7 @@
         },
         "cardTransactions": {
           "$id": {
-            ".validate": "!newData.exists() || (newData.hasChildren(['id','cardId','currency','type','amountMinor','transactionDate','description','createdAt','createdBy','updatedAt','updatedBy','version']) && newData.child('id').val() === $id && (newData.child('currency').val() === 'DOP' || newData.child('currency').val() === 'USD') && newData.child('amountMinor').isNumber() && (newData.child('type').val() === 'charge' || newData.child('type').val() === 'payment' || newData.child('type').val() === 'credit' || newData.child('type').val() === 'adjustment'))"
+            ".validate": "!newData.exists() || (newData.hasChildren(['id','cardId','currency','type','amountMinor','transactionDate','description','createdAt','createdBy','updatedAt','updatedBy','version']) && newData.child('id').val() === $id && (newData.child('currency').val() === 'DOP' || newData.child('currency').val() === 'USD') && newData.child('amountMinor').isNumber() && (newData.child('type').val() === 'charge' || newData.child('type').val() === 'payment' || newData.child('type').val() === 'credit' || newData.child('type').val() === 'adjustment') && (!newData.hasChild('settlementAmountDopMinor') || (newData.child('settlementAmountDopMinor').isNumber() && newData.child('settlementAmountDopMinor').val() > 0 && newData.child('type').val() === 'payment' && newData.child('currency').val() === 'USD')) && (!newData.hasChild('linkedPurchaseGoalId') || newData.child('linkedPurchaseGoalId').isString()))"
           }
         },
         "cardStatements": {
@@ -76,11 +81,11 @@
         },
         "savingsAllocations": {
           "$id": {
-            ".validate": "!newData.exists() || (newData.hasChildren(['id','fundId','obligationType','obligationId','amountMinor','currency','active','createdAt','createdBy','updatedAt','updatedBy','version']) && newData.child('id').val() === $id && newData.child('amountMinor').isNumber() && newData.child('amountMinor').val() > 0 && (newData.child('currency').val() === 'DOP' || newData.child('currency').val() === 'USD') && (newData.child('obligationType').val() === 'nonMonthly' || newData.child('obligationType').val() === 'cardStatement'))"
+            ".validate": "!newData.exists() || (newData.hasChildren(['id','fundId','obligationType','obligationId','amountMinor','currency','active','createdAt','createdBy','updatedAt','updatedBy','version']) && newData.child('id').val() === $id && newData.child('amountMinor').isNumber() && newData.child('amountMinor').val() > 0 && (newData.child('currency').val() === 'DOP' || newData.child('currency').val() === 'USD') && (newData.child('obligationType').val() === 'nonMonthly' || newData.child('obligationType').val() === 'cardStatement' || newData.child('obligationType').val() === 'purchaseGoal'))"
           }
         },
         "settings": {
-          ".validate": "newData.hasChildren(['dueSoonDaysMonthly','dueSoonDaysCards','nonMonthlyWarningMonths','updatedAt','updatedBy']) && newData.child('dueSoonDaysMonthly').isNumber() && newData.child('dueSoonDaysMonthly').val() >= 0 && newData.child('dueSoonDaysCards').isNumber() && newData.child('dueSoonDaysCards').val() >= 0 && newData.child('nonMonthlyWarningMonths').isNumber() && newData.child('nonMonthlyWarningMonths').val() >= 0"
+          ".validate": "newData.hasChildren(['dueSoonDaysMonthly','dueSoonDaysCards','nonMonthlyWarningMonths','updatedAt','updatedBy']) && newData.child('dueSoonDaysMonthly').isNumber() && newData.child('dueSoonDaysMonthly').val() >= 0 && newData.child('dueSoonDaysCards').isNumber() && newData.child('dueSoonDaysCards').val() >= 0 && newData.child('nonMonthlyWarningMonths').isNumber() && newData.child('nonMonthlyWarningMonths').val() >= 0 && (!newData.hasChild('estimatedUsdToDopRate') || (newData.child('estimatedUsdToDopRate').isNumber() && newData.child('estimatedUsdToDopRate').val() >= 0))"
         }
       }
     }

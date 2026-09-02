@@ -434,6 +434,12 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px s
 .projection-card span { color: var(--brand-dark); font-size: .78rem; font-weight: 850; text-transform: uppercase; letter-spacing: .045em; }
 .projection-card strong { align-self: center; font-size: clamp(1.55rem, 6vw, 2.35rem); letter-spacing: -.045em; }
 .projection-card small { color: var(--muted); }
+.dashboard-projection-grid { align-items: stretch; }
+.projection-card-featured { grid-row: span 2; }
+.projection-breakdown { display: grid; gap: .35rem; margin: .75rem 0; }
+.projection-breakdown div { display: flex; justify-content: space-between; gap: 1rem; font-size: .82rem; }
+.projection-breakdown dt { color: var(--muted); }
+.projection-breakdown dd { margin: 0; font-weight: 750; text-align: right; }
 .projection-card.positive { border-color: #bad6c2; }
 .projection-card.negative { border-color: #e6bbb6; background: linear-gradient(145deg, #fff, #f9ecea); }
 .projection-card.negative strong { color: var(--danger); }
@@ -455,6 +461,12 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px s
 .row-title-line { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; }
 .row-actions { display: flex; flex-wrap: wrap; gap: 7px; padding: 10px 12px; border-top: 1px solid var(--border); background: #fbfbf9; }
 .row-actions .button { min-height: 38px; padding-inline: 13px; font-size: .76rem; }
+.goal-title-row { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.goal-title-row h3 { margin: 0; }
+.goal-progress { display: block; width: min(100%, 430px); height: 10px; margin-top: 12px; accent-color: var(--brand); }
+.goal-allocation-list { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 9px; }
+.goal-allocation-list span { display: inline-flex; align-items: center; gap: 6px; padding: 5px 8px; border-radius: 999px; background: var(--surface-soft); color: var(--muted); font-size: .72rem; }
+.goal-allocation-list button { border: 0; background: transparent; color: var(--danger); font: inherit; font-weight: 800; cursor: pointer; }
 .status-chip { display: inline-flex; align-items: center; min-height: 23px; padding: 3px 8px; border-radius: 999px; font-size: .68rem; font-weight: 850; white-space: nowrap; }
 .status-neutral { background: var(--surface-soft); color: var(--muted); }
 .status-success { background: #e1f0e4; color: #27643d; }
