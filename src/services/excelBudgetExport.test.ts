@@ -18,6 +18,11 @@ describe("Presupuesto workbook export", () => {
       currency: "DOP", dueDate: "2026-01-19", financialMonth: "2026-01", quincena: 1,
       status: "paid", canPayWithCard: true, oneTime: false, excelRowLabel: "Internet", ...metadata,
     };
+    data.monthlyOccurrences.dental = {
+      id: "dental", name: "Seguro dental", expectedAmountMinor: 25000,
+      currency: "DOP", dueDate: "2026-01-20", financialMonth: "2026-01", quincena: 1,
+      status: "upcoming", canPayWithCard: false, oneTime: false, excelRowLabel: "Seguro dental", ...metadata,
+    };
     data.incomeOccurrences.salary = {
       id: "salary", name: "Nómina", incomeType: "salary", expectedAmountMinor: 200000,
       actualAmountMinor: 210000, currency: "DOP", expectedDate: "2026-01-15", receivedDate: "2026-01-15",
@@ -36,6 +41,8 @@ describe("Presupuesto workbook export", () => {
     const sheet = workbook.getWorksheet("2026");
     expect(sheet?.getCell("C19").value).toBe(500);
     expect(sheet?.getCell("D19").value).toBe(1000);
+    expect(sheet?.getCell("B13").value).toBe("Seguro dental");
+    expect(sheet?.getCell("C13").value).toBe(250);
     expect(sheet?.getCell("I10").value).toBe(2100);
     expect(sheet?.getCell("M10").value).toBe("Farmacia");
     expect(sheet?.getCell("N10").value).toBe(250);

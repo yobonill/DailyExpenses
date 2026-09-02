@@ -35,7 +35,8 @@ Antes de publicar, confirma que estos UID todavía coinciden con **Authenticatio
 4. Usa el simulador de reglas para probar:
    - lectura/escritura válida con cada UID aprobado;
    - rechazo sin autenticación y con otro UID;
-   - rechazo de moneda, estado, tipo o forma inválidos.
+   - rechazo de moneda, estado, tipo o forma inválidos;
+   - aceptación de `plannedQuincena` con valor 1 o 2 y rechazo de cualquier otro valor.
 5. Publica.
 
 Las reglas niegan acceso por defecto y validan las entidades financieras críticas. La aplicación usa transacciones sobre `/dailyExpensesBudget/v1`, por lo que ese nodo necesita permisos de lectura y escritura para ambos UID.

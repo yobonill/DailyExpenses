@@ -8,7 +8,6 @@ import { getFundBalance } from "../lib/financialCalculations";
 const MONTH_NAMES = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
 const DETAIL_CAPACITY = 14;
 const BUDGET_CAPACITY = 13;
-const APPROVED_BUDGET_LABELS = ["Diezmo", "Comida", "Comida+Pañales", "Gasolina", "Ahorros", "Mesada Yor", "Mesada Yis", "Gastos Hogar", "Medico", "Internet", "Agua", "Luz", "Basura", "Administradora", "Regalo Padres", "Gastos Extras"];
 const APPROVED_INCOME_LABELS = ["Nomina yor", "Picota Talo", "Danny Picota", "Jorge reye josue"];
 
 export interface ExcelExportValidation {
@@ -36,9 +35,7 @@ export const validateExcelExport = (data: FinancialData, expenses: Expense[], ye
   income.filter((item) => item.currency !== "DOP").forEach((item) => errors.push(`${item.name} (${item.financialMonth}) usa ${item.currency}; la plantilla anual solo admite DOP en Ingresos.`));
   monthly.filter((item) => !item.excelRowLabel).forEach((item) => errors.push(`${item.name} (${item.financialMonth}, Q${item.quincena}) no tiene fila de Excel asignada.`));
   income.filter((item) => !item.excelRowLabel).forEach((item) => errors.push(`${item.name} (${item.financialMonth}, Q${item.quincena}) no tiene fila de Excel asignada.`));
-  const budgetLabels = new Set(APPROVED_BUDGET_LABELS.map(normalizeLabel));
   const incomeLabels = new Set(APPROVED_INCOME_LABELS.map(normalizeLabel));
-  monthly.filter((item) => item.excelRowLabel && !budgetLabels.has(normalizeLabel(item.excelRowLabel))).forEach((item) => errors.push(`${item.name} usa una fila de presupuesto desconocida: ${item.excelRowLabel}.`));
   income.filter((item) => item.excelRowLabel && !incomeLabels.has(normalizeLabel(item.excelRowLabel))).forEach((item) => errors.push(`${item.name} usa una fila de ingreso desconocida: ${item.excelRowLabel}.`));
   for (const monthKey of financialMonths) {
     for (const quincena of [1, 2] as const) {
@@ -63,21 +60,50 @@ const clearValueCells = (sheet: ExcelJS.Worksheet, rowStart: number) => {
   }
 };
 
-const findOrAssignRow = (
+const assignRows = (
   sheet: ExcelJS.Worksheet,
   labelColumn: number,
   startRow: number,
   endRow: number,
-  label: string,
-): number => {
-  for (let row = startRow; row <= endRow; row += 1) if (labelsMatch(sheet.getCell(row, labelColumn).value, label)) return row;
-  for (let row = startRow; row <= endRow; row += 1) {
-    if (!String(sheet.getCell(row, labelColumn).value || "").trim()) {
-      sheet.getCell(row, labelColumn).value = label;
-      return row;
+  labels: string[],
+): Map<string, number> => {
+  const assigned = new Map<string, number>();
+  const usedRows = new Set<number>();
+
+  labels.forEach((label) => {
+    for (let row = startRow; row <= endRow; row += 1) {
+      if (!usedRows.has(row) && labelsMatch(sheet.getCell(row, labelColumn).value, label)) {
+        assigned.set(label, row);
+        usedRows.add(row);
+        break;
+      }
     }
-  }
-  throw new Error(`No hay espacio para la fila ${label}.`);
+  });
+
+  labels.filter((label) => !assigned.has(label)).forEach((label) => {
+    let targetRow: number | undefined;
+    for (let row = startRow; row <= endRow; row += 1) {
+      if (!usedRows.has(row) && !String(sheet.getCell(row, labelColumn).value || "").trim()) {
+        targetRow = row;
+        break;
+      }
+    }
+    if (targetRow === undefined) {
+      for (let row = startRow; row <= endRow; row += 1) {
+        const currentLabel = sheet.getCell(row, labelColumn).value;
+        if (!usedRows.has(row) && !labels.some((requested) => labelsMatch(currentLabel, requested))) {
+          targetRow = row;
+          break;
+        }
+      }
+    }
+    if (targetRow === undefined) throw new Error(`No hay espacio para la fila ${label}.`);
+    sheet.getCell(targetRow, labelColumn).value = label;
+    assigned.set(label, targetRow);
+    usedRows.add(targetRow);
+  });
+
+  return assigned;
 };
 
 const groupByLabel = <T extends MonthlyExpenseOccurrence | IncomeOccurrence>(items: T[]) => {
@@ -125,8 +151,10 @@ const populateBudgetWorkbook = async (
       const labelColumn = quincena === 1 ? 2 : 5;
       const remainingColumn = quincena === 1 ? 3 : 6;
       const paidColumn = quincena === 1 ? 4 : 7;
-      for (const [label, rows] of groupByLabel(monthOccurrences.filter((item) => item.quincena === quincena))) {
-        const targetRow = findOrAssignRow(sheet, labelColumn, rowStart + 3, rowStart + 15, label);
+      const budgetGroups = groupByLabel(monthOccurrences.filter((item) => item.quincena === quincena));
+      const budgetRows = assignRows(sheet, labelColumn, rowStart + 3, rowStart + 15, [...budgetGroups.keys()]);
+      for (const [label, rows] of budgetGroups) {
+        const targetRow = budgetRows.get(label) as number;
         const expected = rows.reduce((total, item) => total + item.expectedAmountMinor, 0) / 100;
         const paid = rows.reduce((total, item) => total + (item.status === "paid" ? item.actualAmountMinor ?? item.expectedAmountMinor : 0), 0) / 100;
         sheet.getCell(targetRow, remainingColumn).value = expected - paid;
@@ -145,8 +173,10 @@ const populateBudgetWorkbook = async (
 
       const incomeLabelColumn = quincena === 1 ? 8 : 10;
       const incomeValueColumn = quincena === 1 ? 9 : 11;
-      for (const [label, rows] of groupByLabel(monthIncome.filter((item) => item.quincena === quincena))) {
-        const targetRow = findOrAssignRow(sheet, incomeLabelColumn, rowStart + 3, rowStart + 15, label);
+      const incomeGroups = groupByLabel(monthIncome.filter((item) => item.quincena === quincena));
+      const incomeRows = assignRows(sheet, incomeLabelColumn, rowStart + 3, rowStart + 15, [...incomeGroups.keys()]);
+      for (const [label, rows] of incomeGroups) {
+        const targetRow = incomeRows.get(label) as number;
         const amount = rows.reduce((total, item) => total + (item.status === "received" ? item.actualAmountMinor ?? item.expectedAmountMinor : item.exportExpectedWhenPending ? item.expectedAmountMinor : 0), 0) / 100;
         sheet.getCell(targetRow, incomeValueColumn).value = amount || null;
       }

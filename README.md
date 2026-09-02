@@ -20,12 +20,12 @@ Los gastos diarios viven en `/expenses`. Los módulos de presupuesto viven en el
 
 - **Registrar / Revisar:** flujo original de gastos inesperados, pendientes y registrados.
 - **Dashboard:** obligaciones próximas, vencidas, estados de tarjeta, ingresos y proyección por moneda.
-- **Presupuesto:** plantillas mensuales, instancias, pago normal o con tarjeta, esperado/real y variación.
+- **Presupuesto:** gastos recurrentes y puntuales asignados explícitamente a Q1 o Q2, pago normal o con tarjeta, esperado/real y variación.
 - **Ingresos:** salario, otros ingresos recurrentes y puntuales; esperado frente a recibido.
 - **Tarjetas:** varias tarjetas, DOP/USD independientes, cortes, vencimientos, estados, cargos, pagos y ajustes.
 - **Gastos no mensuales:** una vez, cada N meses o cada N años, horizonte de 12 meses y alertas internas.
 - **Ahorros:** fondos por propósito, depósitos, retiros, correcciones, transferencias y asignaciones.
-- **Reportes:** gastos, flujo de caja, planificación, filtros de quincena/múltiples meses/año y desglose anual.
+- **Reportes:** gastos, flujo de caja, planificación, filtros de quincena/múltiples meses/año, desglose anual y resumen por categorías predefinidas.
 - **Configuración:** umbrales del Dashboard, respaldo JSON, validación, restauración e instalación PWA.
 
 ## Calendario financiero
@@ -38,6 +38,8 @@ Un mes financiero comienza el día 15 y termina el día 14 del mes siguiente.
 
 La lógica canónica y sus pruebas están en `src/lib/date.ts` y `src/lib/date.test.ts`.
 
+La fecha de vencimiento controla los avisos, pero un gasto de presupuesto puede asignarse manualmente a Q1 o Q2 para indicar de cuál quincena se planifica pagarlo. Esa asignación se conserva en el Dashboard, Presupuesto, Reportes y Excel, aunque la fecha caiga dentro del rango calendario de la otra quincena.
+
 ## Contabilidad esencial
 
 - Un gasto pagado con tarjeta cuenta como gasto una sola vez y crea deuda.
@@ -49,7 +51,9 @@ La lógica canónica y sus pruebas están en `src/lib/date.ts` y `src/lib/date.t
 
 ## Excel
 
-`Reportes → Exportar a Excel` usa `public/templates/Presupuesto-2026.xlsx` y conserva el diseño de la hoja anual. Escribe valores numéricos y totales calculados sin depender de fórmulas. Antes de descargar bloquea:
+`Reportes → Exportar a Excel` usa `public/templates/Presupuesto-2026.xlsx` y conserva el diseño de la hoja anual. Escribe valores numéricos y totales calculados sin depender de fórmulas. Al crear un gasto se puede elegir una fila existente o escribir el nombre de una fila nueva. La exportación utiliza cualquiera de los 13 espacios disponibles en el bloque de cada quincena y reutiliza una fila predefinida que no se necesite; si se requieren más de 13 filas únicas, avisa antes de generar el archivo.
+
+Antes de descargar también bloquea:
 
 - filas de presupuesto/ingreso sin mapeo;
 - monedas no admitidas por la hoja original;
@@ -57,6 +61,12 @@ La lógica canónica y sus pruebas están en `src/lib/date.ts` y `src/lib/date.t
 - cualquier registro que no pueda representarse sin pérdida.
 
 Los gastos diarios pendientes se incluyen, pero solo cambian a registrados tras una confirmación separada. El Excel es una presentación; el respaldo JSON es el formato de restauración.
+
+## Categorías y recurrencia
+
+Las categorías son opcionales y se eligen de una lista predefinida. Se usan únicamente para agrupar obligaciones mensuales y futuras en Reportes; no cambian sus fechas, pagos ni filas de Excel.
+
+`Repetir automáticamente cada mes` controla si una plantilla genera nuevos meses. Al pausarla se conserva la obligación del período financiero actual y todo el historial pagado/cancelado, pero se eliminan sus proyecciones futuras todavía pendientes. Al reactivarla se vuelven a generar los períodos futuros sin duplicados.
 
 ## Firebase
 

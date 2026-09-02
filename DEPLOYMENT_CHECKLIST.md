@@ -1,4 +1,4 @@
-# Lista de publicación · Daily Expenses 1.0.1
+# Lista de publicación · Daily Expenses 1.1.0
 
 ## 1. Firebase
 
@@ -38,7 +38,7 @@ El workflow `.github/workflows/deploy-pages.yml` escucha la rama `master`. Sube 
 
 ```bash
 git add .
-git commit -m "Add Daily Expenses budget manager 1.0.1"
+git commit -m "Add planned quincenas and flexible Excel rows"
 git push origin master
 ```
 
@@ -48,10 +48,11 @@ En GitHub → **Actions**, confirma que `Deploy GitHub Pages` complete instalaci
 
 1. Abre la URL publicada y realiza una recarga completa.
 2. Inicia sesión como Yorki.
-3. Registra un gasto diario y una plantilla mensual.
+3. Registra un gasto diario y un gasto mensual; asigna una quincena distinta de la sugerida por su vencimiento y crea una fila nueva para Excel.
 4. Abre otra sesión o dispositivo e inicia como Yisel.
 5. Confirma que ambos registros aparecen y que un cambio realizado por Yisel se refleja para Yorki.
 6. Prueba un registro sin conexión y comprueba su sincronización al reconectar.
-7. Genera un respaldo JSON y exporta un Excel representativo.
+7. Confirma que el gasto aparece en la quincena elegida, genera un respaldo JSON y exporta un Excel donde aparezca la fila nueva.
+8. Pausa `Repetir automáticamente cada mes` y confirma que el período actual y el historial permanecen, pero desaparecen las proyecciones futuras pendientes.
 
 Si la PWA instalada continúa mostrando la versión anterior después de la publicación, ciérrala, abre la URL en el navegador y realiza una recarga completa. Reinstálala únicamente si el navegador conserva la identidad anterior.

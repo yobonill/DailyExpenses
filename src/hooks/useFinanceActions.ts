@@ -1,9 +1,9 @@
 import { useCallback } from "react";
 import type { AppUserDefinition } from "../config/appUsers";
-import { getMonthKey, getQuincena } from "../lib/date";
+import { getMonthKey, getQuincena, toLocalDateKey } from "../lib/date";
 import { dateFromFinancialMonthRule, nextOccurrenceDate } from "../lib/financeDates";
 import { getFundAllocated, getFundBalance, getObligationAllocations } from "../lib/financialCalculations";
-import { buildGenerationUpdates } from "../lib/financialGeneration";
+import { buildGenerationUpdates, buildPausedMonthlyOccurrenceUpdates } from "../lib/financialGeneration";
 import { createId } from "../lib/id";
 import type {
   AppSettings,
@@ -40,6 +40,7 @@ export interface MonthlyTemplateInput {
   estimatedAmountMinor: number;
   currency: Currency;
   dueRule: DueDateRule;
+  plannedQuincena: 1 | 2;
   variableAmount: boolean;
   canPayWithCard: boolean;
   active: boolean;
@@ -169,23 +170,30 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
           expectedAmountMinor: template.estimatedAmountMinor,
           currency: template.currency,
           dueDate,
-          quincena: getQuincena(dueDate),
+          quincena: template.plannedQuincena ?? getQuincena(dueDate),
           canPayWithCard: template.canPayWithCard,
           notes: template.notes,
           excelRowLabel: template.excelRowLabel,
           ...meta(occurrence),
         };
       });
+    if (!template.active) {
+      Object.assign(
+        updates,
+        buildPausedMonthlyOccurrenceUpdates(data, templateId, getMonthKey(toLocalDateKey())),
+      );
+    }
     await commitUpdates(updates);
-  }, [commitUpdates, data.monthlyOccurrences, data.monthlyTemplates, meta]);
+  }, [commitUpdates, data, meta]);
 
   const archiveMonthlyTemplate = useCallback(async (id: string) => {
     const existing = data.monthlyTemplates[id];
     if (!existing) return;
     await commitUpdates({
       [`monthlyTemplates/${id}`]: { ...existing, active: false, ...meta(existing), archivedAt: new Date().toISOString() },
+      ...buildPausedMonthlyOccurrenceUpdates(data, id, getMonthKey(toLocalDateKey())),
     });
-  }, [commitUpdates, data.monthlyTemplates, meta]);
+  }, [commitUpdates, data, meta]);
 
   const createOneTimeMonthly = useCallback(async (input: OneTimeMonthlyInput) => {
     const id = createId();
@@ -197,7 +205,7 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
       currency: input.currency,
       dueDate: input.dueDate,
       financialMonth: getMonthKey(input.dueDate),
-      quincena: getQuincena(input.dueDate),
+      quincena: input.plannedQuincena,
       status: "upcoming",
       canPayWithCard: input.canPayWithCard,
       oneTime: true,

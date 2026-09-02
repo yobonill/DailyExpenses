@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { applyFinancialUpdates, createEmptyFinancialData } from "./financialState";
-import { buildGenerationUpdates } from "./financialGeneration";
+import { buildGenerationUpdates, buildPausedMonthlyOccurrenceUpdates } from "./financialGeneration";
 
 const metadata = {
   createdAt: "2026-09-02T12:00:00.000Z",
@@ -16,7 +16,7 @@ describe("recurring generation", () => {
     data.monthlyTemplates.internet = {
       id: "internet", name: "Internet", estimatedAmountMinor: 150000, currency: "DOP",
       dueRule: { kind: "day", day: 5 }, variableAmount: false, canPayWithCard: true,
-      active: true, excelRowLabel: "Internet", ...metadata,
+      plannedQuincena: 1, active: true, excelRowLabel: "Internet", ...metadata,
     };
     data.incomeTemplates.salary = {
       id: "salary", name: "Nómina", incomeType: "salary", expectedAmountMinor: 5000000,
@@ -25,13 +25,41 @@ describe("recurring generation", () => {
     };
     const updates = buildGenerationUpdates(data, "user-a", new Date("2026-09-02T12:00:00.000Z"));
     expect(updates["monthlyOccurrences/internet_2026-08"]).toMatchObject({
-      dueDate: "2026-09-05", financialMonth: "2026-08", quincena: 2,
+      dueDate: "2026-09-05", financialMonth: "2026-08", quincena: 1,
     });
     expect(updates["monthlyOccurrences/internet_2027-08"]).toBeDefined();
     expect(updates["incomeOccurrences/salary_2026-08-30"]).toMatchObject({ quincena: 2 });
 
     const generated = applyFinancialUpdates(data, updates);
     expect(buildGenerationUpdates(generated, "user-b", new Date("2026-09-02T12:00:00.000Z"))).toEqual({});
+  });
+
+  it("pauses only future unpaid projections and preserves the current period and paid history", () => {
+    const data = createEmptyFinancialData();
+    data.monthlyOccurrences.current = {
+      id: "current", templateId: "internet", name: "Internet", expectedAmountMinor: 150000,
+      currency: "DOP", dueDate: "2026-09-05", financialMonth: "2026-08", quincena: 1,
+      status: "upcoming", canPayWithCard: true, oneTime: false, ...metadata,
+    };
+    data.monthlyOccurrences.future = {
+      id: "future", templateId: "internet", name: "Internet", expectedAmountMinor: 150000,
+      currency: "DOP", dueDate: "2026-10-05", financialMonth: "2026-09", quincena: 1,
+      status: "upcoming", canPayWithCard: true, oneTime: false, ...metadata,
+    };
+    data.monthlyOccurrences.paid = {
+      id: "paid", templateId: "internet", name: "Internet", expectedAmountMinor: 150000,
+      actualAmountMinor: 152000, currency: "DOP", dueDate: "2026-10-05", financialMonth: "2026-09",
+      quincena: 1, status: "paid", canPayWithCard: true, oneTime: false, ...metadata,
+    };
+    data.monthlyOccurrences.other = {
+      id: "other", templateId: "water", name: "Agua", expectedAmountMinor: 50000,
+      currency: "DOP", dueDate: "2026-10-10", financialMonth: "2026-09", quincena: 1,
+      status: "upcoming", canPayWithCard: false, oneTime: false, ...metadata,
+    };
+
+    expect(buildPausedMonthlyOccurrenceUpdates(data, "internet", "2026-08")).toEqual({
+      "monthlyOccurrences/future": null,
+    });
   });
 
   it("creates one future-expense occurrence and does not duplicate it", () => {

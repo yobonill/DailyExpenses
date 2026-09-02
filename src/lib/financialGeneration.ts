@@ -70,7 +70,7 @@ export const buildGenerationUpdates = (
         currency: template.currency,
         dueDate,
         financialMonth,
-        quincena: getQuincena(dueDate),
+        quincena: template.plannedQuincena ?? getQuincena(dueDate),
         status: "upcoming",
         canPayWithCard: template.canPayWithCard,
         oneTime: false,
@@ -161,3 +161,15 @@ export const buildGenerationUpdates = (
 
   return updates;
 };
+
+export const buildPausedMonthlyOccurrenceUpdates = (
+  data: FinancialData,
+  templateId: string,
+  currentFinancialMonth: string,
+): Record<string, null> => Object.fromEntries(
+  Object.values(data.monthlyOccurrences)
+    .filter((occurrence) => occurrence.templateId === templateId
+      && occurrence.status === "upcoming"
+      && occurrence.financialMonth > currentFinancialMonth)
+    .map((occurrence) => [`monthlyOccurrences/${occurrence.id}`, null]),
+);

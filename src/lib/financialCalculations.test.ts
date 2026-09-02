@@ -65,4 +65,16 @@ describe("financial calculations", () => {
     expect(getCardSavingsCoverage(data, "card", "DOP")).toBe(320000);
     expect(getCardSavingsCoverage(data, "card", "USD")).toBe(0);
   });
+
+  it("filters monthly obligations by their planned quincena instead of the due-date quincena", () => {
+    const data = createEmptyFinancialData();
+    data.monthlyOccurrences.internet = {
+      id: "internet", name: "Internet", expectedAmountMinor: 150000, currency: "DOP",
+      dueDate: "2026-09-05", financialMonth: "2026-08", quincena: 1,
+      status: "upcoming", canPayWithCard: true, oneTime: false, ...metadata,
+    };
+
+    expect(calculateReportTotals(data, [], ["2026-08"], 1, "DOP").monthlyPending).toBe(150000);
+    expect(calculateReportTotals(data, [], ["2026-08"], 2, "DOP").monthlyPending).toBe(0);
+  });
 });

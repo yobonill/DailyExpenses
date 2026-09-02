@@ -26,6 +26,7 @@ export interface MonthlyExpenseTemplate extends RecordMetadata {
   estimatedAmountMinor: number;
   currency: Currency;
   dueRule: DueDateRule;
+  plannedQuincena?: 1 | 2;
   variableAmount: boolean;
   canPayWithCard: boolean;
   active: boolean;

@@ -401,6 +401,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px s
 .field input, .field select, .field textarea { width: 100%; min-height: 46px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); color: var(--text); padding: 10px 12px; }
 .field textarea { min-height: 82px; resize: vertical; }
 .field small, .field-help { color: var(--muted); font-size: .72rem; line-height: 1.4; }
+.form-warning { margin: 0; padding: 10px 12px; border-radius: 11px; background: #f8eed5; color: #7f5b18; font-size: .8rem; line-height: 1.45; }
 .compact-money > span { font-size: .82rem; }
 .compact-money input { padding-left: 55px; }
 .checkbox-field { display: flex; align-items: flex-start; gap: 10px; padding: 9px 0; cursor: pointer; }
@@ -517,6 +518,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px s
 .mode-tabs button { min-height: 42px; border: 0; border-radius: 11px; background: transparent; color: var(--muted); font-weight: 800; cursor: pointer; }
 .mode-tabs button.active { background: #fff; color: var(--text); box-shadow: 0 2px 8px rgba(30,38,31,.07); }
 .report-shortcuts { display: flex; justify-content: flex-end; gap: 9px; }
+.category-report-heading .compact-field { min-width: 220px; margin: 0; }
 .report-detail-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
 .report-detail-grid article { padding: 15px; border: 1px solid var(--border); border-radius: 17px; background: var(--surface); }
 .report-detail-grid h2 { margin: 0 0 10px; font-size: .95rem; }
@@ -559,6 +561,8 @@ tbody tr:last-child td { border-bottom: 0; }
   .period-toolbar .text-button { justify-self: start; min-height: 32px; }
   .summary-strip, .metric-grid, .four-metrics { grid-template-columns: repeat(2, 1fr); }
   .fund-grid, .card-grid, .more-grid, .report-detail-grid { grid-template-columns: 1fr; }
+  .category-report-heading { align-items: stretch; flex-direction: column; }
+  .category-report-heading .compact-field { min-width: 0; width: 100%; }
   .template-list article { grid-template-columns: minmax(0,1fr) auto; }
   .template-list .inline-actions { grid-column: 1 / -1; }
 }

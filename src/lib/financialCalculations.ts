@@ -152,6 +152,13 @@ export const isInSelectedPeriod = (
   quincena: 1 | 2 | "all",
 ): boolean => monthKeys.has(getMonthKey(dateKey)) && (quincena === "all" || getQuincena(dateKey) === quincena);
 
+export const isPlannedOccurrenceInSelectedPeriod = (
+  occurrence: { financialMonth: string; quincena: 1 | 2 },
+  monthKeys: Set<string>,
+  quincena: 1 | 2 | "all",
+): boolean => monthKeys.has(occurrence.financialMonth)
+  && (quincena === "all" || occurrence.quincena === quincena);
+
 export interface CurrencyReportTotals {
   expectedIncome: number;
   receivedIncome: number;
@@ -181,7 +188,7 @@ export const calculateReportTotals = (
     item.currency === currency && isInSelectedPeriod(item.expectedDate, selected, quincena) && item.status !== "cancelled",
   );
   const monthly = Object.values(data.monthlyOccurrences).filter((item) =>
-    item.currency === currency && isInSelectedPeriod(item.dueDate, selected, quincena) && item.status !== "cancelled",
+    item.currency === currency && isPlannedOccurrenceInSelectedPeriod(item, selected, quincena) && item.status !== "cancelled",
   );
   const nonMonthly = Object.values(data.nonMonthlyOccurrences).filter((item) =>
     item.currency === currency && isInSelectedPeriod(item.dueDate, selected, quincena) && item.status !== "cancelled",

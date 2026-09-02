@@ -1,8 +1,17 @@
-# Registro de implementación · Especificación v1.2 · Release 1.0.1
+# Registro de implementación · Especificación v1.2 · Release 1.1.0
 
 ## Resultado
 
-La implementación conserva Daily Expenses como PWA compartida y pantalla inicial. Release 1.0.1 conecta la aplicación al proyecto Firebase exclusivo `app-daily-expenses-budget`. No se creó APK, no se cambió el origen de GitHub Pages y no se modificó el código ni el backend de TaskFollower.
+La implementación conserva Daily Expenses como PWA compartida y pantalla inicial. Release 1.1.0 mantiene la aplicación en el proyecto Firebase exclusivo `app-daily-expenses-budget` y añade la corrección funcional de quincenas, categorías, recurrencia y filas nuevas de Excel. No se creó APK, no se cambió el origen de GitHub Pages y no se modificó el código ni el backend de TaskFollower.
+
+## Cambios de Release 1.1.0
+
+- Cada gasto mensual recurrente o puntual tiene una `Quincena planificada` explícita. El vencimiento sigue controlando avisos; la quincena planificada controla presupuesto, Dashboard, reportes y ubicación en Excel.
+- Las plantillas anteriores que no tienen el nuevo campo continúan funcionando y deducen su quincena con la regla histórica hasta que se editen.
+- `Plantilla activa` se reemplazó por `Repetir automáticamente cada mes`, con explicación visible. Pausar elimina solo proyecciones futuras pendientes y conserva el período actual y todo el historial.
+- Las categorías ahora son una lista predefinida y alimentan un nuevo resumen por categoría en Reportes.
+- `Fila en Excel` permite usar una fila existente, crear una fila con nombre personalizado o dejarla temporalmente sin asignar. La exportación usa hasta 13 espacios por quincena y valida el límite antes de descargar.
+- Las reglas Firebase aceptan y validan `plannedQuincena` cuando está presente.
 
 ## Fases completadas
 
@@ -18,7 +27,7 @@ La implementación conserva Daily Expenses como PWA compartida y pantalla inicia
 
 - Namespace Firebase versionado, metadatos, unidades menores, cola local y transacciones con control de versión/integridad. (`DAT-001`–`DAT-010`, `CALC-002`, `CALC-004`)
 - Reglas exactas de mes financiero, Q1/Q2 y febrero. (`CAL-001`–`CAL-014`)
-- Plantillas, generación idempotente, pagos, tarjeta, cancelación, reapertura e historial. (`MON-001`–`MON-018`)
+- Plantillas, quincena planificada independiente del vencimiento, generación idempotente, pausa/reanudación, pagos, tarjeta, cancelación, reapertura e historial. (`MON-001`–`MON-018`)
 
 ### Fase 2 · Dashboard
 
@@ -44,8 +53,8 @@ La implementación conserva Daily Expenses como PWA compartida y pantalla inicia
 
 ### Fase 7 · Reportes y Excel
 
-- Gastos, flujo de caja y planificación; filtros Q1/Q2, mes, varios meses y año; monedas separadas. (`RPT-001`–`RPT-008`)
-- Exportación basada en la plantilla original, valores duros, validación y confirmación separada de gastos pendientes. (`XLS-001`–`XLS-011`)
+- Gastos, flujo de caja y planificación; filtros Q1/Q2, mes, varios meses y año; monedas separadas y obligaciones por categoría. (`RPT-001`–`RPT-008`)
+- Exportación basada en la plantilla original, valores duros, filas de presupuesto personalizadas, validación de capacidad y confirmación separada de gastos pendientes. (`XLS-001`–`XLS-011`)
 
 ### Fase 8 · Finalización
 
@@ -57,17 +66,17 @@ La implementación conserva Daily Expenses como PWA compartida y pantalla inicia
 
 ```text
 npm test
-7 archivos de prueba · 20 pruebas aprobadas
+7 archivos de prueba · 22 pruebas aprobadas
 
 npm run build
 TypeScript y Vite aprobados
 ```
 
-La prueba del exportador carga la plantilla real, genera `Presupuesto 2026.xlsx`, vuelve a abrirlo con ExcelJS y compara celdas de presupuesto, pagos, ingresos, detalles y resumen anual.
+La prueba del exportador carga la plantilla real, genera `Presupuesto 2026.xlsx`, vuelve a abrirlo con ExcelJS y compara celdas de presupuesto, una fila personalizada, pagos, ingresos, detalles y resumen anual. La suite también prueba una quincena planificada que no coincide con la fecha de vencimiento y la pausa selectiva de proyecciones futuras.
 
 Los servidores se iniciaron en 42871/42872 y se comprobó que `strictPort` rechaza una segunda instancia en 42871.
 
-También se copió el proyecto a un directorio limpio sin `node_modules` ni `dist`, se ejecutaron `npm ci`, las 20 pruebas y el build. El Excel representativo se abrió y volvió a guardar con LibreOffice en modo headless; el XLSX resultante pasó la prueba de integridad ZIP/XML.
+También se copió el proyecto a un directorio limpio sin `node_modules` ni `dist`, se ejecutaron `npm ci`, las 22 pruebas y el build. El Excel representativo se abrió y volvió a guardar con LibreOffice en modo headless; el XLSX resultante pasó la prueba de integridad ZIP/XML.
 
 ## Pasos manuales antes de producción
 

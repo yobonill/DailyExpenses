@@ -10,6 +10,7 @@ import {
   getStatementRemaining,
   isNonMonthlyWarningActive,
   isInSelectedPeriod,
+  isPlannedOccurrenceInSelectedPeriod,
   latestStatements,
   statusLabel,
 } from "../../lib/financialCalculations";
@@ -36,7 +37,7 @@ export function DashboardView({ data, expenses, onPay, onNavigate }: DashboardVi
 
   const obligations = useMemo(() => {
     const monthly: Payable[] = Object.values(data.monthlyOccurrences)
-      .filter((item) => item.status === "upcoming" && isInSelectedPeriod(item.dueDate, monthSet, quincena))
+      .filter((item) => item.status === "upcoming" && isPlannedOccurrenceInSelectedPeriod(item, monthSet, quincena))
       .map((item) => ({ type: "monthly", item }));
     const irregular: Payable[] = Object.values(data.nonMonthlyOccurrences)
       .filter((item) => {

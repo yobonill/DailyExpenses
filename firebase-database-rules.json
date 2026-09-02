@@ -16,7 +16,7 @@
         ".validate": "newData.hasChild('schemaVersion') && newData.child('schemaVersion').val() === 1",
         "monthlyTemplates": {
           "$id": {
-            ".validate": "!newData.exists() || (newData.hasChildren(['id','name','estimatedAmountMinor','currency','dueRule','active','createdAt','createdBy','updatedAt','updatedBy','version']) && newData.child('id').val() === $id && newData.child('name').isString() && newData.child('estimatedAmountMinor').isNumber() && newData.child('estimatedAmountMinor').val() > 0 && (newData.child('currency').val() === 'DOP' || newData.child('currency').val() === 'USD'))"
+            ".validate": "!newData.exists() || (newData.hasChildren(['id','name','estimatedAmountMinor','currency','dueRule','active','createdAt','createdBy','updatedAt','updatedBy','version']) && newData.child('id').val() === $id && newData.child('name').isString() && newData.child('estimatedAmountMinor').isNumber() && newData.child('estimatedAmountMinor').val() > 0 && (newData.child('currency').val() === 'DOP' || newData.child('currency').val() === 'USD') && (!newData.hasChild('plannedQuincena') || newData.child('plannedQuincena').val() === 1 || newData.child('plannedQuincena').val() === 2))"
           }
         },
         "incomeTemplates": {
