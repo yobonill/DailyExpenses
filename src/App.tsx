@@ -20,8 +20,9 @@ import { useFinanceActions } from "./hooks/useFinanceActions";
 import { usePwaInstall } from "./hooks/usePwaInstall";
 import type { AppUserDefinition } from "./config/appUsers";
 import type { PurchaseGoal } from "./models/finance";
-import type { Expense, ExpenseEditableFields } from "./models/expense";
+import type { Expense, ExpenseEditableFields, SyncState } from "./models/expense";
 import type { NewExpenseInput } from "./hooks/useExpenses";
+import { appendSyncLog } from "./lib/syncLog";
 
 type View = "capture" | "review" | "dashboard" | "budget" | "future" | "goals" | "savings" | "income" | "cards" | "reports" | "settings" | "more";
 
@@ -155,9 +156,35 @@ function AuthenticatedApp({ user, onLogout }: { user: AppUserDefinition; onLogou
     }
   };
 
-  const combinedSync = financial.pendingCount > 0 || financial.syncState === "error" || financial.syncState === "offline"
-    ? { state: financial.syncState, message: financial.syncMessage, count: financial.pendingCount + expensesState.pendingCount, retry: financial.retrySync }
-    : { state: expensesState.syncState, message: expensesState.syncMessage, count: expensesState.pendingCount, retry: expensesState.retrySync };
+  const combinedPendingCount = financial.pendingCount + expensesState.pendingCount;
+  const combinedState: SyncState = financial.syncState === "error" || expensesState.syncState === "error"
+    ? "error"
+    : financial.syncState === "offline" || expensesState.syncState === "offline"
+      ? "offline"
+      : financial.syncState === "saving" || expensesState.syncState === "saving"
+        ? "saving"
+        : financial.syncState === "connecting" || expensesState.syncState === "connecting"
+          ? "connecting"
+          : "synced";
+  const syncMessages = [
+    financial.pendingCount > 0 || financial.syncState === "error" || financial.syncState === "offline"
+      ? `Presupuesto: ${financial.syncMessage}`
+      : null,
+    expensesState.pendingCount > 0 || expensesState.syncState === "error" || expensesState.syncState === "offline"
+      ? `Gastos: ${expensesState.syncMessage}`
+      : null,
+  ].filter((message): message is string => Boolean(message));
+  const combinedMessage = syncMessages.length
+    ? syncMessages.join(" · ")
+    : combinedState === "synced"
+      ? "Todos los datos están sincronizados."
+      : combinedState === "saving"
+        ? "Sincronizando cambios con Firebase…"
+        : "Conectando con Firebase…";
+  const retryCombinedSync = useCallback(async () => {
+    appendSyncLog("Sistema", "info", `Reintento manual iniciado con ${combinedPendingCount} cambio${combinedPendingCount === 1 ? "" : "s"} pendiente${combinedPendingCount === 1 ? "" : "s"}.`);
+    await Promise.all([financial.retrySync(), expensesState.retrySync()]);
+  }, [combinedPendingCount, expensesState.retrySync, financial.retrySync]);
 
   const renderView = () => {
     switch (view) {
@@ -171,7 +198,7 @@ function AuthenticatedApp({ user, onLogout }: { user: AppUserDefinition; onLogou
       case "savings": return <SavingsView data={financial.data} onSave={actions.saveSavingsFund} onAddTransaction={actions.addSavingsTransaction} onTransfer={actions.transferSavings} onRelease={actions.releaseAllocation} />;
       case "cards": return <CreditCardsView data={financial.data} onSaveCard={actions.saveCreditCard} onSaveMinimum={actions.saveCardStatementMinimum} onAddTransaction={actions.addCardTransaction} onReverseTransaction={actions.reverseCardTransaction} />;
       case "reports": return <FinanceReportView data={financial.data} expenses={expensesState.expenses} />;
-      case "settings": return <SettingsView data={financial.data} expenses={expensesState.expenses} syncPendingCount={financial.pendingCount + expensesState.pendingCount} onUpdateSettings={actions.updateSettings} onRecordBackup={(timestamp) => financial.commitUpdates({ lastBackupAt: timestamp })} canInstall={canInstall} onInstall={handleInstall} onLogout={onLogout} />;
+      case "settings": return <SettingsView data={financial.data} expenses={expensesState.expenses} syncPendingCount={combinedPendingCount} syncDiagnostics={{ expenses: { state: expensesState.syncState, message: expensesState.syncMessage, pendingCount: expensesState.pendingCount }, financial: { state: financial.syncState, message: financial.syncMessage, pendingCount: financial.pendingCount } }} onRetrySync={retryCombinedSync} onUpdateSettings={actions.updateSettings} onRecordBackup={(timestamp) => financial.commitUpdates({ lastBackupAt: timestamp })} canInstall={canInstall} onInstall={handleInstall} onLogout={onLogout} />;
       default: return <MoreView onNavigate={setView} />;
     }
   };
@@ -180,7 +207,7 @@ function AuthenticatedApp({ user, onLogout }: { user: AppUserDefinition; onLogou
     <div className="app-shell">
       <header className="topbar">
         <button className="compact-brand" type="button" onClick={() => setView("capture")} aria-label="Ir a registrar gasto"><span className="compact-brand-mark" aria-hidden="true">$</span><span>Gastos & Presupuesto</span></button>
-        <SyncStatus state={combinedSync.state} message={combinedSync.message} pendingCount={combinedSync.count} onRetry={() => void combinedSync.retry()} />
+        <SyncStatus state={combinedState} message={combinedMessage} pendingCount={combinedPendingCount} onRetry={retryCombinedSync} />
       </header>
       <main className="app-content">{renderView()}</main>
       <nav className="bottom-nav expanded-nav" aria-label="Navegación principal">

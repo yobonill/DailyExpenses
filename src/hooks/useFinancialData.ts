@@ -19,6 +19,7 @@ import type {
 } from "../models/finance";
 import { isFinanciallyConsistent, reconcileVersionedUpdates } from "../lib/financialIntegrity";
 import { getAuthenticatedFirebaseServices } from "../services/firebase";
+import { appendSyncLog } from "../lib/syncLog";
 
 export const toFirebaseCompatibleValue = <T,>(value: T): T =>
   JSON.parse(JSON.stringify(value)) as T;
@@ -33,6 +34,12 @@ const syncErrorMessage = (reason: unknown): string => {
   return code
     ? `No se pudo sincronizar con Firebase (${code}).`
     : "No se pudo sincronizar con Firebase.";
+};
+
+const syncErrorDetails = (reason: unknown): string => {
+  if (!(reason instanceof Error)) return String(reason || "Error desconocido");
+  const code = "code" in reason ? String((reason as Error & { code?: unknown }).code || "") : "";
+  return [code, reason.message].filter(Boolean).join(" · ");
 };
 
 export const useFinancialData = (user: AppUserDefinition): UseFinancialDataResult => {
@@ -93,6 +100,7 @@ export const useFinancialData = (user: AppUserDefinition): UseFinancialDataResul
         }
       }
       if (rejected) {
+        appendSyncLog("Presupuesto", "error", conflictMessageRef.current);
         const remaining = localRef.current.pendingOperations.filter((item) => item.id !== operation.id);
         commitState({
           data: applyPendingFinancialOperations(remoteRef.current, remaining),
@@ -104,9 +112,11 @@ export const useFinancialData = (user: AppUserDefinition): UseFinancialDataResul
       return true;
     } catch (reason) {
       console.error("[Daily Expenses] Error al sincronizar datos financieros", reason);
+      const errorMessage = syncErrorMessage(reason);
+      appendSyncLog("Presupuesto", "error", `${errorMessage} Detalle técnico: ${syncErrorDetails(reason)}`);
       if (mountedRef.current) {
         setSyncState(navigator.onLine ? "error" : "offline");
-        setSyncMessage(`${syncErrorMessage(reason)} Guardado localmente; se reintentará.`);
+        setSyncMessage(`${errorMessage} Guardado localmente; se reintentará.`);
       }
       return false;
     }
@@ -114,9 +124,14 @@ export const useFinancialData = (user: AppUserDefinition): UseFinancialDataResul
 
   const retrySync = useCallback(async () => {
     if (syncingRef.current) return;
+    const initialCount = localRef.current.pendingOperations.length;
     if (!navigator.onLine || !connectedRef.current) {
       setSyncState("offline");
-      setSyncMessage("Sin conexión · datos financieros disponibles en este dispositivo");
+      const message = navigator.onLine
+        ? "Firebase no ha confirmado conexión. Revisa la sesión o la red y vuelve a intentar."
+        : "El dispositivo no tiene conexión a internet.";
+      setSyncMessage(`${message} Los datos financieros permanecen en este dispositivo.`);
+      if (initialCount > 0) appendSyncLog("Presupuesto", "error", `${message} Pendientes: ${initialCount}.`);
       return;
     }
     syncingRef.current = true;
@@ -136,6 +151,7 @@ export const useFinancialData = (user: AppUserDefinition): UseFinancialDataResul
       } else {
         setSyncState("synced");
         setSyncMessage("Sincronizado");
+        if (initialCount > 0) appendSyncLog("Presupuesto", "success", `${initialCount} cambio${initialCount === 1 ? "" : "s"} sincronizado${initialCount === 1 ? "" : "s"} correctamente.`);
       }
     }
   }, [executeOperation]);
@@ -199,7 +215,9 @@ export const useFinancialData = (user: AppUserDefinition): UseFinancialDataResul
       if (connectedRef.current) void retrySync();
       else {
         setSyncState("offline");
-        setSyncMessage("Sin conexión · datos financieros disponibles en este dispositivo");
+        setSyncMessage(navigator.onLine
+          ? "Firebase no ha confirmado conexión · datos financieros disponibles en este dispositivo"
+          : "Sin internet · datos financieros disponibles en este dispositivo");
       }
     });
 
@@ -217,10 +235,13 @@ export const useFinancialData = (user: AppUserDefinition): UseFinancialDataResul
         }
         refresh();
       },
-      () => {
+      (reason) => {
+        console.error("[Daily Expenses] Error al cargar datos financieros", reason);
+        const errorMessage = syncErrorMessage(reason);
+        appendSyncLog("Presupuesto", "error", `No se pudieron cargar los datos financieros compartidos. ${errorMessage} Detalle técnico: ${syncErrorDetails(reason)}`);
         setReady(true);
         setSyncState("error");
-        setSyncMessage("No se pudieron cargar los datos financieros compartidos.");
+        setSyncMessage(errorMessage);
       },
     );
 
@@ -231,6 +252,19 @@ export const useFinancialData = (user: AppUserDefinition): UseFinancialDataResul
       unsubscribeConnection?.();
     };
   }, [commitState, retrySync, user.uid]);
+
+  useEffect(() => {
+    const retryWhenOnline = () => { void retrySync(); };
+    const retryWhenVisible = () => {
+      if (document.visibilityState === "visible") void retrySync();
+    };
+    window.addEventListener("online", retryWhenOnline);
+    document.addEventListener("visibilitychange", retryWhenVisible);
+    return () => {
+      window.removeEventListener("online", retryWhenOnline);
+      document.removeEventListener("visibilitychange", retryWhenVisible);
+    };
+  }, [retrySync]);
 
   return { data, ready, syncState, syncMessage, pendingCount, commitUpdates, replaceData, retrySync };
 };

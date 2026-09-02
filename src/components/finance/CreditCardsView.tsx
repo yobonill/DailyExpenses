@@ -39,6 +39,7 @@ type AddCardTransaction = (
   description: string,
   savingsFundId?: string,
   settlementAmountDopMinor?: number,
+  affectsCurrentBalance?: boolean,
 ) => Promise<void>;
 
 const formatExchangeRate = (rate: number): string => new Intl.NumberFormat("es-DO", {
@@ -202,6 +203,7 @@ function CardTransactionModal({
   const [date, setDate] = useState(toLocalDateKey());
   const [description, setDescription] = useState(initialType === "payment" ? "Pago de tarjeta" : "");
   const [savingsFundId, setSavingsFundId] = useState("");
+  const [includedInCurrentBalance, setIncludedInCurrentBalance] = useState(false);
   const [adjustmentDirection, setAdjustmentDirection] = useState<"increase" | "decrease">("increase");
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
@@ -219,6 +221,7 @@ function CardTransactionModal({
   const changeType = (nextType: CardTransaction["type"]) => {
     setType(nextType);
     setSavingsFundId("");
+    if (nextType !== "payment") setIncludedInCurrentBalance(false);
     if (nextType !== "payment") setSettlementDop("");
   };
 
@@ -234,7 +237,7 @@ function CardTransactionModal({
       setError("Completa monto y descripción.");
       return;
     }
-    if (type === "payment" && parsedAmount > currentDebt) {
+    if (type === "payment" && !includedInCurrentBalance && parsedAmount > currentDebt) {
       setError("El pago no puede exceder la deuda pendiente.");
       return;
     }
@@ -257,6 +260,7 @@ function CardTransactionModal({
         description,
         type === "payment" ? savingsFundId || undefined : undefined,
         type === "payment" && currency === "USD" ? parsedSettlementDop || undefined : undefined,
+        type === "payment" ? !includedInCurrentBalance : undefined,
       );
       onClose();
     } catch (reason) {
@@ -285,14 +289,28 @@ function CardTransactionModal({
           <>
             <MoneyField label="Monto real pagado en pesos" value={settlementDop} onChange={setSettlementDop} currency="DOP" />
             <p className="privacy-note">
-              La deuda se reducirá en USD y la salida de dinero quedará registrada en DOP.
+              {includedInCurrentBalance
+                ? "Se conservará la deuda actual en USD y el pago histórico quedará registrado como salida en DOP."
+                : "La deuda se reducirá en USD y la salida de dinero quedará registrada en DOP."}
               {effectiveRate && <> Tasa efectiva: <strong>RD${formatExchangeRate(effectiveRate)} por US$1</strong>.</>}
             </p>
           </>
         )}
-        <label className="field"><span>Fecha</span><input type="date" value={date} onChange={(event) => setDate(event.target.value)} /></label>
+        <label className="field"><span>Fecha</span><input type="date" value={date} onChange={(event) => {
+          const nextDate = event.target.value;
+          setDate(nextDate);
+          if (type === "payment") {
+            const historical = nextDate <= card.openingDate;
+            setIncludedInCurrentBalance(historical);
+            if (historical) setSavingsFundId("");
+          }
+        }} /></label>
         <label className="field"><span>Descripción</span><input value={description} onChange={(event) => setDescription(event.target.value)} /></label>
-        {type === "payment" && (
+        {type === "payment" && <CheckboxField checked={includedInCurrentBalance} onChange={(checked) => {
+          setIncludedInCurrentBalance(checked);
+          if (checked) setSavingsFundId("");
+        }} label="Este pago ya está incluido en la deuda actual" help="Úsalo para registrar un pago anterior al balance inicial. Contará para el pago mínimo, el historial y los reportes, pero no volverá a restarse de la deuda actual." />}
+        {type === "payment" && !includedInCurrentBalance && (
           <label className="field"><span>Origen del pago (opcional)</span><select value={savingsFundId} onChange={(event) => setSavingsFundId(event.target.value)}><option value="">Efectivo / banco</option>{funds.map((fund) => <option key={fund.id} value={fund.id}>{fund.name} · {fund.currency}</option>)}</select><small className="field-help">{currency === "USD" ? "Si eliges un fondo, se retirará el monto real pagado en DOP." : "Si eliges un fondo, el retiro y la liberación de cobertura se registran juntos."}</small></label>
         )}
         {error && <p className="form-error">{error}</p>}
@@ -376,6 +394,7 @@ export function CreditCardsView({
                           <span>
                             <strong>{item.description}</strong>
                             <small>{formatShortDate(item.transactionDate)} · {item.type === "charge" ? "Cargo" : item.type === "payment" ? "Pago" : item.type === "credit" ? "Crédito" : "Ajuste"}</small>
+                            {item.type === "payment" && item.affectsCurrentBalance === false && <small>Histórico · ya incluido en la deuda actual</small>}
                             {item.settlementAmountDopMinor && <small>Salida real {formatCurrency(item.settlementAmountDopMinor, "DOP")}{effectiveRate ? ` · Tasa RD$${formatExchangeRate(effectiveRate)}/US$1` : ""}</small>}
                           </span>
                           <b className={debtIncrease ? "debt-up" : "debt-down"}>{debtIncrease ? "+" : "−"}{formatCurrency(Math.abs(item.amountMinor), item.currency)}</b>

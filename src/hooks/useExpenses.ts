@@ -16,6 +16,7 @@ import {
   type LocalExpenseState,
 } from "../lib/localState";
 import { toLocalDateKey } from "../lib/date";
+import { appendSyncLog } from "../lib/syncLog";
 
 const normalizeExpense = (raw: Partial<Expense> & { id: string }): Expense => {
   const createdAt = typeof raw.createdAt === "string" ? raw.createdAt : new Date().toISOString();
@@ -53,6 +54,26 @@ const normalizeExpense = (raw: Partial<Expense> & { id: string }): Expense => {
 
 const stripUndefined = <T,>(value: T): T =>
   JSON.parse(JSON.stringify(value)) as T;
+
+const expenseSyncErrorMessage = (reason: unknown): string => {
+  const code = reason && typeof reason === "object" && "code" in reason
+    ? String((reason as { code?: unknown }).code || "")
+    : "";
+  const normalized = code.toLowerCase();
+  if (normalized.includes("permission-denied") || normalized.includes("permission_denied")) {
+    return "Firebase rechazó el gasto. Confirma que iniciaste sesión y que publicaste las reglas de Daily Expenses.";
+  }
+  if (normalized.includes("auth") || normalized.includes("token")) {
+    return "La sesión de Firebase no es válida. Cierra sesión, vuelve a entrar y reintenta.";
+  }
+  return code ? `Firebase no pudo guardar el gasto (${code}).` : "Firebase no pudo guardar el gasto.";
+};
+
+const expenseSyncErrorDetails = (reason: unknown): string => {
+  if (!(reason instanceof Error)) return String(reason || "Error desconocido");
+  const code = "code" in reason ? String((reason as Error & { code?: unknown }).code || "") : "";
+  return [code, reason.message].filter(Boolean).join(" · ");
+};
 
 const recordToExpenses = (value: unknown): Expense[] => {
   if (!value || typeof value !== "object") return [];
@@ -169,9 +190,10 @@ export const useExpenses = (): UseExpensesResult => {
         const { database } = getAuthenticatedFirebaseServices();
 
         if (operation.type === "create") {
+          const normalizedExpense = normalizeExpense(operation.expense);
           await set(
             ref(database, `expenses/${operation.expense.id}`),
-            stripUndefined(operation.expense),
+            stripUndefined(normalizedExpense),
           );
         } else {
           await update(
@@ -182,12 +204,13 @@ export const useExpenses = (): UseExpensesResult => {
 
         removePendingOperation(operation.id);
         return true;
-      } catch {
+      } catch (reason) {
+        console.error("[Daily Expenses] Error al sincronizar un gasto", reason);
+        const errorMessage = expenseSyncErrorMessage(reason);
+        appendSyncLog("Gastos", "error", `${errorMessage} Detalle técnico: ${expenseSyncErrorDetails(reason)}`);
         if (mountedRef.current) {
           setSyncState(navigator.onLine ? "error" : "offline");
-          setSyncMessage(
-            "Guardado en este dispositivo. La sincronización se reintentará automáticamente.",
-          );
+          setSyncMessage(`${errorMessage} El cambio permanece guardado en este dispositivo.`);
         }
         return false;
       }
@@ -201,11 +224,13 @@ export const useExpenses = (): UseExpensesResult => {
 
     if (!navigator.onLine || !firebaseConnectedRef.current) {
       setSyncState("offline");
-      setSyncMessage(
-        initialCount
-          ? `Sin conexión · ${initialCount} cambio${initialCount === 1 ? "" : "s"} pendiente${initialCount === 1 ? "" : "s"}`
-          : "Sin conexión · datos disponibles en este dispositivo",
-      );
+      const message = navigator.onLine
+        ? "Firebase no ha confirmado conexión. Revisa la sesión o la red y vuelve a intentar."
+        : "El dispositivo no tiene conexión a internet.";
+      setSyncMessage(initialCount
+        ? `${message} ${initialCount} cambio${initialCount === 1 ? "" : "s"} pendiente${initialCount === 1 ? "" : "s"}.`
+        : `${message} Datos disponibles en este dispositivo.`);
+      if (initialCount > 0) appendSyncLog("Gastos", "error", `${message} Pendientes: ${initialCount}.`);
       return;
     }
 
@@ -232,6 +257,7 @@ export const useExpenses = (): UseExpensesResult => {
     if (!localStateRef.current.pendingOperations.length && mountedRef.current) {
       setSyncState("synced");
       setSyncMessage("Sincronizado");
+      if (initialCount > 0) appendSyncLog("Gastos", "success", `${initialCount} cambio${initialCount === 1 ? "" : "s"} sincronizado${initialCount === 1 ? "" : "s"} correctamente.`);
     }
   }, [executeOperation]);
 
@@ -364,8 +390,8 @@ export const useExpenses = (): UseExpensesResult => {
           setSyncState("offline");
           setSyncMessage(
             count
-              ? `Sin conexión · ${count} cambio${count === 1 ? "" : "s"} pendiente${count === 1 ? "" : "s"}`
-              : "Sin conexión · datos disponibles en este dispositivo",
+              ? `${navigator.onLine ? "Firebase no ha confirmado conexión" : "Sin internet"} · ${count} cambio${count === 1 ? "" : "s"} pendiente${count === 1 ? "" : "s"}`
+              : `${navigator.onLine ? "Firebase no ha confirmado conexión" : "Sin internet"} · datos disponibles en este dispositivo`,
           );
         }
       });
@@ -376,16 +402,22 @@ export const useExpenses = (): UseExpensesResult => {
           remoteExpensesRef.current = recordToExpenses(snapshot.val());
           refreshFromRemote();
         },
-        () => {
+        (reason) => {
           if (!mountedRef.current) return;
+          console.error("[Daily Expenses] Error al cargar gastos compartidos", reason);
+          const errorMessage = expenseSyncErrorMessage(reason);
+          appendSyncLog("Gastos", "error", `No se pudieron cargar los gastos compartidos. ${errorMessage} Detalle técnico: ${expenseSyncErrorDetails(reason)}`);
           setSyncState("error");
-          setSyncMessage("No se pudieron cargar los gastos compartidos.");
+          setSyncMessage(errorMessage);
         },
       );
-    } catch {
+    } catch (reason) {
+      console.error("[Daily Expenses] Error al iniciar sincronización de gastos", reason);
+      const errorMessage = expenseSyncErrorMessage(reason);
+      appendSyncLog("Gastos", "error", `No se pudo iniciar la sincronización. ${errorMessage} Detalle técnico: ${expenseSyncErrorDetails(reason)}`);
       firebaseConnectedRef.current = false;
       setSyncState("error");
-      setSyncMessage("No se pudo conectar con Firebase con esta sesión.");
+      setSyncMessage(errorMessage);
     }
 
     return () => {
@@ -395,6 +427,19 @@ export const useExpenses = (): UseExpensesResult => {
       unsubscribeConnection?.();
     };
   }, [commitState, retrySync]);
+
+  useEffect(() => {
+    const retryWhenOnline = () => { void retrySync(); };
+    const retryWhenVisible = () => {
+      if (document.visibilityState === "visible") void retrySync();
+    };
+    window.addEventListener("online", retryWhenOnline);
+    document.addEventListener("visibilitychange", retryWhenVisible);
+    return () => {
+      window.removeEventListener("online", retryWhenOnline);
+      document.removeEventListener("visibilitychange", retryWhenVisible);
+    };
+  }, [retrySync]);
 
   return {
     expenses: expenses.filter((expense) => !expense.deletedAt),

@@ -1059,17 +1059,23 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
     description: string,
     savingsFundId?: string,
     settlementAmountDopMinor?: number,
+    affectsCurrentBalance = true,
   ) => {
     const card = data.creditCards[cardId];
     if (!card) throw new Error("Tarjeta no encontrada.");
     if (type === "charge" && !card.active) throw new Error("La tarjeta está inactiva.");
     if (amountMinor <= 0 && type !== "adjustment") throw new Error("El monto debe ser mayor que cero.");
     if (type === "payment") {
-      const currentDebt = getCardCurrentDebt(data, cardId, currency);
-      if (currentDebt <= 0) throw new Error(`La tarjeta no tiene deuda pendiente en ${currency}.`);
-      if (amountMinor > currentDebt) throw new Error("El pago no puede exceder la deuda pendiente. Para corregir el balance, registra un ajuste.");
+      if (affectsCurrentBalance) {
+        const currentDebt = getCardCurrentDebt(data, cardId, currency);
+        if (currentDebt <= 0) throw new Error(`La tarjeta no tiene deuda pendiente en ${currency}.`);
+        if (amountMinor > currentDebt) throw new Error("El pago no puede exceder la deuda pendiente. Para corregir el balance, registra un ajuste.");
+      }
       if (currency === "USD" && (!settlementAmountDopMinor || settlementAmountDopMinor <= 0)) {
         throw new Error("Escribe el monto real pagado en pesos dominicanos.");
+      }
+      if (!affectsCurrentBalance && savingsFundId) {
+        throw new Error("Un pago ya incluido en la deuda actual no puede retirar dinero de ahorros otra vez.");
       }
     }
     const id = createId();
@@ -1082,6 +1088,7 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
       settlementAmountDopMinor: type === "payment" && currency === "USD"
         ? settlementAmountDopMinor
         : undefined,
+      affectsCurrentBalance: type === "payment" ? affectsCurrentBalance : undefined,
       transactionDate,
       description: description.trim(),
       ...meta(),

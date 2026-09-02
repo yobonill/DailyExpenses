@@ -187,7 +187,10 @@ export const getCardCurrentDebt = (data: FinancialData, cardId: string, currency
   if (!card) return 0;
   const opening = currency === "DOP" ? card.openingCurrentDebtDopMinor : card.openingCurrentDebtUsdMinor;
   return Object.values(data.cardTransactions)
-    .filter((transaction) => transaction.cardId === cardId && transaction.currency === currency && !transaction.reversedAt)
+    .filter((transaction) => transaction.cardId === cardId
+      && transaction.currency === currency
+      && transaction.affectsCurrentBalance !== false
+      && !transaction.reversedAt)
     .reduce((total, transaction) => total + getCardTransactionEffect(transaction.type, transaction.amountMinor), opening);
 };
 
@@ -199,6 +202,7 @@ export const getCardDebtAtDate = (data: FinancialData, cardId: string, currency:
     .filter((transaction) => transaction.cardId === cardId
       && transaction.currency === currency
       && transaction.transactionDate <= endDate
+      && transaction.affectsCurrentBalance !== false
       && !transaction.reversedAt)
     .reduce((total, transaction) => total + getCardTransactionEffect(transaction.type, transaction.amountMinor), opening);
 };

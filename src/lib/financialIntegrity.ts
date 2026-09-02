@@ -46,6 +46,8 @@ export const isFinanciallyConsistent = (candidate: FinancialData): boolean => {
     if (balance < 0 || getFundAllocated(candidate, fundId) > balance) return false;
   }
   for (const transaction of Object.values(candidate.cardTransactions)) {
+    if (transaction.affectsCurrentBalance !== undefined
+      && typeof transaction.affectsCurrentBalance !== "boolean") return false;
     if (transaction.settlementAmountDopMinor !== undefined
       && (transaction.type !== "payment"
         || transaction.currency !== "USD"

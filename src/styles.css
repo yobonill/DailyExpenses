@@ -149,7 +149,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px s
   align-items: center;
   justify-content: flex-end;
   gap: 6px;
-  max-width: 58%;
+  max-width: 68%;
   padding: 7px 9px;
   border: 0;
   border-radius: 999px;
@@ -159,7 +159,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px s
   line-height: 1.2;
   cursor: default;
 }
-.sync-chip span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sync-chip > span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sync-offline, .sync-error { cursor: pointer; }
 .sync-dot { flex: 0 0 auto; width: 7px; height: 7px; border-radius: 50%; background: #9da39d; }
 .sync-synced .sync-dot { background: #4b8a64; }
@@ -566,6 +566,25 @@ tbody tr:last-child td { border-bottom: 0; }
 .settings-card { margin-bottom: 13px; padding: 18px; border: 1px solid var(--border); border-radius: 19px; background: var(--surface); }
 .settings-card h2 { margin: 0 0 11px; font-size: 1.05rem; }
 .settings-card > p { color: var(--muted); font-size: .82rem; line-height: 1.5; }
+.settings-section-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; }
+.settings-section-heading h2 { margin-bottom: 5px; }
+.settings-section-heading p { margin: 0; max-width: 620px; color: var(--muted); font-size: .78rem; line-height: 1.45; }
+.settings-section-heading .button { flex: 0 0 auto; }
+.sync-channel-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-top: 14px; }
+.sync-channel-grid > article { padding: 12px; border: 1px solid var(--border); border-radius: 14px; background: var(--surface-soft); }
+.sync-channel-grid article > div { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.sync-channel-grid p { margin: 9px 0 6px; color: var(--muted); font-size: .78rem; line-height: 1.45; overflow-wrap: anywhere; }
+.sync-channel-grid small { color: var(--muted); }
+.sync-log-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 17px; }
+.sync-log-heading h3 { margin: 0; font-size: .92rem; }
+.sync-log-list { display: grid; gap: 8px; max-height: 340px; margin-top: 9px; overflow-y: auto; }
+.sync-log-entry { padding: 10px 11px; border-left: 4px solid #9da39d; border-radius: 10px; background: var(--surface-soft); }
+.sync-log-entry > div { display: flex; justify-content: space-between; gap: 10px; }
+.sync-log-entry time { color: var(--muted); font-size: .7rem; }
+.sync-log-entry p { margin: 5px 0 0; color: var(--muted); font-size: .76rem; line-height: 1.45; overflow-wrap: anywhere; }
+.sync-log-success { border-left-color: #4b8a64; }
+.sync-log-error { border-left-color: #b85850; }
+.sync-log-info { border-left-color: #c2943f; }
 .settings-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 13px 0; }
 .file-button { position: relative; display: inline-grid; place-items: center; cursor: pointer; }
 .file-button input { position: absolute; width: 1px; height: 1px; opacity: 0; }
@@ -606,4 +625,7 @@ tbody tr:last-child td { border-bottom: 0; }
   .card-balance-grid { grid-template-columns: 1fr; }
   .mode-tabs button { font-size: .7rem; }
   .modal-body { padding: 15px; }
+  .settings-section-heading { align-items: stretch; flex-direction: column; }
+  .settings-section-heading .button { width: 100%; }
+  .sync-channel-grid { grid-template-columns: 1fr; }
 }

@@ -47,7 +47,8 @@ describe("shared financial integrity", () => {
     };
     data.cardTransactions.payment = {
       id: "payment", cardId: "card", currency: "USD", type: "payment", amountMinor: 1000,
-      settlementAmountDopMinor: 62500, transactionDate: "2026-08-20", description: "Pago USD", ...metadata,
+      settlementAmountDopMinor: 62500, transactionDate: "2026-08-20", description: "Pago USD",
+      affectsCurrentBalance: false, ...metadata,
     };
     expect(isFinanciallyConsistent(data)).toBe(true);
 

@@ -218,6 +218,8 @@ export interface CardTransaction extends RecordMetadata {
   currency: Currency;
   type: "charge" | "payment" | "credit" | "adjustment";
   amountMinor: number;
+  /** False when a historical movement is already reflected in the opening current debt snapshot. */
+  affectsCurrentBalance?: boolean;
   /**
    * Actual DOP amount withdrawn when a USD card balance is paid.
    * The USD amount remains authoritative for reducing the card debt.

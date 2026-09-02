@@ -254,6 +254,37 @@ describe("financial calculations", () => {
       .toMatchObject({ remainingMinor: 0, satisfiedDate: "2026-08-30", status: "paidOnTime" });
   });
 
+  it("counts a historical payment toward the minimum without subtracting it twice from current debt", () => {
+    const data = createEmptyFinancialData();
+    data.creditCards.card = {
+      id: "card", name: "Visa Bravo", cutDay: 15, dueDay: 10, active: true,
+      openingCurrentDebtDopMinor: 5887564, openingCurrentDebtUsdMinor: 0,
+      openingStatementDopMinor: 6786327, openingStatementUsdMinor: 0,
+      openingDate: "2026-09-02", ...metadata,
+    };
+    data.cardStatements.dop = {
+      id: "dop", cardId: "card", currency: "DOP", cycleStartDate: "2026-07-16",
+      cutDate: "2026-08-15", dueDate: "2026-09-10", statementAmountMinor: 6786327,
+      minimumPaymentMinor: 558058, status: "open", ...metadata,
+    };
+    data.cardTransactions.historical = {
+      id: "historical", cardId: "card", currency: "DOP", type: "payment", amountMinor: 898763,
+      transactionDate: "2026-08-25", description: "Pago ya reflejado en el balance",
+      affectsCurrentBalance: false, ...metadata,
+    };
+
+    expect(getCardCurrentDebt(data, "card", "DOP")).toBe(5887564);
+    expect(getCardDebtAtDate(data, "card", "DOP", "2026-09-02")).toBe(5887564);
+    expect(getCardMinimumPaymentProgress(data, data.cardStatements.dop, "2026-09-02", 7))
+      .toMatchObject({ paidMinor: 898763, remainingMinor: 0, satisfiedDate: "2026-08-25", status: "paidOnTime" });
+
+    data.cardTransactions.newPayment = {
+      id: "newPayment", cardId: "card", currency: "DOP", type: "payment", amountMinor: 100000,
+      transactionDate: "2026-09-03", description: "Pago posterior al balance", ...metadata,
+    };
+    expect(getCardCurrentDebt(data, "card", "DOP")).toBe(5787564);
+  });
+
   it("keeps undated purchase goals out of projections while reserving savings for them", () => {
     const data = createEmptyFinancialData();
     data.purchaseGoals.tv = {
