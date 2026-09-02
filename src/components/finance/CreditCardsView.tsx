@@ -2,6 +2,7 @@ import { useMemo, useState, type FormEvent } from "react";
 import type { CreditCardInput } from "../../hooks/useFinanceActions";
 import type {
   CardTransaction,
+  CardStatement,
   CreditCard,
   Currency,
   FinancialData,
@@ -9,11 +10,13 @@ import type {
 import { formatShortDate, toLocalDateKey } from "../../lib/date";
 import {
   deriveDatedStatus,
+  getCardMinimumPaymentProgress,
   getCardCurrentDebt,
   getCardSavingsCoverage,
   getStatementRemaining,
   getUsdPaymentEffectiveRate,
   latestStatements,
+  minimumPaymentStatusLabel,
   statusLabel,
 } from "../../lib/financialCalculations";
 import { formatCurrency, minorToInput, parseMoneyToCents } from "../../lib/money";
@@ -42,6 +45,43 @@ const formatExchangeRate = (rate: number): string => new Intl.NumberFormat("es-D
   minimumFractionDigits: 2,
   maximumFractionDigits: 4,
 }).format(rate);
+
+const minimumChipStatus = (status: ReturnType<typeof getCardMinimumPaymentProgress>["status"]): string => {
+  if (status === "paidOnTime") return "paid";
+  if (status === "paidLate" || status === "overdue") return "overdue";
+  if (status === "dueSoon" || status === "dueToday") return status;
+  if (status === "notConfigured") return "partial";
+  return "upcoming";
+};
+
+function MinimumPaymentModal({ statement, onSave, onClose }: {
+  statement: CardStatement;
+  onSave: (statementId: string, minimumPaymentMinor: number) => Promise<void>;
+  onClose: () => void;
+}) {
+  const [amount, setAmount] = useState(minorToInput(statement.minimumPaymentMinor));
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const submit = async (event: FormEvent) => {
+    event.preventDefault();
+    const parsed = parseMoneyToCents(amount);
+    if (amount.trim() && !parsed) {
+      setError("Escribe un monto válido o deja el campo vacío para quitarlo.");
+      return;
+    }
+    setSaving(true);
+    setError("");
+    try {
+      await onSave(statement.id, parsed || 0);
+      onClose();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "No se pudo guardar el pago mínimo.");
+    } finally {
+      setSaving(false);
+    }
+  };
+  return <Modal title={`Pago mínimo · ${statement.currency}`} onClose={onClose}><form className="form-grid" onSubmit={submit}><p className="privacy-note">Copia el pago mínimo exacto que aparece en el estado de cuenta con corte {formatShortDate(statement.cutDate)}. No es un porcentaje fijo: el banco suma intereses, comisiones, cargos, capital vigente dividido entre 36 y cualquier capital vencido.</p><MoneyField label="Pago mínimo indicado por el banco" value={amount} onChange={setAmount} currency={statement.currency} required={false} /><p className="field-help">La app marcará el mínimo como cumplido automáticamente al registrar pagos de esta moneda después del corte. Déjalo vacío para eliminar un valor incorrecto.</p>{error && <p className="form-error">{error}</p>}<div className="modal-actions"><button type="button" className="button button-secondary" onClick={onClose}>Cancelar</button><button className="button button-primary" disabled={saving}>{saving ? "Guardando…" : "Guardar pago mínimo"}</button></div></form></Modal>;
+}
 
 function CardForm({
   card,
@@ -268,16 +308,19 @@ function CardTransactionModal({
 export function CreditCardsView({
   data,
   onSaveCard,
+  onSaveMinimum,
   onAddTransaction,
   onReverseTransaction,
 }: {
   data: FinancialData;
   onSaveCard: (input: CreditCardInput, id?: string) => Promise<void>;
+  onSaveMinimum: (statementId: string, minimumPaymentMinor: number) => Promise<void>;
   onAddTransaction: AddCardTransaction;
   onReverseTransaction: (id: string) => Promise<void>;
 }) {
   const [form, setForm] = useState<CreditCard | "new" | null>(null);
   const [transaction, setTransaction] = useState<{ card: CreditCard; type: CardTransaction["type"] } | null>(null);
+  const [minimumStatement, setMinimumStatement] = useState<CardStatement | null>(null);
   const [expanded, setExpanded] = useState<string | null>(null);
   const cards = useMemo(
     () => Object.values(data.creditCards).filter((card) => !card.archivedAt).sort((a, b) => a.name.localeCompare(b.name)),
@@ -312,8 +355,10 @@ export function CreditCardsView({
                 <div className="card-dates"><span>Corte: día {card.cutDay}</span><span>Pago: día {card.dueDay}</span></div>
                 {cardStatements.map((statement) => {
                   const remaining = getStatementRemaining(data, statement);
-                  const status = deriveDatedStatus({ status: remaining <= 0 ? "paid" : "upcoming", dueDate: statement.dueDate }, today, data.settings.dueSoonDaysCards);
-                  return <div className="statement-row" key={statement.id}><span><strong>Estado {statement.currency}</strong><small>Corte {formatShortDate(statement.cutDate)} · Vence {formatShortDate(statement.dueDate)}</small></span><span><StatusChip status={status} label={statusLabel(status)} /><b>{formatCurrency(remaining, statement.currency)}</b></span></div>;
+                  const statementStatus = deriveDatedStatus({ status: remaining <= 0 ? "paid" : "upcoming", dueDate: statement.dueDate }, today, data.settings.dueSoonDaysCards);
+                  const minimum = getCardMinimumPaymentProgress(data, statement, today, data.settings.dueSoonDaysCards);
+                  const hasStatementDebt = (statement.correctedAmountMinor ?? statement.statementAmountMinor) > 0;
+                  return <div className="statement-row" key={statement.id}><span><strong>Estado {statement.currency}</strong><small>Corte {formatShortDate(statement.cutDate)} · Vence {formatShortDate(statement.dueDate)}</small><small>Saldo pendiente: {formatCurrency(remaining, statement.currency)} · {statusLabel(statementStatus)}</small>{minimum.configured ? <small>Pago mínimo: {formatCurrency(minimum.requiredMinor, statement.currency)} · Pagado: {formatCurrency(minimum.paidMinor, statement.currency)} · Falta: {formatCurrency(minimum.remainingMinor, statement.currency)}</small> : hasStatementDebt && <small className="minimum-missing">Registra el pago mínimo indicado en el estado de cuenta.</small>}</span><span>{hasStatementDebt || minimum.configured ? <><StatusChip status={minimumChipStatus(minimum.status)} label={minimumPaymentStatusLabel(minimum.status)} /><button className="text-button" type="button" onClick={() => setMinimumStatement(statement)}>{minimum.configured ? "Editar mínimo" : "Registrar mínimo"}</button></> : <StatusChip status="paid" label="Sin saldo" />}</span></div>;
                 })}
                 <div className="row-actions">
                   <button className="button button-primary" type="button" onClick={() => setTransaction({ card, type: "payment" })}>Registrar pago</button>
@@ -346,6 +391,7 @@ export function CreditCardsView({
         </div>
       )}
       {form && <CardForm card={form === "new" ? undefined : form} onSave={onSaveCard} onClose={() => setForm(null)} />}
+      {minimumStatement && <MinimumPaymentModal statement={minimumStatement} onSave={onSaveMinimum} onClose={() => setMinimumStatement(null)} />}
       {transaction && <CardTransactionModal data={data} card={transaction.card} initialType={transaction.type} onSave={onAddTransaction} onClose={() => setTransaction(null)} />}
     </section>
   );

@@ -451,6 +451,8 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px s
 .card-payment-projection { align-content: start; }
 .card-payment-projection > .button { justify-self: start; margin-top: .55rem; }
 .card-plan-warning { margin: .45rem 0; padding: .65rem .75rem; border-radius: 11px; background: #f8eed5; color: #7f5b18; font-size: .78rem; line-height: 1.4; }
+.minimum-payment-note { margin: .45rem 0; padding: .65rem .75rem; border-radius: 11px; background: #e8f2ec; color: var(--primary-dark); font-size: .78rem; line-height: 1.4; }
+.minimum-missing { color: #9a5c18 !important; font-weight: 700; }
 .card-plan-fieldset { display: grid; gap: 12px; margin: 0; padding: 14px; border: 1px solid var(--border); border-radius: 15px; }
 .card-plan-fieldset legend { padding: 0 7px; color: var(--brand-dark); font-size: .8rem; font-weight: 850; }
 .projection-card.positive { border-color: #bad6c2; }

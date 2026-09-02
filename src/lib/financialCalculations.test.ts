@@ -6,6 +6,7 @@ import {
   calculateReportTotals,
   getCardCurrentDebt,
   getCardDebtAtDate,
+  getCardMinimumPaymentProgress,
   getCardSavingsCoverage,
   getFundAllocated,
   getFundBalance,
@@ -213,6 +214,44 @@ describe("financial calculations", () => {
     expect(card.remainingPlannedUsdMinor).toBe(6000);
     expect(card.estimatedRemainingUsdDopMinor).toBe(360000);
     expect(card.totalCashCommitmentDopMinor).toBe(660000);
+  });
+
+  it("tracks the exact statement minimum and uses it as the projection floor", () => {
+    const data = createEmptyFinancialData();
+    data.creditCards.card = {
+      id: "card", name: "Visa Bravo", cutDay: 20, dueDay: 30, active: true,
+      openingCurrentDebtDopMinor: 100000, openingCurrentDebtUsdMinor: 0,
+      openingStatementDopMinor: 100000, openingStatementUsdMinor: 0,
+      openingDate: "2026-08-01", ...metadata,
+    };
+    data.cardStatements.dop = {
+      id: "dop", cardId: "card", currency: "DOP", cycleStartDate: "2026-07-21",
+      cutDate: "2026-08-20", dueDate: "2026-08-30", statementAmountMinor: 100000,
+      minimumPaymentMinor: 12000, status: "open", ...metadata,
+    };
+    data.cardTransactions.partial = {
+      id: "partial", cardId: "card", currency: "DOP", type: "payment", amountMinor: 5000,
+      transactionDate: "2026-08-25", description: "Abono", ...metadata,
+    };
+    data.cardPaymentPlans["2026-08_Q2"] = {
+      id: "2026-08_Q2", financialMonth: "2026-08", quincena: 2,
+      plannedDopMinor: 3000, plannedUsdMinor: 0, ...metadata,
+    };
+
+    const progress = getCardMinimumPaymentProgress(data, data.cardStatements.dop, "2026-08-25", 7);
+    expect(progress).toMatchObject({ configured: true, paidMinor: 5000, remainingMinor: 7000, status: "dueSoon" });
+
+    const projection = calculateCardPaymentProjection(data, ["2026-08"], "all", 60);
+    expect(projection.minimumDueDopMinor).toBe(12000);
+    expect(projection.minimumTopUpDopMinor).toBe(7000);
+    expect(projection.totalCashCommitmentDopMinor).toBe(12000);
+
+    data.cardTransactions.completed = {
+      id: "completed", cardId: "card", currency: "DOP", type: "payment", amountMinor: 7000,
+      transactionDate: "2026-08-30", description: "Completar mínimo", ...metadata,
+    };
+    expect(getCardMinimumPaymentProgress(data, data.cardStatements.dop, "2026-08-30", 7))
+      .toMatchObject({ remainingMinor: 0, satisfiedDate: "2026-08-30", status: "paidOnTime" });
   });
 
   it("keeps undated purchase goals out of projections while reserving savings for them", () => {

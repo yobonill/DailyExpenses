@@ -9,6 +9,7 @@ import type { Expense } from "../models/expense";
 import type {
   AppSettings,
   CardPaymentPlan,
+  CardStatement,
   CardTransaction,
   CreditCard,
   Currency,
@@ -913,6 +914,25 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
     await commitUpdates(updates);
   }, [commitUpdates, data, meta]);
 
+  const saveCardStatementMinimum = useCallback(async (statementId: string, minimumPaymentMinor: number) => {
+    const statement = data.cardStatements[statementId];
+    if (!statement) throw new Error("Estado de cuenta no encontrado.");
+    const minimum = Math.max(0, Math.round(minimumPaymentMinor));
+    if (minimum <= 0) {
+      const { minimumPaymentMinor: _removed, ...withoutMinimum } = statement;
+      const updated: CardStatement = { ...withoutMinimum, ...meta(statement) };
+      await commitUpdates({ [`cardStatements/${statementId}`]: updated });
+      return;
+    }
+    await commitUpdates({
+      [`cardStatements/${statementId}`]: {
+        ...statement,
+        minimumPaymentMinor: minimum,
+        ...meta(statement),
+      } satisfies CardStatement,
+    });
+  }, [commitUpdates, data.cardStatements, meta]);
+
   const saveCardPaymentPlan = useCallback(async (
     financialMonth: string,
     quincena: 1 | 2,
@@ -1209,6 +1229,7 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
     purchaseGoalWithCash,
     purchaseGoalWithCard,
     discardPurchaseGoal,
+    saveCardStatementMinimum,
     saveCardPaymentPlan,
     syncDailyExpenseCardCharge,
     removeDailyExpenseCardCharge,

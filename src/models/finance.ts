@@ -241,6 +241,8 @@ export interface CardStatement extends RecordMetadata {
   cutDate: string;
   dueDate: string;
   statementAmountMinor: number;
+  /** Exact minimum payment printed by the bank on this statement. */
+  minimumPaymentMinor?: number;
   status: "open" | "paid" | "corrected";
   correctedAmountMinor?: number;
 }

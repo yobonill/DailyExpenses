@@ -116,6 +116,72 @@ const getCardPaymentCashOutflow = (
   return getCardPaymentAmountForCurrency(transaction, "USD");
 };
 
+export type CardMinimumPaymentStatus = "notConfigured" | "pending" | "dueSoon" | "dueToday" | "overdue" | "paidOnTime" | "paidLate";
+
+export interface CardMinimumPaymentProgress {
+  configured: boolean;
+  requiredMinor: number;
+  paidMinor: number;
+  remainingMinor: number;
+  satisfiedDate?: string;
+  status: CardMinimumPaymentStatus;
+}
+
+export const getCardMinimumPaymentProgress = (
+  data: FinancialData,
+  statement: CardStatement,
+  todayKey: string,
+  dueSoonDays: number,
+): CardMinimumPaymentProgress => {
+  const requiredMinor = Math.max(0, statement.minimumPaymentMinor || 0);
+  if (requiredMinor <= 0) {
+    return { configured: false, requiredMinor: 0, paidMinor: 0, remainingMinor: 0, status: "notConfigured" };
+  }
+  const payments = Object.values(data.cardTransactions)
+    .filter((transaction) => transaction.cardId === statement.cardId
+      && transaction.currency === statement.currency
+      && transaction.type === "payment"
+      && !transaction.reversedAt
+      && transaction.transactionDate > statement.cutDate)
+    .sort((a, b) => a.transactionDate.localeCompare(b.transactionDate) || a.createdAt.localeCompare(b.createdAt));
+  let paidMinor = 0;
+  let satisfiedDate: string | undefined;
+  for (const payment of payments) {
+    paidMinor += Math.abs(payment.amountMinor);
+    if (!satisfiedDate && paidMinor >= requiredMinor) satisfiedDate = payment.transactionDate;
+  }
+  const remainingMinor = Math.max(0, requiredMinor - paidMinor);
+  if (remainingMinor <= 0) {
+    return {
+      configured: true,
+      requiredMinor,
+      paidMinor,
+      remainingMinor,
+      satisfiedDate,
+      status: satisfiedDate && satisfiedDate > statement.dueDate ? "paidLate" : "paidOnTime",
+    };
+  }
+  const difference = daysBetween(todayKey, statement.dueDate);
+  const status: CardMinimumPaymentStatus = difference < 0
+    ? "overdue"
+    : difference === 0
+      ? "dueToday"
+      : difference <= dueSoonDays
+        ? "dueSoon"
+        : "pending";
+  return { configured: true, requiredMinor, paidMinor, remainingMinor, status };
+};
+
+export const minimumPaymentStatusLabel = (status: CardMinimumPaymentStatus): string => ({
+  notConfigured: "Mínimo sin registrar",
+  pending: "Mínimo pendiente",
+  dueSoon: "Mínimo vence pronto",
+  dueToday: "Mínimo vence hoy",
+  overdue: "Mínimo vencido",
+  paidOnTime: "Mínimo pagado",
+  paidLate: "Mínimo pagado tarde",
+})[status];
+
 export const getCardCurrentDebt = (data: FinancialData, cardId: string, currency: Currency): number => {
   const card = data.creditCards[cardId];
   if (!card) return 0;
@@ -174,13 +240,21 @@ export interface CardPaymentProjection {
   remainingPlannedDopMinor: number;
   remainingPlannedUsdMinor: number;
   estimatedRemainingUsdDopMinor: number;
+  minimumDueDopMinor: number;
+  minimumDueUsdMinor: number;
+  remainingMinimumDopMinor: number;
+  remainingMinimumUsdMinor: number;
+  minimumTopUpDopMinor: number;
+  minimumTopUpUsdMinor: number;
+  estimatedMinimumTopUpUsdDopMinor: number;
+  unconfiguredMinimumCount: number;
   totalCashCommitmentDopMinor: number;
 }
 
 /**
- * Projects only the payment the user explicitly planned for the card.
- * The complete card statement/debt remains informational and is never treated
- * as a cash commitment automatically.
+ * Projects the payment the user explicitly planned for the card. When the bank's
+ * exact minimum payment is available for a statement due in the selected period,
+ * that unpaid minimum becomes the floor. The full statement remains informational.
  */
 export const calculateCardPaymentProjection = (
   data: FinancialData,
@@ -214,6 +288,32 @@ export const calculateCardPaymentProjection = (
   const estimatedRemainingUsdDopMinor = estimatedUsdToDopRate > 0
     ? Math.round(remainingPlannedUsdMinor * estimatedUsdToDopRate)
     : 0;
+  const dueStatements = Object.values(data.cardStatements).filter((statement) =>
+    isInSelectedPeriod(statement.dueDate, selectedMonths, quincena)
+      && (statement.correctedAmountMinor ?? statement.statementAmountMinor) > 0,
+  );
+  const minimumProgress = dueStatements.map((statement) => ({
+    statement,
+    progress: getCardMinimumPaymentProgress(data, statement, statement.dueDate, data.settings.dueSoonDaysCards),
+  }));
+  const configuredMinimums = minimumProgress.filter(({ progress }) => progress.configured);
+  const minimumDueDopMinor = configuredMinimums
+    .filter(({ statement }) => statement.currency === "DOP")
+    .reduce((total, { progress }) => total + progress.requiredMinor, 0);
+  const minimumDueUsdMinor = configuredMinimums
+    .filter(({ statement }) => statement.currency === "USD")
+    .reduce((total, { progress }) => total + progress.requiredMinor, 0);
+  const remainingMinimumDopMinor = configuredMinimums
+    .filter(({ statement }) => statement.currency === "DOP")
+    .reduce((total, { progress }) => total + progress.remainingMinor, 0);
+  const remainingMinimumUsdMinor = configuredMinimums
+    .filter(({ statement }) => statement.currency === "USD")
+    .reduce((total, { progress }) => total + progress.remainingMinor, 0);
+  const minimumTopUpDopMinor = Math.max(0, remainingMinimumDopMinor - remainingPlannedDopMinor);
+  const minimumTopUpUsdMinor = Math.max(0, remainingMinimumUsdMinor - remainingPlannedUsdMinor);
+  const estimatedMinimumTopUpUsdDopMinor = estimatedUsdToDopRate > 0
+    ? Math.round(minimumTopUpUsdMinor * estimatedUsdToDopRate)
+    : 0;
   return {
     plannedDopMinor,
     plannedUsdMinor,
@@ -223,9 +323,19 @@ export const calculateCardPaymentProjection = (
     remainingPlannedDopMinor,
     remainingPlannedUsdMinor,
     estimatedRemainingUsdDopMinor,
+    minimumDueDopMinor,
+    minimumDueUsdMinor,
+    remainingMinimumDopMinor,
+    remainingMinimumUsdMinor,
+    minimumTopUpDopMinor,
+    minimumTopUpUsdMinor,
+    estimatedMinimumTopUpUsdDopMinor,
+    unconfiguredMinimumCount: minimumProgress.filter(({ progress }) => !progress.configured).length,
     totalCashCommitmentDopMinor: actualCashOutflowDopMinor
       + remainingPlannedDopMinor
-      + estimatedRemainingUsdDopMinor,
+      + minimumTopUpDopMinor
+      + estimatedRemainingUsdDopMinor
+      + estimatedMinimumTopUpUsdDopMinor,
   };
 };
 

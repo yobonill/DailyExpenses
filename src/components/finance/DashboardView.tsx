@@ -7,6 +7,7 @@ import {
   calculateReportTotals,
   calculateCardPaymentProjection,
   deriveDatedStatus,
+  getCardMinimumPaymentProgress,
   getCardCurrentDebt,
   getCardPaymentPlanId,
   getFutureOccurrenceFunding,
@@ -15,6 +16,7 @@ import {
   isInSelectedPeriod,
   isPlannedOccurrenceInSelectedPeriod,
   latestStatements,
+  minimumPaymentStatusLabel,
   statusLabel,
 } from "../../lib/financialCalculations";
 import { formatCurrency, minorToInput, parseMoneyToCents } from "../../lib/money";
@@ -32,6 +34,13 @@ interface DashboardViewProps {
 
 type CardPlanDraft = Record<1 | 2, { dop: string; usd: string }>;
 const isZeroMoneyInput = (value: string): boolean => /^0+(?:[.,]0+)?$/.test(value.trim());
+const minimumChipStatus = (status: ReturnType<typeof getCardMinimumPaymentProgress>["status"]): string => {
+  if (status === "paidOnTime") return "paid";
+  if (status === "paidLate" || status === "overdue") return "overdue";
+  if (status === "dueSoon" || status === "dueToday") return status;
+  if (status === "notConfigured") return "partial";
+  return "upcoming";
+};
 
 function CardPaymentPlanModal({ data, monthKey, quincena, onSave, onClose }: {
   data: FinancialData;
@@ -126,7 +135,9 @@ export function DashboardView({ data, expenses, onPay, onSaveCardPaymentPlan, on
   const availableForDailySpendingDop = Math.max(0, netAvailableDop);
   const projectedShortfallDop = Math.max(0, -netAvailableDop);
   const hasPlannedCardPayment = cardProjection.plannedDopMinor > 0 || cardProjection.plannedUsdMinor > 0;
-  const hasUnconvertedUsdPayment = cardProjection.remainingPlannedUsdMinor > 0 && estimatedUsdRate <= 0;
+  const hasMinimumDue = cardProjection.minimumDueDopMinor > 0 || cardProjection.minimumDueUsdMinor > 0;
+  const hasMinimumGap = cardProjection.minimumTopUpDopMinor > 0 || cardProjection.minimumTopUpUsdMinor > 0;
+  const hasUnconvertedUsdPayment = (cardProjection.remainingPlannedUsdMinor > 0 || cardProjection.minimumTopUpUsdMinor > 0) && estimatedUsdRate <= 0;
 
   return (
     <section className="finance-page">
@@ -142,14 +153,14 @@ export function DashboardView({ data, expenses, onPay, onSaveCardPaymentPlan, on
             <div><dt>Compromisos fijos (sin tarjeta)</dt><dd>− {formatCurrency(dop.planningCommitments, "DOP")}</dd></div>
             <div><dt>Gastos extras pagados sin crédito</dt><dd>− {formatCurrency(dop.dailyCashSpending, "DOP")}</dd></div>
             <div><dt>Compras extras con tarjeta (no descontadas aquí)</dt><dd>{formatCurrency(dop.dailyCardSpending, "DOP")}</dd></div>
-            <div><dt>Pago de tarjeta registrado o previsto</dt><dd>− {formatCurrency(cardProjection.totalCashCommitmentDopMinor, "DOP")}</dd></div>
+            <div><dt>Pago de tarjeta registrado, previsto o mínimo</dt><dd>− {formatCurrency(cardProjection.totalCashCommitmentDopMinor, "DOP")}</dd></div>
             <div className="projection-shortfall"><dt>Faltante previsto</dt><dd>{formatCurrency(projectedShortfallDop, "DOP")}</dd></div>
           </dl>
-          <small>Las compras con tarjeta aumentan su deuda. Aquí solo se descuenta el pago de tarjeta registrado o previsto para este período.</small>
+          <small>Las compras con tarjeta aumentan su deuda. Se descuenta el pago registrado o previsto y, cuando corresponde, al menos el pago mínimo pendiente; nunca se asume el saldo completo.</small>
         </article>
         <article className="projection-card card-payment-projection">
           <span>Tarjeta de crédito</span><strong>{card?.name || "Sin tarjeta configurada"}</strong>
-          {card ? <><dl className="projection-breakdown"><div><dt>Deuda registrada DOP</dt><dd>{formatCurrency(getCardCurrentDebt(data, card.id, "DOP"), "DOP")}</dd></div><div><dt>Deuda registrada USD</dt><dd>{formatCurrency(getCardCurrentDebt(data, card.id, "USD"), "USD")}</dd></div><div><dt>Pago previsto DOP</dt><dd>{formatCurrency(cardProjection.plannedDopMinor, "DOP")}</dd></div><div><dt>Deuda USD prevista para pagar</dt><dd>{formatCurrency(cardProjection.plannedUsdMinor, "USD")}</dd></div>{cardProjection.actualCashOutflowDopMinor > 0 && <div><dt>Ya pagado en el período</dt><dd>{formatCurrency(cardProjection.actualCashOutflowDopMinor, "DOP")}</dd></div>}{cardProjection.estimatedRemainingUsdDopMinor > 0 && <div><dt>Pago USD pendiente estimado</dt><dd>{formatCurrency(cardProjection.estimatedRemainingUsdDopMinor, "DOP")}</dd></div>}</dl>{!hasPlannedCardPayment && cardProjection.actualCashOutflowDopMinor <= 0 && <p className="card-plan-warning">La deuda de tarjeta no está incluida en la proyección porque no has definido un pago para este período.</p>}{hasUnconvertedUsdPayment && <p className="card-plan-warning">El pago USD todavía no está incluido en DOP porque falta configurar la tasa estimada.</p>}<button className="button button-secondary" type="button" onClick={() => setPlanningCardPayment(true)}>{hasPlannedCardPayment ? "Editar pago previsto" : "Definir pago previsto"}</button></> : <><small>Configura tu tarjeta para registrar la deuda y planificar sus pagos.</small><button className="button button-secondary" type="button" onClick={() => onNavigate("cards")}>Configurar tarjeta</button></>}
+          {card ? <><dl className="projection-breakdown"><div><dt>Deuda registrada DOP</dt><dd>{formatCurrency(getCardCurrentDebt(data, card.id, "DOP"), "DOP")}</dd></div><div><dt>Deuda registrada USD</dt><dd>{formatCurrency(getCardCurrentDebt(data, card.id, "USD"), "USD")}</dd></div><div><dt>Pago previsto DOP</dt><dd>{formatCurrency(cardProjection.plannedDopMinor, "DOP")}</dd></div><div><dt>Deuda USD prevista para pagar</dt><dd>{formatCurrency(cardProjection.plannedUsdMinor, "USD")}</dd></div>{cardProjection.minimumDueDopMinor > 0 && <div><dt>Pago mínimo DOP del período</dt><dd>{formatCurrency(cardProjection.minimumDueDopMinor, "DOP")}</dd></div>}{cardProjection.minimumDueUsdMinor > 0 && <div><dt>Pago mínimo USD del período</dt><dd>{formatCurrency(cardProjection.minimumDueUsdMinor, "USD")}</dd></div>}{cardProjection.actualCashOutflowDopMinor > 0 && <div><dt>Ya pagado en el período</dt><dd>{formatCurrency(cardProjection.actualCashOutflowDopMinor, "DOP")}</dd></div>}{cardProjection.estimatedRemainingUsdDopMinor > 0 && <div><dt>Pago USD pendiente estimado</dt><dd>{formatCurrency(cardProjection.estimatedRemainingUsdDopMinor, "DOP")}</dd></div>}{hasMinimumGap && <div><dt>Adicional para cubrir el mínimo</dt><dd>{formatCurrency(cardProjection.minimumTopUpDopMinor + cardProjection.estimatedMinimumTopUpUsdDopMinor, "DOP")}</dd></div>}</dl>{!hasPlannedCardPayment && !hasMinimumDue && cardProjection.actualCashOutflowDopMinor <= 0 && <p className="card-plan-warning">La deuda de tarjeta no está incluida en la proyección porque no has definido un pago y todavía no hay un pago mínimo registrado para este período.</p>}{hasMinimumDue && <p className="minimum-payment-note">La proyección garantiza como piso el pago mínimo pendiente, pero no asume que pagarás el estado completo.</p>}{cardProjection.unconfiguredMinimumCount > 0 && <p className="card-plan-warning">Hay un estado de cuenta que vence en este período sin pago mínimo registrado.</p>}{hasUnconvertedUsdPayment && <p className="card-plan-warning">El pago USD pendiente todavía no está incluido en DOP porque falta configurar la tasa estimada.</p>}<div className="row-actions"><button className="button button-secondary" type="button" onClick={() => setPlanningCardPayment(true)}>{hasPlannedCardPayment ? "Editar pago previsto" : "Definir pago previsto"}</button><button className="button button-quiet" type="button" onClick={() => onNavigate("cards")}>Revisar pago mínimo</button></div></> : <><small>Configura tu tarjeta para registrar la deuda y planificar sus pagos.</small><button className="button button-secondary" type="button" onClick={() => onNavigate("cards")}>Configurar tarjeta</button></>}
         </article>
       </div>
 
@@ -194,8 +205,8 @@ export function DashboardView({ data, expenses, onPay, onSaveCardPaymentPlan, on
       <section className="dashboard-section">
         <div className="section-title-row"><div><span className="eyebrow">Deuda</span><h2>Estados de tarjeta</h2></div><button className="text-button" type="button" onClick={() => onNavigate("cards")}>Ver tarjetas</button></div>
         {!statements.length ? <p className="muted-panel">No hay estados pendientes.</p> : <div className="compact-ledger">{statements.map(({ statement, remaining, card }) => {
-          const status = deriveDatedStatus({ status: remaining <= 0 ? "paid" : "upcoming", dueDate: statement.dueDate }, current.dateKey, data.settings.dueSoonDaysCards);
-          return <button type="button" onClick={() => onNavigate("cards")} key={statement.id}><span><strong>{card?.name || "Tarjeta"}</strong><small>Corte {formatShortDate(statement.cutDate)} · Vence {formatShortDate(statement.dueDate)}</small></span><span><StatusChip status={status} label={statusLabel(status)} /><strong>{formatCurrency(remaining, statement.currency)}</strong></span></button>;
+          const minimum = getCardMinimumPaymentProgress(data, statement, current.dateKey, data.settings.dueSoonDaysCards);
+          return <button type="button" onClick={() => onNavigate("cards")} key={statement.id}><span><strong>{card?.name || "Tarjeta"} · {statement.currency}</strong><small>Corte {formatShortDate(statement.cutDate)} · Vence {formatShortDate(statement.dueDate)}</small><small>Saldo pendiente: {formatCurrency(remaining, statement.currency)}</small></span><span><StatusChip status={minimumChipStatus(minimum.status)} label={minimumPaymentStatusLabel(minimum.status)} /><strong>{minimum.configured ? `Falta ${formatCurrency(minimum.remainingMinor, statement.currency)}` : "Registrar mínimo"}</strong></span></button>;
         })}</div>}
       </section>
 
