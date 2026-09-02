@@ -8,6 +8,16 @@ const currencyFormatter = new Intl.NumberFormat("es-DO", {
 export const formatMoney = (cents: number): string =>
   currencyFormatter.format(cents / 100);
 
+const usdFormatter = new Intl.NumberFormat("es-DO", {
+  style: "currency",
+  currency: "USD",
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
+});
+
+export const formatCurrency = (minor: number, currency: "DOP" | "USD"): string =>
+  currency === "USD" ? usdFormatter.format(minor / 100) : formatMoney(minor);
+
 export const formatExcelAmount = (cents: number): string => {
   const value = cents / 100;
   return Number.isInteger(value) ? String(value) : value.toFixed(2);
@@ -47,3 +57,6 @@ export const parseMoneyToCents = (rawValue: string): number | null => {
   const cents = Math.round(amount * 100);
   return cents > 0 ? cents : null;
 };
+
+export const minorToInput = (minor: number | undefined): string =>
+  typeof minor === "number" ? (minor / 100).toFixed(2) : "";

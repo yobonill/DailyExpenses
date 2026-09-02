@@ -1,8 +1,8 @@
 {
-  "id": "./",
-  "name": "Gastos Extras",
-  "short_name": "Gastos Extras",
-  "description": "Captura rápida de gastos extras para luego registrarlos en Presupuesto 2026.",
+  "id": "/daily-expenses-budget-manager/",
+  "name": "Gastos & Presupuesto",
+  "short_name": "Gastos",
+  "description": "Gastos diarios, presupuesto, ingresos, ahorros y tarjetas compartidos.",
   "lang": "es-DO",
   "dir": "ltr",
   "start_url": "./",

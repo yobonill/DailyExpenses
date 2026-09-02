@@ -1,17 +1,43 @@
-# Actualización de reglas de Firebase
+# Publicación de reglas de Firebase
 
-Esta aplicación reutiliza el mismo proyecto Firebase de TaskFollower y guarda los gastos compartidos en:
+La aplicación usa el proyecto Firebase exclusivo:
 
-`/expenses/{expenseId}`
+```text
+app-daily-expenses-budget
+```
 
-El archivo `firebase-database-rules.json` incluido en este repositorio es una copia de las reglas actuales de TaskFollower **más** el nuevo nodo `expenses`. Por eso puede sustituir las reglas actuales sin eliminar el acceso de TaskFollower a `tasks`, `privateTasks`, `papipoints` o `taskTemplates`.
+Los gastos diarios se guardan en:
 
-Los dos UID ya existentes (Yorki y Yisel) tienen lectura y escritura sobre el mismo nodo `/expenses`. Los gastos no se dividen por usuario y no guardan quién los creó.
+```text
+/expenses/{expenseId}
+```
 
-## Aplicar
+Los módulos financieros nuevos se guardan en:
 
-1. Firebase Console → Realtime Database → Rules.
-2. Copiar el contenido de `firebase-database-rules.json`.
-3. Publicar.
+```text
+/dailyExpensesBudget/v1
+```
 
-No hace falta crear otro proyecto Firebase, otra base de datos ni otros usuarios.
+## Usuarios autorizados
+
+```text
+Yorki · hmJi0g20svTPkfOF9ZzZwRi9Bdw2
+Yisel · YHtQh4N0RaViD8rXqDNE4xZTcN12
+```
+
+Antes de publicar, confirma que estos UID todavía coinciden con **Authentication → Users** en `app-daily-expenses-budget`.
+
+## Publicar
+
+1. Abre `app-daily-expenses-budget` en Firebase Console.
+2. Realtime Database → Rules.
+3. Copia el contenido completo de `firebase-database-rules.json`.
+4. Usa el simulador de reglas para probar:
+   - lectura/escritura válida con cada UID aprobado;
+   - rechazo sin autenticación y con otro UID;
+   - rechazo de moneda, estado, tipo o forma inválidos.
+5. Publica.
+
+Las reglas niegan acceso por defecto y validan las entidades financieras críticas. La aplicación usa transacciones sobre `/dailyExpensesBudget/v1`, por lo que ese nodo necesita permisos de lectura y escritura para ambos UID.
+
+No publiques estas reglas en el proyecto de TaskFollower. No hace falta crear manualmente nodos dentro de Realtime Database; la aplicación inicializa su estructura tras el primer acceso autenticado.

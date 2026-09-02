@@ -30,9 +30,9 @@ export function LoginScreen({ loading, error, onLogin }: LoginScreenProps) {
       <section className="login-card" aria-labelledby="login-title">
         <div className="brand-icon" aria-hidden="true">$</div>
         <span className="eyebrow">Configuración inicial</span>
-        <h1 id="login-title">Gastos Extras</h1>
+        <h1 id="login-title">Gastos &amp; Presupuesto</h1>
         <p className="login-intro">
-          Selecciona el usuario de este dispositivo e ingresa la misma contraseña que usas en TaskFollower.
+          Selecciona el usuario de este dispositivo e ingresa la contraseña configurada para Gastos &amp; Presupuesto.
           La sesión quedará guardada y no se registra quién creó cada gasto.
         </p>
 

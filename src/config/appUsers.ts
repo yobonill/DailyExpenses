@@ -6,18 +6,18 @@ export interface AppUserDefinition {
   email: string;
 }
 
-// Same Firebase Authentication users already used by TaskFollower.
+// Dedicated Firebase Authentication users for Daily Expenses.
 // Passwords are never stored in the application.
 export const APP_USERS_BY_NAME: Record<UserName, AppUserDefinition> = {
   Yisel: {
     name: "Yisel",
-    uid: "Z0Kf2S6iCvVOYQycexiJoPE6sPG2",
-    email: "yisel@taskfollower.invalid",
+    uid: "YHtQh4N0RaViD8rXqDNE4xZTcN12",
+    email: "yisel@dailyexpenses.invalid",
   },
   Yorki: {
     name: "Yorki",
-    uid: "iF4VXsQ31TT12A44grdEvRAni9S2",
-    email: "yorki@taskfollower.invalid",
+    uid: "hmJi0g20svTPkfOF9ZzZwRi9Bdw2",
+    email: "yorki@dailyexpenses.invalid",
   },
 };
 

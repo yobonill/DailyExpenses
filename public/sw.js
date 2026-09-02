@@ -1,4 +1,5 @@
-const CACHE_NAME = "gastos-extras-shell-v1";
+const CACHE_PREFIX = "daily-expenses-budget-shell-";
+const CACHE_NAME = `${CACHE_PREFIX}v2`;
 const APP_ROOT = self.registration.scope;
 const SHELL_URLS = [
   APP_ROOT,
@@ -6,6 +7,7 @@ const SHELL_URLS = [
   new URL("manifest.webmanifest", APP_ROOT).toString(),
   new URL("icons/icon-192.png", APP_ROOT).toString(),
   new URL("icons/icon-512.png", APP_ROOT).toString(),
+  new URL("templates/Presupuesto-2026.xlsx", APP_ROOT).toString(),
 ];
 
 self.addEventListener("install", (event) => {
@@ -19,7 +21,7 @@ self.addEventListener("install", (event) => {
 self.addEventListener("activate", (event) => {
   event.waitUntil(
     caches.keys()
-      .then((keys) => Promise.all(keys.filter((key) => key !== CACHE_NAME).map((key) => caches.delete(key))))
+      .then((keys) => Promise.all(keys.filter((key) => key.startsWith(CACHE_PREFIX) && key !== CACHE_NAME).map((key) => caches.delete(key))))
       .then(() => self.clients.claim()),
   );
 });
