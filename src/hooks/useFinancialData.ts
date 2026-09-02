@@ -20,7 +20,20 @@ import type {
 import { isFinanciallyConsistent, reconcileVersionedUpdates } from "../lib/financialIntegrity";
 import { getAuthenticatedFirebaseServices } from "../services/firebase";
 
-const stripUndefined = <T,>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
+export const toFirebaseCompatibleValue = <T,>(value: T): T =>
+  JSON.parse(JSON.stringify(value)) as T;
+
+const syncErrorMessage = (reason: unknown): string => {
+  const code = reason && typeof reason === "object" && "code" in reason
+    ? String((reason as { code?: unknown }).code || "")
+    : "";
+  if (code.toLowerCase().includes("permission-denied") || code.toLowerCase().includes("permission_denied")) {
+    return "Firebase rechazó la escritura. Revisa que hayas iniciado sesión y que las reglas publicadas correspondan a Daily Expenses.";
+  }
+  return code
+    ? `No se pudo sincronizar con Firebase (${code}).`
+    : "No se pudo sincronizar con Firebase.";
+};
 
 export const useFinancialData = (user: AppUserDefinition): UseFinancialDataResult => {
   const initial = readLocalFinancialState();
@@ -62,14 +75,16 @@ export const useFinancialData = (user: AppUserDefinition): UseFinancialDataResul
       const { database } = getAuthenticatedFirebaseServices();
       let rejected = false;
       if (operation.replaceRoot) {
-        await set(ref(database, FINANCIAL_ROOT_PATH), stripUndefined(operation.replaceRoot));
+        await set(ref(database, FINANCIAL_ROOT_PATH), toFirebaseCompatibleValue(operation.replaceRoot));
       } else {
         const result = await runTransaction(ref(database, FINANCIAL_ROOT_PATH), (currentValue) => {
           const current = normalizeFinancialData(currentValue);
-          const reconciled = reconcileVersionedUpdates(current, stripUndefined(operation.updates));
+          const reconciled = reconcileVersionedUpdates(current, toFirebaseCompatibleValue(operation.updates));
           if (reconciled.conflict) return undefined;
           const candidate = applyFinancialUpdates(current, reconciled.updates);
-          return isFinanciallyConsistent(candidate) ? candidate : undefined;
+          return isFinanciallyConsistent(candidate)
+            ? toFirebaseCompatibleValue(candidate)
+            : undefined;
         }, { applyLocally: false });
         if (!result.committed) {
           rejected = true;
@@ -87,10 +102,11 @@ export const useFinancialData = (user: AppUserDefinition): UseFinancialDataResul
         removePending(operation.id);
       }
       return true;
-    } catch {
+    } catch (reason) {
+      console.error("[Daily Expenses] Error al sincronizar datos financieros", reason);
       if (mountedRef.current) {
         setSyncState(navigator.onLine ? "error" : "offline");
-        setSyncMessage("Guardado localmente. Se reintentará la sincronización.");
+        setSyncMessage(`${syncErrorMessage(reason)} Guardado localmente; se reintentará.`);
       }
       return false;
     }
@@ -194,7 +210,7 @@ export const useFinancialData = (user: AppUserDefinition): UseFinancialDataResul
           const initialData = normalizeFinancialData(localRef.current.data);
           remoteRef.current = initialData;
           if (!localRef.current.pendingOperations.length) {
-            void set(ref(database, FINANCIAL_ROOT_PATH), stripUndefined(initialData));
+            void set(ref(database, FINANCIAL_ROOT_PATH), toFirebaseCompatibleValue(initialData));
           }
         } else {
           remoteRef.current = normalizeFinancialData(snapshot.val());

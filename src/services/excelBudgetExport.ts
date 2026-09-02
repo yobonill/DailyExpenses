@@ -8,7 +8,6 @@ import { getFundBalance } from "../lib/financialCalculations";
 const MONTH_NAMES = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
 const DETAIL_CAPACITY = 14;
 const BUDGET_CAPACITY = 13;
-const APPROVED_INCOME_LABELS = ["Nomina yor", "Picota Talo", "Danny Picota", "Jorge reye josue"];
 
 export interface ExcelExportValidation {
   errors: string[];
@@ -35,12 +34,12 @@ export const validateExcelExport = (data: FinancialData, expenses: Expense[], ye
   income.filter((item) => item.currency !== "DOP").forEach((item) => errors.push(`${item.name} (${item.financialMonth}) usa ${item.currency}; la plantilla anual solo admite DOP en Ingresos.`));
   monthly.filter((item) => !item.excelRowLabel).forEach((item) => errors.push(`${item.name} (${item.financialMonth}, Q${item.quincena}) no tiene fila de Excel asignada.`));
   income.filter((item) => !item.excelRowLabel).forEach((item) => errors.push(`${item.name} (${item.financialMonth}, Q${item.quincena}) no tiene fila de Excel asignada.`));
-  const incomeLabels = new Set(APPROVED_INCOME_LABELS.map(normalizeLabel));
-  income.filter((item) => item.excelRowLabel && !incomeLabels.has(normalizeLabel(item.excelRowLabel))).forEach((item) => errors.push(`${item.name} usa una fila de ingreso desconocida: ${item.excelRowLabel}.`));
   for (const monthKey of financialMonths) {
     for (const quincena of [1, 2] as const) {
       const budgetLabels = new Set(monthly.filter((item) => item.financialMonth === monthKey && item.quincena === quincena).map((item) => normalizeLabel(item.excelRowLabel || item.name)));
       if (budgetLabels.size > BUDGET_CAPACITY) errors.push(`${monthKey} Q${quincena} tiene ${budgetLabels.size} filas de presupuesto y solo caben ${BUDGET_CAPACITY}.`);
+      const incomeLabels = new Set(income.filter((item) => item.financialMonth === monthKey && item.quincena === quincena).map((item) => normalizeLabel(item.excelRowLabel || item.name)));
+      if (incomeLabels.size > BUDGET_CAPACITY) errors.push(`${monthKey} Q${quincena} tiene ${incomeLabels.size} filas de ingreso y solo caben ${BUDGET_CAPACITY}.`);
       const detailCount = expenses.filter((expense) => !expense.deletedAt && getMonthKey(expense.occurredDate) === monthKey && getQuincena(expense.occurredDate) === quincena).length;
       if (detailCount > DETAIL_CAPACITY) errors.push(`${monthKey} Q${quincena} tiene ${detailCount} gastos diarios y el bloque Detalles Gastos Extras admite ${DETAIL_CAPACITY}.`);
     }
