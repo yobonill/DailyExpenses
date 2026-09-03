@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { onValue, ref, set, update, type Unsubscribe } from "firebase/database";
+import { onValue, ref, set, type Unsubscribe } from "firebase/database";
 import { getAuthenticatedFirebaseServices } from "../services/firebase";
 import type {
   Expense,
@@ -112,6 +112,15 @@ const applyPendingOperations = (
   operations: PendingOperation[],
 ): Expense[] => operations.reduce(applyOperation, remoteExpenses);
 
+export const getExpenseForRemoteWrite = (
+  operation: PendingOperation,
+  localExpenses: Expense[],
+): Expense | null => {
+  if (operation.type === "create") return normalizeExpense(operation.expense);
+  const current = localExpenses.find((expense) => expense.id === operation.expenseId);
+  return current ? normalizeExpense(current) : null;
+};
+
 export interface NewExpenseInput {
   name: string;
   unitPriceCents: number;
@@ -135,6 +144,7 @@ export interface UseExpensesResult {
   deleteExpense: (expenseId: string) => Promise<void>;
   restoreExpense: (expenseId: string) => Promise<void>;
   retrySync: () => Promise<void>;
+  discardPendingChanges: () => number;
 }
 
 export const useExpenses = (): UseExpensesResult => {
@@ -189,18 +199,13 @@ export const useExpenses = (): UseExpensesResult => {
         setSyncMessage("Sincronizando cambios…");
         const { database } = getAuthenticatedFirebaseServices();
 
-        if (operation.type === "create") {
-          const normalizedExpense = normalizeExpense(operation.expense);
-          await set(
-            ref(database, `expenses/${operation.expense.id}`),
-            stripUndefined(normalizedExpense),
-          );
-        } else {
-          await update(
-            ref(database, `expenses/${operation.expenseId}`),
-            stripUndefined(operation.changes),
-          );
+        const expense = getExpenseForRemoteWrite(operation, localStateRef.current.expenses);
+        if (!expense) {
+          removePendingOperation(operation.id);
+          appendSyncLog("Gastos", "info", "Se descartó una operación pendiente porque el gasto ya no existe en este dispositivo.");
+          return true;
         }
+        await set(ref(database, `expenses/${expense.id}`), stripUndefined(expense));
 
         removePendingOperation(operation.id);
         return true;
@@ -260,6 +265,26 @@ export const useExpenses = (): UseExpensesResult => {
       if (initialCount > 0) appendSyncLog("Gastos", "success", `${initialCount} cambio${initialCount === 1 ? "" : "s"} sincronizado${initialCount === 1 ? "" : "s"} correctamente.`);
     }
   }, [executeOperation]);
+
+  const discardPendingChanges = useCallback((): number => {
+    const count = localStateRef.current.pendingOperations.length;
+    if (!count) return 0;
+    commitState({
+      expenses: remoteExpensesRef.current.map((expense) => normalizeExpense(expense)),
+      pendingOperations: [],
+    });
+    if (firebaseConnectedRef.current) {
+      setSyncState("synced");
+      setSyncMessage("Sincronizado");
+    } else {
+      setSyncState("offline");
+      setSyncMessage(navigator.onLine
+        ? "Firebase no ha confirmado conexión · datos compartidos no modificados"
+        : "Sin internet · datos compartidos no modificados");
+    }
+    appendSyncLog("Gastos", "info", `${count} cambio${count === 1 ? "" : "s"} local${count === 1 ? "" : "es"} pendiente${count === 1 ? "" : "s"} descartado${count === 1 ? "" : "s"}.`);
+    return count;
+  }, [commitState]);
 
   const queueOperation = useCallback(
     async (operation: PendingOperation) => {
@@ -451,5 +476,6 @@ export const useExpenses = (): UseExpensesResult => {
     deleteExpense,
     restoreExpense,
     retrySync,
+    discardPendingChanges,
   };
 };
