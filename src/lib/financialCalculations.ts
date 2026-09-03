@@ -451,7 +451,10 @@ export const calculateReportTotals = (
     (total, item) => total + (item.status === "paid" ? 0 : getFutureOccurrenceFunding(data, item).missingMinor),
     0,
   );
-  const cashPaidObligations = payments.filter((payment) => payment.method === "cash")
+  const cashPaidObligations = payments.filter((payment) => payment.method === "cash" && !payment.historical)
+    .reduce((total, payment) => total + payment.amountMinor, 0);
+  const historicalBudgetCommitments = payments.filter((payment) => payment.historical
+    && payment.historicalSource !== "creditCardOpeningBalance")
     .reduce((total, payment) => total + payment.amountMinor, 0);
   const cardPaymentTotal = cardPayments.reduce(
     (total, transaction) => total + getCardPaymentAmountForCurrency(transaction, currency),
@@ -482,7 +485,7 @@ export const calculateReportTotals = (
   // Cash-paid fixed obligations must remain in the selected period's budget.
   // Card debt is not a fixed commitment: the Dashboard subtracts only the
   // payment explicitly planned for the selected period.
-  const planningCommitments = cashPaidObligations + monthlyPending + nonMonthlyUnfunded;
+  const planningCommitments = cashPaidObligations + historicalBudgetCommitments + monthlyPending + nonMonthlyUnfunded;
   const planning = planningIncome - dailyCashSpending - planningCommitments;
   return {
     expectedIncome,

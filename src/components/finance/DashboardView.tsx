@@ -1,7 +1,7 @@
 import { useMemo, useState, type FormEvent } from "react";
 import type { Expense } from "../../models/expense";
 import type { CreditCard, FinancialData, MonthlyExpenseOccurrence, NonMonthlyOccurrence } from "../../models/finance";
-import { formatBudgetCycleRange, formatMonthTitle, formatShortDate } from "../../lib/date";
+import { formatBudgetCycleRange, formatMonthTitle, formatShortDate, getMonthKey } from "../../lib/date";
 import { getCurrentFinancialPeriod } from "../../lib/financeDates";
 import {
   calculateReportTotals,
@@ -144,6 +144,7 @@ export function DashboardView({ data, expenses, onPay, onSaveCardPaymentPlan, on
       <PageHeading eyebrow="Visión general" title="Dashboard" />
       <PeriodSelector monthKey={monthKey} onMonthChange={setMonthKey} quincena={quincena} onQuincenaChange={setQuincena} />
       <p className="period-caption">{formatBudgetCycleRange(monthKey)} · Los valores son una proyección, no un balance bancario.</p>
+      {data.settings.trackingStartDate && getMonthKey(data.settings.trackingStartDate) === monthKey && <p className="transition-period-note"><strong>Período de transición.</strong> Los movimientos anteriores al {formatShortDate(data.settings.trackingStartDate)} pueden estar resumidos mediante la reconciliación inicial.</p>}
 
       <div className="projection-grid dashboard-projection-grid">
         <article className={`projection-card projection-card-featured ${projectedShortfallDop > 0 ? "negative" : "positive"}`}>

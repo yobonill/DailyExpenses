@@ -4,6 +4,7 @@ export type Currency = "DOP" | "USD";
 export type FinancialStatus = "upcoming" | "paid" | "cancelled";
 export type RecurrenceKind = "once" | "monthly" | "months" | "years";
 export type PaymentMethod = "cash" | "creditCard";
+export type HistoricalPaymentSource = "unknown" | "creditCardOpeningBalance" | "cashOrBankBeforeTracking";
 export type PurchaseGoalPriority = "low" | "medium" | "high";
 export type PurchaseGoalStatus = "active" | "scheduled" | "purchased" | "discarded";
 
@@ -55,6 +56,7 @@ export interface MonthlyExpenseOccurrence extends RecordMetadata {
   excelRowLabel?: string;
   cancelledAt?: string;
   cancelledReason?: string;
+  reconciledAt?: string;
 }
 
 export interface Payment extends RecordMetadata {
@@ -68,6 +70,9 @@ export interface Payment extends RecordMetadata {
   cardId?: string;
   cardTransactionId?: string;
   savingsTransactionIds?: string[];
+  /** A historical payment documents a settled bill without changing current cash, savings or card debt. */
+  historical?: boolean;
+  historicalSource?: HistoricalPaymentSource;
   notes?: string;
   reversedAt?: string;
 }
@@ -83,6 +88,7 @@ export interface IncomeTemplate extends RecordMetadata {
   notes?: string;
   excelRowLabel?: string;
   exportExpectedWhenPending: boolean;
+  reconciledAt?: string;
 }
 
 export interface IncomeOccurrence extends RecordMetadata {
@@ -267,6 +273,9 @@ export interface AppSettings {
   nonMonthlyWarningMonths: number;
   /** Informational rate used only to estimate USD commitments in DOP projections. */
   estimatedUsdToDopRate: number;
+  /** First date from which normal movements are expected to affect live balances. */
+  trackingStartDate?: string;
+  reconciliationCompletedAt?: string;
   updatedAt: string;
   updatedBy: string;
 }

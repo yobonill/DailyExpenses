@@ -4,6 +4,7 @@ import { getMonthKey, getQuincena, toLocalDateKey } from "../lib/date";
 import { dateFromFinancialMonthRule, nextOccurrenceDate } from "../lib/financeDates";
 import { getCardCurrentDebt, getCardPaymentPlanId, getFundAllocated, getFundBalance, getObligationAllocations, getPurchaseGoalReserved } from "../lib/financialCalculations";
 import { buildGenerationUpdates, buildPausedMonthlyOccurrenceUpdates } from "../lib/financialGeneration";
+import { buildStartingPointReconciliationUpdates, type StartingPointReconciliationInput } from "../lib/startingPointReconciliation";
 import { createId } from "../lib/id";
 import type { Expense } from "../models/expense";
 import type {
@@ -400,6 +401,7 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
         actualAmountMinor: null,
         paymentId: null,
         completedAt: null,
+        reconciledAt: null,
         ...meta(occurrence),
       },
       [`payments/${payment.id}`]: { ...payment, reversedAt: now, ...meta(payment) },
@@ -521,6 +523,7 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
         status: "expected",
         actualAmountMinor: null,
         receivedDate: null,
+        reconciledAt: null,
         ...meta(occurrence),
       },
     });
@@ -1233,6 +1236,10 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
     await commitUpdates({ settings: { ...settings, updatedAt: new Date().toISOString(), updatedBy: actor } });
   }, [actor, commitUpdates]);
 
+  const reconcileStartingPoint = useCallback(async (input: StartingPointReconciliationInput) => {
+    await commitUpdates(buildStartingPointReconciliationUpdates(data, input, actor));
+  }, [actor, commitUpdates, data]);
+
   return {
     generateRecurring,
     saveMonthlyTemplate,
@@ -1265,6 +1272,7 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
     saveCreditCard,
     addCardTransaction,
     reverseCardTransaction,
+    reconcileStartingPoint,
     updateSettings,
   };
 };

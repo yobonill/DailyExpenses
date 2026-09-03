@@ -37,6 +37,14 @@ export const isFinanciallyConsistent = (candidate: FinancialData): boolean => {
   const activePaymentKeys = new Set<string>();
   for (const payment of Object.values(candidate.payments)) {
     if (payment.reversedAt) continue;
+    if (payment.historical) {
+      if (!payment.historicalSource
+        || !["unknown", "creditCardOpeningBalance", "cashOrBankBeforeTracking"].includes(payment.historicalSource)
+        || payment.cardTransactionId
+        || (payment.savingsTransactionIds && payment.savingsTransactionIds.length > 0)) return false;
+      if (payment.historicalSource === "creditCardOpeningBalance"
+        && (payment.method !== "creditCard" || !payment.cardId || !candidate.creditCards[payment.cardId])) return false;
+    } else if (payment.historicalSource) return false;
     const key = `${payment.sourceType}:${payment.sourceId}`;
     if (activePaymentKeys.has(key)) return false;
     activePaymentKeys.add(key);

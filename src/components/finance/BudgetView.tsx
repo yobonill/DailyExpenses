@@ -6,7 +6,9 @@ import { deriveDatedStatus, monthlyVariance, statusLabel } from "../../lib/finan
 import { formatCurrency, minorToInput, parseMoneyToCents } from "../../lib/money";
 import type { CreditCard, Currency, FinancialData, MonthlyExpenseOccurrence, MonthlyExpenseTemplate } from "../../models/finance";
 import type { MonthlyTemplateInput, OneTimeMonthlyInput } from "../../hooks/useFinanceActions";
+import { historicalSourceLabel, type StartingPointReconciliationInput } from "../../lib/startingPointReconciliation";
 import { CheckboxField, CurrencyField, EmptyPanel, Modal, MoneyField, PageHeading, PayModal, PeriodSelector, StatusChip, type PayModalValue } from "./Shared";
+import { StartingPointReconciliationModal } from "./StartingPointReconciliationModal";
 
 const defaultPlannedQuincena = (template?: MonthlyExpenseTemplate): 1 | 2 => {
   if (template?.plannedQuincena) return template.plannedQuincena;
@@ -21,6 +23,7 @@ interface BudgetViewProps {
   onArchiveTemplate: (id: string) => Promise<void>;
   onCreateOneTime: (input: OneTimeMonthlyInput) => Promise<void>;
   onUpdateOneTime: (id: string, input: OneTimeMonthlyInput) => Promise<void>;
+  onReconcileStartingPoint: (input: StartingPointReconciliationInput) => Promise<void>;
   onPay: (value: PayModalValue & { sourceType: "monthly"; sourceId: string; currency: Currency }) => Promise<void>;
   onReopen: (id: string) => Promise<void>;
   onCancel: (id: string, reason?: string) => Promise<void>;
@@ -89,10 +92,11 @@ function MonthlyFormModal({ template, occurrence, onSaveTemplate, onCreateOneTim
 
 type EditingBudgetItem = { kind: "new" } | { kind: "template"; template: MonthlyExpenseTemplate } | { kind: "oneTime"; occurrence: MonthlyExpenseOccurrence };
 
-export function BudgetView({ data, onSaveTemplate, onArchiveTemplate, onCreateOneTime, onUpdateOneTime, onPay, onReopen, onCancel }: BudgetViewProps) {
+export function BudgetView({ data, onSaveTemplate, onArchiveTemplate, onCreateOneTime, onUpdateOneTime, onReconcileStartingPoint, onPay, onReopen, onCancel }: BudgetViewProps) {
   const [monthKey, setMonthKey] = useState(getMonthKey(toLocalDateKey()));
   const [quincena, setQuincena] = useState<"all" | 1 | 2>("all");
   const [editingItem, setEditingItem] = useState<EditingBudgetItem | null>(null);
+  const [reconciling, setReconciling] = useState(false);
   const [paying, setPaying] = useState<MonthlyExpenseOccurrence | null>(null);
   const [initialPayMethod, setInitialPayMethod] = useState<"cash" | "creditCard">("cash");
   const [search, setSearch] = useState("");
@@ -128,8 +132,9 @@ export function BudgetView({ data, onSaveTemplate, onArchiveTemplate, onCreateOn
 
   return (
     <section className="finance-page">
-      <PageHeading eyebrow="Plan mensual" title="Presupuesto" action={<button type="button" className="button button-primary heading-action" onClick={() => setEditingItem({ kind: "new" })}>＋ Agregar</button>} />
+      <PageHeading eyebrow="Plan mensual" title="Presupuesto" action={<div className="heading-actions"><button type="button" className="button button-secondary" onClick={() => setReconciling(true)}>{data.settings.trackingStartDate ? "Completar inicio" : "Reconciliar inicio"}</button><button type="button" className="button button-primary heading-action" onClick={() => setEditingItem({ kind: "new" })}>＋ Agregar</button></div>} />
       <PeriodSelector monthKey={monthKey} onMonthChange={setMonthKey} quincena={quincena} onQuincenaChange={setQuincena} />
+      {data.settings.trackingStartDate && getMonthKey(data.settings.trackingStartDate) === monthKey && <p className="transition-period-note"><strong>Período de transición.</strong> El seguimiento exacto comienza el {formatShortDate(data.settings.trackingStartDate)}. Los elementos reconciliados no modifican los saldos actuales.</p>}
       <div className="metric-grid four-metrics">
         <article><span>Esperado DOP</span><strong>{formatCurrency(dop.expected, "DOP")}</strong></article><article><span>Pagado DOP</span><strong>{formatCurrency(dop.paid, "DOP")}</strong></article><article><span>Pendiente DOP</span><strong>{formatCurrency(dop.pending, "DOP")}</strong></article><article className={dop.variance > 0 ? "metric-alert" : ""}><span>Variación DOP</span><strong>{formatCurrency(dop.variance, "DOP")}</strong></article>
       </div>
@@ -139,7 +144,8 @@ export function BudgetView({ data, onSaveTemplate, onArchiveTemplate, onCreateOn
 
       {!periodOccurrences.length ? <EmptyPanel title="Sin obligaciones" text="Agrega una plantilla mensual o un pago único para este período." /> : !occurrences.length ? <EmptyPanel title="Sin coincidencias" text="No hay obligaciones que coincidan con la búsqueda y los filtros seleccionados." /> : <div className="finance-list">{occurrences.map((item) => {
         const derived = deriveDatedStatus(item, toLocalDateKey(), data.settings.dueSoonDaysMonthly);
-        return <article className="finance-row-card" key={item.id}><div className="finance-row-main"><div><div className="row-title-line"><h3>{item.name}</h3><StatusChip status={derived} label={statusLabel(derived)} /></div><p>{formatShortDate(item.dueDate)} · Q{item.quincena}{item.category ? ` · ${item.category}` : ""}</p>{item.status === "paid" && <small>Real: {formatCurrency(item.actualAmountMinor ?? item.expectedAmountMinor, item.currency)} · Variación {formatCurrency(monthlyVariance(item), item.currency)}</small>}</div><strong>{formatCurrency(item.expectedAmountMinor, item.currency)}</strong></div><div className="row-actions">{item.status === "upcoming" && <><button type="button" className="button button-primary" onClick={() => { setInitialPayMethod("cash"); setPaying(item); }}>Pagar</button>{item.canPayWithCard && <button type="button" className="button button-secondary" onClick={() => { setInitialPayMethod("creditCard"); setPaying(item); }}>Pagar con tarjeta</button>}<button type="button" className="button button-secondary" onClick={() => item.templateId ? setEditingItem({ kind: "template", template: data.monthlyTemplates[item.templateId] }) : setEditingItem({ kind: "oneTime", occurrence: item })} disabled={Boolean(item.templateId && !data.monthlyTemplates[item.templateId])}>Editar</button><button type="button" className="button button-quiet danger-text" onClick={() => { const recurrenceText = item.templateId ? " La plantilla seguirá activa para los demás meses." : ""; if (window.confirm(`“${item.name}” dejará de contarse como gasto en este período.${recurrenceText}\n\n¿Marcar como No aplica?`)) void onCancel(item.id); }}>No aplica</button></>}{item.status === "paid" && <button type="button" className="button button-secondary" onClick={() => { if (window.confirm("¿Reabrir este pago? También se revertirán sus movimientos vinculados.")) void onReopen(item.id); }}>Corregir / reabrir</button>}</div></article>;
+        const payment = item.paymentId ? data.payments[item.paymentId] : undefined;
+        return <article className="finance-row-card" key={item.id}><div className="finance-row-main"><div><div className="row-title-line"><h3>{item.name}</h3><StatusChip status={derived} label={statusLabel(derived)} /></div><p>{formatShortDate(item.dueDate)} · Q{item.quincena}{item.category ? ` · ${item.category}` : ""}</p>{item.status === "paid" && <small>Real: {formatCurrency(item.actualAmountMinor ?? item.expectedAmountMinor, item.currency)} · Variación {formatCurrency(monthlyVariance(item), item.currency)}</small>}{payment?.historical && payment.historicalSource && <small className="historical-payment-note">Reconciliado · {historicalSourceLabel(payment.historicalSource)}</small>}</div><strong>{formatCurrency(item.expectedAmountMinor, item.currency)}</strong></div><div className="row-actions">{item.status === "upcoming" && <><button type="button" className="button button-primary" onClick={() => { setInitialPayMethod("cash"); setPaying(item); }}>Pagar</button>{item.canPayWithCard && <button type="button" className="button button-secondary" onClick={() => { setInitialPayMethod("creditCard"); setPaying(item); }}>Pagar con tarjeta</button>}<button type="button" className="button button-secondary" onClick={() => item.templateId ? setEditingItem({ kind: "template", template: data.monthlyTemplates[item.templateId] }) : setEditingItem({ kind: "oneTime", occurrence: item })} disabled={Boolean(item.templateId && !data.monthlyTemplates[item.templateId])}>Editar</button><button type="button" className="button button-quiet danger-text" onClick={() => { const recurrenceText = item.templateId ? " La plantilla seguirá activa para los demás meses." : ""; if (window.confirm(`“${item.name}” dejará de contarse como gasto en este período.${recurrenceText}\n\n¿Marcar como No aplica?`)) void onCancel(item.id); }}>No aplica</button></>}{item.status === "paid" && <button type="button" className="button button-secondary" onClick={() => { if (window.confirm("¿Reabrir este pago? También se revertirán sus movimientos vinculados.")) void onReopen(item.id); }}>Corregir / reabrir</button>}</div></article>;
       })}</div>}
 
       <section className="management-section"><div className="section-title-row"><div><span className="eyebrow">Configuración</span><h2>Gastos recurrentes</h2></div></div>
@@ -147,6 +153,7 @@ export function BudgetView({ data, onSaveTemplate, onArchiveTemplate, onCreateOn
       </section>
 
       {editingItem && <MonthlyFormModal template={editingItem.kind === "template" ? editingItem.template : undefined} occurrence={editingItem.kind === "oneTime" ? editingItem.occurrence : undefined} onSaveTemplate={onSaveTemplate} onCreateOneTime={onCreateOneTime} onUpdateOneTime={onUpdateOneTime} onClose={() => setEditingItem(null)} />}
+      {reconciling && <StartingPointReconciliationModal data={data} monthKey={monthKey} quincena={quincena} onConfirm={onReconcileStartingPoint} onClose={() => setReconciling(false)} />}
       {paying && <PayModal title={paying.name} expectedMinor={paying.expectedAmountMinor} currency={paying.currency} canPayWithCard={paying.canPayWithCard} cards={cards as CreditCard[]} initialMethod={initialPayMethod} onClose={() => setPaying(null)} onConfirm={(value) => onPay({ ...value, sourceType: "monthly", sourceId: paying.id, currency: paying.currency })} />}
     </section>
   );
