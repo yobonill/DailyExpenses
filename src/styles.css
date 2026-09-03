@@ -465,6 +465,14 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px s
 .dashboard-section, .management-section { margin-top: 28px; }
 .section-title-row { display: flex; align-items: flex-end; justify-content: space-between; gap: 15px; margin-bottom: 11px; }
 .section-title-row h2 { margin: 4px 0 0; font-size: 1.18rem; }
+.budget-filter-panel { display: grid; gap: 10px; margin: 0 0 14px; padding: 13px; border: 1px solid var(--border); border-radius: 17px; background: var(--surface); }
+.budget-filter-grid { display: grid; grid-template-columns: minmax(220px, 1.5fr) minmax(150px, 1fr) minmax(140px, .8fr); gap: 10px; align-items: end; }
+.budget-filter-grid .field { gap: 5px; }
+.budget-filter-grid .field > span { color: var(--muted); font-size: .72rem; font-weight: 800; }
+.budget-filter-grid input, .budget-filter-grid select { min-height: 42px; }
+.budget-search-field input { padding-right: 34px; }
+.budget-filter-summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; color: var(--muted); font-size: .76rem; }
+.budget-filter-summary .text-button { flex: 0 0 auto; }
 .finance-list { display: grid; gap: 10px; }
 .finance-row-card { border: 1px solid var(--border); border-radius: 18px; background: var(--surface); overflow: hidden; }
 .finance-row-main { display: flex; justify-content: space-between; align-items: flex-start; gap: 15px; padding: 14px; }
@@ -605,6 +613,8 @@ tbody tr:last-child td { border-bottom: 0; }
   .bottom-nav.expanded-nav .nav-icon { font-size: 1.12rem; }
   .period-toolbar { grid-template-columns: 1fr; }
   .period-toolbar .text-button { justify-self: start; min-height: 32px; }
+  .budget-filter-grid { grid-template-columns: 1fr 1fr; }
+  .budget-search-field { grid-column: 1 / -1; }
   .summary-strip, .metric-grid, .four-metrics { grid-template-columns: repeat(2, 1fr); }
   .fund-grid, .card-grid, .more-grid, .report-detail-grid { grid-template-columns: 1fr; }
   .category-report-heading { align-items: stretch; flex-direction: column; }
@@ -618,6 +628,9 @@ tbody tr:last-child td { border-bottom: 0; }
   .finance-heading { align-items: flex-start; }
   .heading-action { min-height: 40px; padding-inline: 12px; font-size: .76rem; }
   .form-columns, .projection-grid { grid-template-columns: 1fr; }
+  .budget-filter-grid { grid-template-columns: 1fr; }
+  .budget-search-field { grid-column: auto; }
+  .budget-filter-summary { align-items: flex-start; }
   .finance-row-main { flex-direction: column; }
   .finance-row-main > strong { align-self: flex-end; }
   .summary-strip { grid-template-columns: 1fr; }

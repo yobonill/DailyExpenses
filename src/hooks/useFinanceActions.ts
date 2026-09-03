@@ -231,6 +231,27 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
     await commitUpdates({ [`monthlyOccurrences/${id}`]: occurrence });
   }, [commitUpdates, meta]);
 
+  const updateOneTimeMonthly = useCallback(async (id: string, input: OneTimeMonthlyInput) => {
+    const existing = data.monthlyOccurrences[id];
+    if (!existing?.oneTime) throw new Error("Este gasto no es una obligación de una sola vez.");
+    if (existing.status !== "upcoming") throw new Error("Solo se puede editar una obligación pendiente.");
+    const occurrence: MonthlyExpenseOccurrence = {
+      ...existing,
+      name: input.name.trim(),
+      category: cleanOptional(input.category),
+      expectedAmountMinor: input.estimatedAmountMinor,
+      currency: input.currency,
+      dueDate: input.dueDate,
+      financialMonth: getMonthKey(input.dueDate),
+      quincena: input.plannedQuincena,
+      canPayWithCard: input.canPayWithCard,
+      notes: cleanOptional(input.notes),
+      excelRowLabel: cleanOptional(input.excelRowLabel),
+      ...meta(existing),
+    };
+    await commitUpdates({ [`monthlyOccurrences/${id}`]: occurrence });
+  }, [commitUpdates, data.monthlyOccurrences, meta]);
+
   const cancelMonthlyOccurrence = useCallback(async (id: string, reason?: string) => {
     const occurrence = data.monthlyOccurrences[id];
     if (!occurrence) return;
@@ -1217,6 +1238,7 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
     saveMonthlyTemplate,
     archiveMonthlyTemplate,
     createOneTimeMonthly,
+    updateOneTimeMonthly,
     cancelMonthlyOccurrence,
     payObligation,
     reopenObligation,
