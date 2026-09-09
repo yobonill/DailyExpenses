@@ -12,9 +12,12 @@ import {
 } from "../lib/date";
 import { formatCurrency } from "../lib/money";
 import { EditExpenseModal } from "./EditExpenseModal";
+import type { FinancialData } from "../models/finance";
+import { moneyAccountLabel } from "../lib/moneyLedger";
 
 interface ReviewViewProps {
   expenses: Expense[];
+  data: FinancialData;
   activeCardName?: string;
   onEdit: (expenseId: string, changes: ExpenseEditableFields) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
@@ -65,7 +68,7 @@ const sumExpenses = (expenses: Expense[], currency: "DOP" | "USD"): number =>
     .filter((expense) => expenseCurrency(expense) === currency)
     .reduce((total, expense) => total + expenseTotal(expense), 0);
 
-export function ReviewView({ expenses, activeCardName, onEdit, onDelete, onRestore, onNotice, transferFeeRatePercent }: ReviewViewProps) {
+export function ReviewView({ expenses, data, activeCardName, onEdit, onDelete, onRestore, onNotice, transferFeeRatePercent }: ReviewViewProps) {
   const todayKey = toLocalDateKey();
   const currentMonth = getMonthKey(todayKey);
   const currentQuincena = getQuincena(todayKey);
@@ -142,7 +145,7 @@ export function ReviewView({ expenses, activeCardName, onEdit, onDelete, onResto
                 const method = expensePaymentMethod(expense);
                 const currency = expenseCurrency(expense);
                 return <article className="expense-card" key={expense.id}>
-                  <div className="expense-main"><div className="expense-title-row"><h4>{expense.name}</h4><strong>{formatCurrency(expenseTotal(expense), currency)}</strong></div><div className="expense-meta"><span>{formatShortDate(expense.occurredDate)}</span>{expense.quantity > 1 && <span>{expense.quantity} × {formatCurrency(expense.unitPriceCents, currency)}</span>}<span>{PAYMENT_LABELS[method]}{method === "creditCard" && activeCardName ? ` · ${activeCardName}` : ""}</span>{expense.category && <span>{expense.category}</span>}</div></div>
+                  <div className="expense-main"><div className="expense-title-row"><h4>{expense.name}</h4><strong>{formatCurrency(expenseTotal(expense), currency)}</strong></div><div className="expense-meta"><span>{formatShortDate(expense.occurredDate)}</span>{expense.quantity > 1 && <span>{expense.quantity} × {formatCurrency(expense.unitPriceCents, currency)}</span>}<span>{PAYMENT_LABELS[method]}{method === "creditCard" && activeCardName ? ` · ${activeCardName}` : expense.moneyAccountId ? ` · ${moneyAccountLabel(expense.moneyAccountId, data)}` : ""}</span>{expense.category && <span>{expense.category}</span>}</div></div>
                   <div className="expense-actions history-expense-actions"><button type="button" onClick={() => setEditing(expense)}>Editar</button><button type="button" className="action-danger" onClick={() => void remove(expense)}>Eliminar</button></div>
                 </article>;
               })}</div>
@@ -151,7 +154,7 @@ export function ReviewView({ expenses, activeCardName, onEdit, onDelete, onResto
         </section>)}</div>
       )}
 
-      {editing && <EditExpenseModal expense={editing} activeCardName={activeCardName} transferFeeRatePercent={transferFeeRatePercent} onClose={() => setEditing(null)} onSave={onEdit} />}
+      {editing && <EditExpenseModal expense={editing} data={data} activeCardName={activeCardName} transferFeeRatePercent={transferFeeRatePercent} onClose={() => setEditing(null)} onSave={onEdit} />}
     </section>
   );
 }

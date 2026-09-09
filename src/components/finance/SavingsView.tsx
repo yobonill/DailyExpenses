@@ -1,27 +1,132 @@
 import { useMemo, useState, type FormEvent } from "react";
+import type { SavingsFundInput } from "../../hooks/useFinanceActions";
 import { formatShortDate, toLocalDateKey } from "../../lib/date";
 import { getFundAllocated, getFundBalance } from "../../lib/financialCalculations";
 import { formatCurrency, minorToInput, parseMoneyToCents } from "../../lib/money";
+import { CASH_ACCOUNT_ID, getActiveBankAccounts, moneyAccountLabel } from "../../lib/moneyLedger";
 import type { Currency, FinancialData, SavingsFund, SavingsTransaction } from "../../models/finance";
-import type { SavingsFundInput } from "../../hooks/useFinanceActions";
 import { CheckboxField, CurrencyField, EmptyPanel, Modal, MoneyField, PageHeading, StatusChip } from "./Shared";
 
-function FundForm({ fund, onSave, onClose }: { fund?: SavingsFund; onSave: (input: SavingsFundInput, id?: string) => Promise<void>; onClose: () => void }) {
-  const [name, setName] = useState(fund?.name || ""); const [currency, setCurrency] = useState<Currency>(fund?.currency || "DOP"); const [initialBalance, setInitialBalance] = useState(""); const [target, setTarget] = useState(minorToInput(fund?.targetAmountMinor)); const [targetDate, setTargetDate] = useState(fund?.targetDate || ""); const [active, setActive] = useState(fund?.active ?? true); const [notes, setNotes] = useState(fund?.notes || ""); const [error, setError] = useState("");
-  const submit = async (event: FormEvent) => { event.preventDefault(); if (!name.trim()) return setError("Escribe un nombre."); const initialBalanceMinor = !fund && initialBalance ? parseMoneyToCents(initialBalance) ?? undefined : undefined; const targetAmountMinor = target ? parseMoneyToCents(target) ?? undefined : undefined; const zeroValue = (value: string) => /^0+(?:[.,]0+)?$/.test(value.trim()); if (!fund && initialBalance.trim() && !zeroValue(initialBalance) && !initialBalanceMinor) return setError("Escribe un monto ahorrado válido."); if (target.trim() && !zeroValue(target) && !targetAmountMinor) return setError("Escribe una cantidad objetivo válida."); try { await onSave({ name, currency, initialBalanceMinor, targetAmountMinor, targetDate: targetAmountMinor ? targetDate || undefined : undefined, active: fund ? active : true, notes }, fund?.id); onClose(); } catch (reason) { setError(reason instanceof Error ? reason.message : "No se pudo guardar el fondo."); } };
-  return <Modal title={fund ? "Editar fondo" : "Nuevo fondo"} onClose={onClose}><form className="form-grid" onSubmit={submit}><label className="field"><span>Nombre</span><input value={name} onChange={(event) => setName(event.target.value)} placeholder="Ej. Emergencias" /></label><CurrencyField value={currency} onChange={setCurrency} />{!fund && <MoneyField label="Monto que ya tienes ahorrado" value={initialBalance} onChange={setInitialBalance} currency={currency} required={false} />}<MoneyField label="Cantidad que quieres alcanzar (opcional)" value={target} onChange={setTarget} currency={currency} required={false} />{Boolean(target) && <label className="field"><span>Fecha objetivo (opcional)</span><input type="date" value={targetDate} onChange={(event) => setTargetDate(event.target.value)} /></label>}{fund && <><CheckboxField checked={active} onChange={setActive} label="Fondo disponible para usar" /><p className="privacy-note">Si lo desactivas, conservará su balance e historial, pero no podrá recibir nuevas asignaciones.</p></>}<label className="field"><span>Notas (opcional)</span><textarea value={notes} onChange={(event) => setNotes(event.target.value)} /></label>{error && <p className="form-error">{error}</p>}<div className="modal-actions"><button type="button" className="button button-secondary" onClick={onClose}>Cancelar</button><button className="button button-primary">Guardar</button></div></form></Modal>;
+function FundForm({ data, fund, onSave, onClose }: {
+  data: FinancialData;
+  fund?: SavingsFund;
+  onSave: (input: SavingsFundInput, id?: string) => Promise<void>;
+  onClose: () => void;
+}) {
+  const [name, setName] = useState(fund?.name || "");
+  const [currency, setCurrency] = useState<Currency>(fund?.currency || "DOP");
+  const [initialBalance, setInitialBalance] = useState("");
+  const [target, setTarget] = useState(minorToInput(fund?.targetAmountMinor));
+  const [targetDate, setTargetDate] = useState(fund?.targetDate || "");
+  const [active, setActive] = useState(fund?.active ?? true);
+  const [moneyAccountId, setMoneyAccountId] = useState(fund?.moneyAccountId || "");
+  const [notes, setNotes] = useState(fund?.notes || "");
+  const [error, setError] = useState("");
+  const physicalAccounts = [...getActiveBankAccounts(data), ...(data.moneyAccounts[CASH_ACCOUNT_ID]?.active ? [data.moneyAccounts[CASH_ACCOUNT_ID]] : [])];
+
+  const submit = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!name.trim()) return setError("Escribe un nombre.");
+    const initialBalanceMinor = !fund && initialBalance ? parseMoneyToCents(initialBalance) ?? undefined : undefined;
+    const targetAmountMinor = target ? parseMoneyToCents(target) ?? undefined : undefined;
+    const zeroValue = (value: string) => /^0+(?:[.,]0+)?$/.test(value.trim());
+    if (!fund && initialBalance.trim() && !zeroValue(initialBalance) && !initialBalanceMinor) return setError("Escribe un monto ahorrado válido.");
+    if (target.trim() && !zeroValue(target) && !targetAmountMinor) return setError("Escribe una cantidad objetivo válida.");
+    try {
+      await onSave({
+        name,
+        currency,
+        initialBalanceMinor,
+        targetAmountMinor,
+        targetDate: targetAmountMinor ? targetDate || undefined : undefined,
+        active: fund ? active : true,
+        moneyAccountId: currency === "DOP" ? moneyAccountId || undefined : undefined,
+        notes,
+      }, fund?.id);
+      onClose();
+    } catch (reason) { setError(reason instanceof Error ? reason.message : "No se pudo guardar el fondo."); }
+  };
+
+  return <Modal title={fund ? "Editar fondo" : "Nuevo fondo"} onClose={onClose}>
+    <form className="form-grid" onSubmit={submit}>
+      <label className="field"><span>Nombre</span><input value={name} onChange={(event) => setName(event.target.value)} placeholder="Ej. Emergencias" /></label>
+      <CurrencyField value={currency} onChange={(value) => { setCurrency(value); if (value !== "DOP") setMoneyAccountId(""); }} />
+      {!fund && <MoneyField label="Monto que ya tienes ahorrado" value={initialBalance} onChange={setInitialBalance} currency={currency} required={false} />}
+      {currency === "DOP" && <label className="field"><span>¿Dónde está guardado? (opcional)</span><select value={moneyAccountId} onChange={(event) => setMoneyAccountId(event.target.value)}><option value="">Sin especificar</option>{physicalAccounts.map((account) => <option value={account.id} key={account.id}>{moneyAccountLabel(account.id, data)}</option>)}</select><small className="field-help">Esto solo identifica la ubicación física; no suma el ahorro otra vez al dinero disponible.</small></label>}
+      <MoneyField label="Cantidad que quieres alcanzar (opcional)" value={target} onChange={setTarget} currency={currency} required={false} />
+      {Boolean(target) && <label className="field"><span>Fecha objetivo (opcional)</span><input type="date" value={targetDate} onChange={(event) => setTargetDate(event.target.value)} /></label>}
+      {fund && <><CheckboxField checked={active} onChange={setActive} label="Fondo disponible para usar" /><p className="privacy-note">Si lo desactivas, conservará su balance e historial, pero no podrá recibir nuevas asignaciones.</p></>}
+      <label className="field"><span>Notas (opcional)</span><textarea value={notes} onChange={(event) => setNotes(event.target.value)} /></label>
+      {error && <p className="form-error">{error}</p>}
+      <div className="modal-actions"><button type="button" className="button button-secondary" onClick={onClose}>Cancelar</button><button className="button button-primary">Guardar</button></div>
+    </form>
+  </Modal>;
 }
 
-function TransactionModal({ data, fund, onAdd, onTransfer, onClose }: { data: FinancialData; fund: SavingsFund; onAdd: (fundId: string, type: SavingsTransaction["type"], amount: number, date: string, notes?: string) => Promise<void>; onTransfer: (fromId: string, toId: string, amount: number, date: string) => Promise<void>; onClose: () => void }) {
-  const [type, setType] = useState<"deposit" | "withdrawal" | "correction" | "transfer">("deposit"); const [correctionDirection, setCorrectionDirection] = useState<"increase" | "decrease">("increase"); const [amount, setAmount] = useState(""); const [date, setDate] = useState(toLocalDateKey()); const [notes, setNotes] = useState(""); const eligible = Object.values(data.savingsFunds).filter((item) => item.id !== fund.id && item.active && item.currency === fund.currency); const [targetId, setTargetId] = useState(eligible[0]?.id || ""); const [error, setError] = useState(""); const [saving, setSaving] = useState(false);
-  const submit = async (event: FormEvent) => { event.preventDefault(); const value = parseMoneyToCents(amount); if (!value) return setError("Monto inválido."); const signed = type === "correction" && correctionDirection === "decrease" ? -value : value; setSaving(true); setError(""); try { if (type === "transfer") await onTransfer(fund.id, targetId, value, date); else await onAdd(fund.id, type, signed, date, notes); onClose(); } catch (reason) { setError(reason instanceof Error ? reason.message : "No se pudo registrar."); } finally { setSaving(false); } };
-  return <Modal title={`Movimiento · ${fund.name}`} onClose={onClose}><form className="form-grid" onSubmit={submit}><label className="field"><span>Tipo</span><select value={type} onChange={(event) => setType(event.target.value as typeof type)}><option value="deposit">Depósito</option><option value="withdrawal">Retiro</option><option value="correction">Corrección</option><option value="transfer">Transferir a otro fondo</option></select></label>{type === "correction" && <fieldset className="choice-field"><legend>Dirección de la corrección</legend><label><input type="radio" checked={correctionDirection === "increase"} onChange={() => setCorrectionDirection("increase")} /> Aumentar balance</label><label><input type="radio" checked={correctionDirection === "decrease"} onChange={() => setCorrectionDirection("decrease")} /> Reducir balance</label></fieldset>}{type === "transfer" && <label className="field"><span>Fondo de destino</span><select value={targetId} onChange={(event) => setTargetId(event.target.value)}><option value="">Seleccionar</option>{eligible.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>}<MoneyField label="Monto" value={amount} onChange={setAmount} currency={fund.currency} /><label className="field"><span>Fecha</span><input type="date" value={date} onChange={(event) => setDate(event.target.value)} /></label>{type !== "transfer" && <label className="field"><span>Notas</span><textarea value={notes} onChange={(event) => setNotes(event.target.value)} /></label>}{error && <p className="form-error">{error}</p>}<div className="modal-actions"><button type="button" className="button button-secondary" onClick={onClose}>Cancelar</button><button className="button button-primary" disabled={saving || (type === "transfer" && !targetId)}>Registrar</button></div></form></Modal>;
+function TransactionModal({ data, fund, onAdd, onTransfer, onClose }: {
+  data: FinancialData;
+  fund: SavingsFund;
+  onAdd: (fundId: string, type: SavingsTransaction["type"], amount: number, date: string, notes?: string) => Promise<void>;
+  onTransfer: (fromId: string, toId: string, amount: number, date: string) => Promise<void>;
+  onClose: () => void;
+}) {
+  const [type, setType] = useState<"deposit" | "withdrawal" | "correction" | "transfer">("deposit");
+  const [correctionDirection, setCorrectionDirection] = useState<"increase" | "decrease">("increase");
+  const [amount, setAmount] = useState("");
+  const [date, setDate] = useState(toLocalDateKey());
+  const [notes, setNotes] = useState("");
+  const eligible = Object.values(data.savingsFunds).filter((item) => item.id !== fund.id && item.active && item.currency === fund.currency);
+  const [targetId, setTargetId] = useState(eligible[0]?.id || "");
+  const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
+  const submit = async (event: FormEvent) => {
+    event.preventDefault();
+    const value = parseMoneyToCents(amount);
+    if (!value) return setError("Monto inválido.");
+    const signed = type === "correction" && correctionDirection === "decrease" ? -value : value;
+    setSaving(true); setError("");
+    try {
+      if (type === "transfer") await onTransfer(fund.id, targetId, value, date);
+      else await onAdd(fund.id, type, signed, date, notes);
+      onClose();
+    } catch (reason) { setError(reason instanceof Error ? reason.message : "No se pudo registrar."); }
+    finally { setSaving(false); }
+  };
+  return <Modal title={`Movimiento · ${fund.name}`} onClose={onClose}><form className="form-grid" onSubmit={submit}>
+    <label className="field"><span>Tipo</span><select value={type} onChange={(event) => setType(event.target.value as typeof type)}><option value="deposit">Depósito</option><option value="withdrawal">Retiro</option><option value="correction">Corrección</option><option value="transfer">Transferir a otro fondo</option></select></label>
+    {type === "correction" && <fieldset className="choice-field"><legend>Dirección de la corrección</legend><label><input type="radio" checked={correctionDirection === "increase"} onChange={() => setCorrectionDirection("increase")} /> Aumentar balance</label><label><input type="radio" checked={correctionDirection === "decrease"} onChange={() => setCorrectionDirection("decrease")} /> Reducir balance</label></fieldset>}
+    {type === "transfer" && <label className="field"><span>Fondo de destino</span><select value={targetId} onChange={(event) => setTargetId(event.target.value)}><option value="">Seleccionar</option>{eligible.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>}
+    <MoneyField label="Monto" value={amount} onChange={setAmount} currency={fund.currency} />
+    <label className="field"><span>Fecha</span><input type="date" value={date} onChange={(event) => setDate(event.target.value)} /></label>
+    {type !== "transfer" && <label className="field"><span>Notas</span><textarea value={notes} onChange={(event) => setNotes(event.target.value)} /></label>}
+    {error && <p className="form-error">{error}</p>}
+    <div className="modal-actions"><button type="button" className="button button-secondary" onClick={onClose}>Cancelar</button><button className="button button-primary" disabled={saving || (type === "transfer" && !targetId)}>Registrar</button></div>
+  </form></Modal>;
 }
 
-export function SavingsView({ data, onSave, onAddTransaction, onTransfer, onRelease }: { data: FinancialData; onSave: (input: SavingsFundInput, id?: string) => Promise<void>; onAddTransaction: (fundId: string, type: SavingsTransaction["type"], amount: number, date: string, notes?: string) => Promise<void>; onTransfer: (fromId: string, toId: string, amount: number, date: string) => Promise<void>; onRelease: (id: string) => Promise<void> }) {
-  const [form, setForm] = useState<SavingsFund | "new" | null>(null); const [transactionFund, setTransactionFund] = useState<SavingsFund | null>(null); const [expanded, setExpanded] = useState<string | null>(null); const funds = useMemo(() => Object.values(data.savingsFunds).filter((item) => !item.archivedAt).sort((a, b) => a.name.localeCompare(b.name)), [data.savingsFunds]); const total = (currency: Currency) => funds.filter((fund) => fund.currency === currency).reduce((sum, fund) => sum + getFundBalance(data, fund.id), 0);
-  return <section className="finance-page"><PageHeading eyebrow="Dinero reservado" title="Ahorros" action={<button className="button button-primary heading-action" type="button" onClick={() => setForm("new")}>＋ Fondo</button>} /><div className="projection-grid"><article className="projection-card"><span>Total DOP</span><strong>{formatCurrency(total("DOP"), "DOP")}</strong><small>Se muestra por moneda, sin conversión.</small></article><article className="projection-card"><span>Total USD</span><strong>{formatCurrency(total("USD"), "USD")}</strong><small>Se muestra por moneda, sin conversión.</small></article></div>
-    {!funds.length ? <EmptyPanel title="Sin fondos" text="Crea fondos por propósito: emergencias, vehículo, vacaciones o gastos anuales." /> : <div className="fund-grid">{funds.map((fund) => { const balance = getFundBalance(data, fund.id); const allocated = getFundAllocated(data, fund.id); const allocations = Object.values(data.savingsAllocations).filter((allocation) => allocation.fundId === fund.id && allocation.active && !allocation.releasedAt && !allocation.consumedAt); return <article className="fund-card" key={fund.id}><header><div><span>{fund.currency}</span><h2>{fund.name}</h2></div><StatusChip status={fund.active ? "paid" : "cancelled"} label={fund.active ? "Activo" : "Inactivo"} /></header><strong>{formatCurrency(balance, fund.currency)}</strong><div className="fund-bars"><div><span>Reservado</span><b>{formatCurrency(allocated, fund.currency)}</b></div><div><span>Sin asignar</span><b>{formatCurrency(balance - allocated, fund.currency)}</b></div>{fund.targetAmountMinor && <div><span>Meta</span><b>{formatCurrency(fund.targetAmountMinor, fund.currency)}</b></div>}</div><div className="row-actions"><button className="button button-primary" type="button" onClick={() => setTransactionFund(fund)}>Movimiento</button><button className="button button-secondary" type="button" onClick={() => setForm(fund)}>Editar</button>{allocations.length > 0 && <button className="button button-quiet" type="button" onClick={() => setExpanded(expanded === fund.id ? null : fund.id)}>Asignaciones ({allocations.length})</button>}</div>{expanded === fund.id && <div className="allocation-list">{allocations.map((allocation) => { const obligation = data.nonMonthlyOccurrences[allocation.obligationId]; const goal = data.purchaseGoals[allocation.obligationId]; const statement = data.cardStatements[allocation.obligationId]; const label = goal?.name || obligation?.name || (statement ? `Estado de tarjeta ${statement.currency}` : "Obligación"); const detail = goal ? "Meta de compra sin fecha" : obligation ? formatShortDate(obligation.dueDate) : statement ? formatShortDate(statement.dueDate) : ""; return <div key={allocation.id}><span><strong>{label}</strong><small>{detail}</small></span><span><b>{formatCurrency(allocation.amountMinor, allocation.currency)}</b><button type="button" onClick={() => void onRelease(allocation.id)}>Liberar</button></span></div>; })}</div>}</article>; })}</div>}
-    {form && <FundForm fund={form === "new" ? undefined : form} onSave={onSave} onClose={() => setForm(null)} />}{transactionFund && <TransactionModal data={data} fund={transactionFund} onAdd={onAddTransaction} onTransfer={onTransfer} onClose={() => setTransactionFund(null)} />}
+export function SavingsView({ data, onSave, onAddTransaction, onTransfer, onRelease }: {
+  data: FinancialData;
+  onSave: (input: SavingsFundInput, id?: string) => Promise<void>;
+  onAddTransaction: (fundId: string, type: SavingsTransaction["type"], amount: number, date: string, notes?: string) => Promise<void>;
+  onTransfer: (fromId: string, toId: string, amount: number, date: string) => Promise<void>;
+  onRelease: (id: string) => Promise<void>;
+}) {
+  const [form, setForm] = useState<SavingsFund | "new" | null>(null);
+  const [transactionFund, setTransactionFund] = useState<SavingsFund | null>(null);
+  const [expanded, setExpanded] = useState<string | null>(null);
+  const funds = useMemo(() => Object.values(data.savingsFunds).filter((item) => !item.archivedAt).sort((a, b) => a.name.localeCompare(b.name)), [data.savingsFunds]);
+  const total = (currency: Currency) => funds.filter((fund) => fund.currency === currency).reduce((sum, fund) => sum + getFundBalance(data, fund.id), 0);
+
+  return <section className="finance-page">
+    <PageHeading eyebrow="Dinero reservado" title="Ahorros" action={<button className="button button-primary heading-action" type="button" onClick={() => setForm("new")}>＋ Fondo</button>} />
+    <div className="projection-grid"><article className="projection-card"><span>Total DOP</span><strong>{formatCurrency(total("DOP"), "DOP")}</strong><small>Se muestra por moneda, sin conversión.</small></article><article className="projection-card"><span>Total USD</span><strong>{formatCurrency(total("USD"), "USD")}</strong><small>Se muestra por moneda, sin conversión.</small></article></div>
+    {!funds.length ? <EmptyPanel title="Sin fondos" text="Crea fondos por propósito: emergencias, vehículo, vacaciones o gastos anuales." /> : <div className="fund-grid">{funds.map((fund) => {
+      const balance = getFundBalance(data, fund.id);
+      const allocated = getFundAllocated(data, fund.id);
+      const allocations = Object.values(data.savingsAllocations).filter((allocation) => allocation.fundId === fund.id && allocation.active && !allocation.releasedAt && !allocation.consumedAt);
+      return <article className="fund-card" key={fund.id}><header><div><span>{fund.currency}</span><h2>{fund.name}</h2></div><StatusChip status={fund.active ? "paid" : "cancelled"} label={fund.active ? "Activo" : "Inactivo"} /></header><strong>{formatCurrency(balance, fund.currency)}</strong>{fund.moneyAccountId && <small className="fund-location">Guardado en {moneyAccountLabel(fund.moneyAccountId, data)}</small>}<div className="fund-bars"><div><span>Reservado</span><b>{formatCurrency(allocated, fund.currency)}</b></div><div><span>Sin asignar</span><b>{formatCurrency(balance - allocated, fund.currency)}</b></div>{fund.targetAmountMinor && <div><span>Meta</span><b>{formatCurrency(fund.targetAmountMinor, fund.currency)}</b></div>}</div><div className="row-actions"><button className="button button-primary" type="button" onClick={() => setTransactionFund(fund)}>Movimiento</button><button className="button button-secondary" type="button" onClick={() => setForm(fund)}>Editar</button>{allocations.length > 0 && <button className="button button-quiet" type="button" onClick={() => setExpanded(expanded === fund.id ? null : fund.id)}>Asignaciones ({allocations.length})</button>}</div>{expanded === fund.id && <div className="allocation-list">{allocations.map((allocation) => { const obligation = data.nonMonthlyOccurrences[allocation.obligationId]; const goal = data.purchaseGoals[allocation.obligationId]; const statement = data.cardStatements[allocation.obligationId]; const label = goal?.name || obligation?.name || (statement ? `Estado de tarjeta ${statement.currency}` : "Obligación"); const detail = goal ? "Meta de compra sin fecha" : obligation ? formatShortDate(obligation.dueDate) : statement ? formatShortDate(statement.dueDate) : ""; return <div key={allocation.id}><span><strong>{label}</strong><small>{detail}</small></span><span><b>{formatCurrency(allocation.amountMinor, allocation.currency)}</b><button type="button" onClick={() => void onRelease(allocation.id)}>Liberar</button></span></div>; })}</div>}</article>;
+    })}</div>}
+    {form && <FundForm data={data} fund={form === "new" ? undefined : form} onSave={onSave} onClose={() => setForm(null)} />}
+    {transactionFund && <TransactionModal data={data} fund={transactionFund} onAdd={onAddTransaction} onTransfer={onTransfer} onClose={() => setTransactionFund(null)} />}
   </section>;
 }

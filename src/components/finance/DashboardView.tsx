@@ -21,7 +21,7 @@ import {
 } from "../../lib/financialCalculations";
 import { formatCurrency, minorToInput, parseMoneyToCents } from "../../lib/money";
 import { getTotalLoanDebt } from "../../lib/loanLedger";
-import { BANK_ACCOUNT_ID, CASH_ACCOUNT_ID, getMoneyAccountBalance, getTotalMoneyAvailable, hasInitializedMoneyAccounts } from "../../lib/moneyLedger";
+import { CASH_ACCOUNT_ID, getMoneyAccountBalance, getTotalBankBalance, getTotalMoneyAvailable, hasInitializedMoneyAccounts } from "../../lib/moneyLedger";
 import { Modal, MoneyField, PageHeading, PayModal, PeriodSelector, StatusChip, type PayModalValue } from "./Shared";
 
 type Payable = { type: "monthly"; item: MonthlyExpenseOccurrence } | { type: "nonMonthly"; item: NonMonthlyOccurrence };
@@ -140,7 +140,7 @@ export function DashboardView({ data, expenses, onPay, onSaveCardPaymentPlan, on
   const hasMinimumDue = cardProjection.minimumDueDopMinor > 0 || cardProjection.minimumDueUsdMinor > 0;
   const hasMinimumGap = cardProjection.minimumTopUpDopMinor > 0 || cardProjection.minimumTopUpUsdMinor > 0;
   const hasUnconvertedUsdPayment = (cardProjection.remainingPlannedUsdMinor > 0 || cardProjection.minimumTopUpUsdMinor > 0) && estimatedUsdRate <= 0;
-  const bankBalance = getMoneyAccountBalance(data, BANK_ACCOUNT_ID);
+  const bankBalance = getTotalBankBalance(data);
   const cashBalance = getMoneyAccountBalance(data, CASH_ACCOUNT_ID);
   const moneyReady = hasInitializedMoneyAccounts(data);
   const cardDebtDop = card ? getCardCurrentDebt(data, card.id, "DOP") : 0;
@@ -158,7 +158,7 @@ export function DashboardView({ data, expenses, onPay, onSaveCardPaymentPlan, on
       {data.settings.trackingStartDate && getMonthKey(data.settings.trackingStartDate) === monthKey && <p className="transition-period-note"><strong>Período de transición.</strong> Los movimientos anteriores al {formatShortDate(data.settings.trackingStartDate)} pueden estar resumidos mediante la reconciliación inicial.</p>}
 
       <div className="summary-strip dashboard-balance-strip">
-        <button type="button" onClick={() => onNavigate("money")}><span>Dinero disponible hoy</span><strong>{moneyReady ? formatCurrency(getTotalMoneyAvailable(data), "DOP") : "Configurar"}</strong><small>Banco {formatCurrency(bankBalance, "DOP")} · Efectivo {formatCurrency(cashBalance, "DOP")}</small></button>
+        <button type="button" onClick={() => onNavigate("money")}><span>Dinero disponible hoy</span><strong>{moneyReady ? formatCurrency(getTotalMoneyAvailable(data), "DOP") : "Configurar"}</strong><small>Bancos {formatCurrency(bankBalance, "DOP")} · Efectivo {formatCurrency(cashBalance, "DOP")}</small></button>
         <button type="button" onClick={() => onNavigate("budget")}><span>Facturas pendientes del período</span><strong>{formatCurrency(pendingBillsDop, "DOP")}</strong><small>No incluye pagos ya registrados</small></button>
         <button type="button" onClick={() => onNavigate("loans")}><span>Deuda total registrada</span><strong>{formatCurrency(totalDebtDop, "DOP")}</strong><small>Facturas + tarjeta + préstamos{cardDebtUsd + loanDebtUsd > 0 ? estimatedUsdRate > 0 ? " · USD estimado en DOP" : " · falta convertir USD" : ""}</small></button>
       </div>

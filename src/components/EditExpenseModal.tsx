@@ -2,10 +2,13 @@ import { useMemo, useState, type FormEvent } from "react";
 import { EXPENSE_CATEGORIES, isPredefinedExpenseCategory } from "../config/financeCategories";
 import type { Expense, ExpenseCurrency, ExpenseEditableFields, ExpensePaymentMethod } from "../models/expense";
 import { parseMoneyToCents } from "../lib/money";
-import { calculateTransferFeeMinor } from "../lib/moneyLedger";
+import { CASH_ACCOUNT_ID, calculateTransferFeeMinor, getActiveBankAccounts, getMoneyAccountBalance, isSelectableMoneyAccount, moneyAccountLabel } from "../lib/moneyLedger";
+import { formatMoney } from "../lib/money";
+import type { FinancialData } from "../models/finance";
 
 interface EditExpenseModalProps {
   expense: Expense;
+  data: FinancialData;
   onClose: () => void;
   onSave: (
     expenseId: string,
@@ -15,7 +18,7 @@ interface EditExpenseModalProps {
   transferFeeRatePercent: number;
 }
 
-export function EditExpenseModal({ expense, onClose, onSave, activeCardName, transferFeeRatePercent }: EditExpenseModalProps) {
+export function EditExpenseModal({ expense, data, onClose, onSave, activeCardName, transferFeeRatePercent }: EditExpenseModalProps) {
   const initialPrice = useMemo(() => {
     const value = expense.unitPriceCents / 100;
     return Number.isInteger(value) ? String(value) : value.toFixed(2);
@@ -27,6 +30,8 @@ export function EditExpenseModal({ expense, onClose, onSave, activeCardName, tra
   const [date, setDate] = useState(expense.occurredDate);
   const [category, setCategory] = useState(expense.category || "");
   const [paymentMethod, setPaymentMethod] = useState<ExpensePaymentMethod>(expense.paymentMethod || "cash");
+  const bankAccounts = getActiveBankAccounts(data);
+  const [moneyAccountId, setMoneyAccountId] = useState(expense.moneyAccountId || bankAccounts[0]?.id || "");
   const [currency, setCurrency] = useState<ExpenseCurrency>(expense.currency || "DOP");
   const [includeTransferFee, setIncludeTransferFee] = useState(Boolean(expense.transferFeeCents));
   const [transferFee, setTransferFee] = useState(expense.transferFeeCents ? (expense.transferFeeCents / 100).toFixed(2) : "");
@@ -43,6 +48,10 @@ export function EditExpenseModal({ expense, onClose, onSave, activeCardName, tra
     quantityNumber > 0 &&
     /^\d{4}-\d{2}-\d{2}$/.test(date) &&
     (paymentMethod !== "creditCard" || Boolean(activeCardName)) &&
+    (paymentMethod === "creditCard"
+      || (paymentMethod === "cash" && isSelectableMoneyAccount(data, CASH_ACCOUNT_ID, "cash"))
+      || (paymentMethod === "debit" && isSelectableMoneyAccount(data, moneyAccountId, "debitCard"))
+      || (paymentMethod === "transfer" && isSelectableMoneyAccount(data, moneyAccountId, "bankTransfer"))) &&
     !saving;
 
   const submit = async (event: FormEvent) => {
@@ -58,6 +67,7 @@ export function EditExpenseModal({ expense, onClose, onSave, activeCardName, tra
         occurredDate: date,
         category,
         paymentMethod,
+        moneyAccountId: paymentMethod === "cash" ? CASH_ACCOUNT_ID : paymentMethod === "debit" || paymentMethod === "transfer" ? moneyAccountId : undefined,
         currency: paymentMethod === "creditCard" ? currency : "DOP",
         transferFeeCents: paymentMethod === "transfer" && includeTransferFee ? parseMoneyToCents(transferFee) || 0 : undefined,
       });
@@ -107,6 +117,7 @@ export function EditExpenseModal({ expense, onClose, onSave, activeCardName, tra
               const next = event.target.value as ExpensePaymentMethod;
               setPaymentMethod(next);
               if (next !== "creditCard") setCurrency("DOP");
+              if ((next === "debit" || next === "transfer") && !bankAccounts.some((account) => account.id === moneyAccountId)) setMoneyAccountId(bankAccounts[0]?.id || "");
               if (next !== "transfer") { setIncludeTransferFee(false); setTransferFee(""); }
             }}>
               <option value="cash">Efectivo</option>
@@ -115,6 +126,7 @@ export function EditExpenseModal({ expense, onClose, onSave, activeCardName, tra
               <option value="creditCard">Tarjeta de crédito</option>
             </select>
           </label>
+          {(paymentMethod === "debit" || paymentMethod === "transfer") && <label className="field"><span>Banco y cuenta</span><select value={moneyAccountId} onChange={(event) => setMoneyAccountId(event.target.value)}><option value="">Seleccionar cuenta</option>{bankAccounts.map((account) => <option value={account.id} key={account.id}>{moneyAccountLabel(account.id, data)} · {formatMoney(getMoneyAccountBalance(data, account.id))}</option>)}</select>{!bankAccounts.length && <small className="form-error">Agrega una cuenta en Más → Bancos y efectivo.</small>}</label>}
           {paymentMethod === "creditCard" && <>
             <label className="field"><span>Moneda del cargo</span><select value={currency} onChange={(event) => setCurrency(event.target.value as ExpenseCurrency)}><option value="DOP">Pesos dominicanos (DOP)</option><option value="USD">Dólares estadounidenses (USD)</option></select></label>
             {activeCardName ? <p className="privacy-note">El cargo vinculado se actualizará en {activeCardName}.</p> : <p className="form-error">Configura una tarjeta activa para usar esta forma de pago.</p>}

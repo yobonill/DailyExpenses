@@ -1,18 +1,18 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 import { clearDraft, readDraft, storeDraft } from "../lib/localState";
 import { formatMoney, parseMoneyToCents } from "../lib/money";
-import { calculateTransferFeeMinor } from "../lib/moneyLedger";
+import { CASH_ACCOUNT_ID, calculateTransferFeeMinor, getActiveBankAccounts, getMoneyAccountBalance, isSelectableMoneyAccount, moneyAccountLabel } from "../lib/moneyLedger";
 import { EXPENSE_CATEGORIES } from "../config/financeCategories";
 import type { NewExpenseInput } from "../hooks/useExpenses";
 import type { ExpenseCurrency, ExpensePaymentMethod } from "../models/expense";
+import type { FinancialData } from "../models/finance";
 
 interface CaptureViewProps {
   onCreate: (input: NewExpenseInput) => Promise<unknown>;
   onSaved: () => void;
+  data: FinancialData;
   activeCardName?: string;
   transferFeeRatePercent: number;
-  bankBalanceMinor?: number;
-  cashBalanceMinor?: number;
 }
 
 const PAYMENT_METHOD_LABELS: Record<ExpensePaymentMethod, string> = {
@@ -22,13 +22,15 @@ const PAYMENT_METHOD_LABELS: Record<ExpensePaymentMethod, string> = {
   creditCard: "Tarjeta de crédito",
 };
 
-export function CaptureView({ onCreate, onSaved, activeCardName, transferFeeRatePercent, bankBalanceMinor, cashBalanceMinor }: CaptureViewProps) {
+export function CaptureView({ onCreate, onSaved, data, activeCardName, transferFeeRatePercent }: CaptureViewProps) {
   const initialDraft = useMemo(readDraft, []);
+  const bankAccounts = getActiveBankAccounts(data);
   const [name, setName] = useState(initialDraft.name);
   const [price, setPrice] = useState(initialDraft.price);
   const [quantity, setQuantity] = useState(initialDraft.quantity || "1");
   const [category, setCategory] = useState(initialDraft.category);
   const [paymentMethod, setPaymentMethod] = useState<ExpensePaymentMethod>(initialDraft.paymentMethod);
+  const [moneyAccountId, setMoneyAccountId] = useState(initialDraft.moneyAccountId || bankAccounts[0]?.id || "");
   const [currency, setCurrency] = useState<ExpenseCurrency>(initialDraft.currency);
   const [includeTransferFee, setIncludeTransferFee] = useState(initialDraft.includeTransferFee);
   const [transferFee, setTransferFee] = useState(initialDraft.transferFee);
@@ -47,7 +49,12 @@ export function CaptureView({ onCreate, onSaved, activeCardName, transferFeeRate
   const showPrice = cleanName.length > 0;
   const showQuantity = showPrice && unitPriceCents !== null;
   const cardReady = paymentMethod !== "creditCard" || Boolean(activeCardName);
-  const canSave = showQuantity && validQuantity && cardReady && !saving;
+  const sourceReady = paymentMethod === "cash"
+    ? isSelectableMoneyAccount(data, CASH_ACCOUNT_ID, "cash")
+    : paymentMethod === "debit" || paymentMethod === "transfer"
+      ? isSelectableMoneyAccount(data, moneyAccountId, paymentMethod === "debit" ? "debitCard" : "bankTransfer")
+      : true;
+  const canSave = showQuantity && validQuantity && cardReady && sourceReady && !saving;
   const totalCents = unitPriceCents && validQuantity ? unitPriceCents * quantityNumber : 0;
   const suggestedFee = calculateTransferFeeMinor(totalCents, transferFeeRatePercent);
   const transferFeeCents = paymentMethod === "transfer" && includeTransferFee
@@ -55,8 +62,8 @@ export function CaptureView({ onCreate, onSaved, activeCardName, transferFeeRate
     : 0;
 
   useEffect(() => {
-    storeDraft({ name, price, quantity, category, currency, paymentMethod, includeTransferFee, transferFee });
-  }, [category, currency, includeTransferFee, name, paymentMethod, price, quantity, transferFee]);
+    storeDraft({ name, price, quantity, category, currency, paymentMethod, moneyAccountId, includeTransferFee, transferFee });
+  }, [category, currency, includeTransferFee, moneyAccountId, name, paymentMethod, price, quantity, transferFee]);
 
   useEffect(() => {
     nameRef.current?.focus();
@@ -68,6 +75,7 @@ export function CaptureView({ onCreate, onSaved, activeCardName, transferFeeRate
     setQuantity("1");
     setCategory("");
     setPaymentMethod("cash");
+    setMoneyAccountId(bankAccounts[0]?.id || "");
     setCurrency("DOP");
     setIncludeTransferFee(false);
     setTransferFee("");
@@ -89,12 +97,13 @@ export function CaptureView({ onCreate, onSaved, activeCardName, transferFeeRate
         category,
         currency: paymentMethod === "creditCard" ? currency : "DOP",
         paymentMethod,
+        moneyAccountId: paymentMethod === "cash" ? CASH_ACCOUNT_ID : paymentMethod === "debit" || paymentMethod === "transfer" ? moneyAccountId : undefined,
         transferFeeCents: paymentMethod === "transfer" && includeTransferFee ? transferFeeCents || 0 : undefined,
       });
       reset();
       onSaved();
-    } catch {
-      setError("No se pudo guardar en este dispositivo. El formulario se mantuvo intacto.");
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "No se pudo guardar en este dispositivo. El formulario se mantuvo intacto.");
     } finally {
       setSaving(false);
     }
@@ -182,6 +191,7 @@ export function CaptureView({ onCreate, onSaved, activeCardName, transferFeeRate
                     const next = event.target.value as ExpensePaymentMethod;
                     setPaymentMethod(next);
                     if (next !== "creditCard") setCurrency("DOP");
+                    if ((next === "debit" || next === "transfer") && !bankAccounts.some((account) => account.id === moneyAccountId)) setMoneyAccountId(bankAccounts[0]?.id || "");
                     if (next !== "transfer") { setIncludeTransferFee(false); setTransferFee(""); }
                   }}
                 >
@@ -190,6 +200,8 @@ export function CaptureView({ onCreate, onSaved, activeCardName, transferFeeRate
                   ))}
                 </select>
               </label>
+
+              {(paymentMethod === "debit" || paymentMethod === "transfer") && <label className="capture-field"><span>Banco y cuenta</span><select value={moneyAccountId} onChange={(event) => setMoneyAccountId(event.target.value)}><option value="">Seleccionar cuenta</option>{bankAccounts.map((account) => <option value={account.id} key={account.id}>{moneyAccountLabel(account.id, data)} · {formatMoney(getMoneyAccountBalance(data, account.id))}</option>)}</select>{!bankAccounts.length && <small className="form-error">Agrega una cuenta en Más → Bancos y efectivo.</small>}</label>}
 
               {paymentMethod === "creditCard" && (
                 <>
@@ -230,7 +242,8 @@ export function CaptureView({ onCreate, onSaved, activeCardName, transferFeeRate
                 <strong>{currency === "USD" && paymentMethod === "creditCard" ? `US$${(totalCents / 100).toLocaleString("es-DO", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : formatMoney(totalCents + (transferFeeCents || 0))}</strong>
               </div>
 
-              {paymentMethod !== "creditCard" && <p className="capture-card-note">Se descontará de {paymentMethod === "cash" ? "Efectivo" : "Banco"}{typeof (paymentMethod === "cash" ? cashBalanceMinor : bankBalanceMinor) === "number" ? ` · Disponible ${formatMoney((paymentMethod === "cash" ? cashBalanceMinor : bankBalanceMinor) || 0)}` : ". Configura primero tus saldos en Dinero."}</p>}
+              {paymentMethod === "cash" && <p className="capture-card-note">Se descontará de Efectivo{data.moneyAccounts[CASH_ACCOUNT_ID] ? ` · Disponible ${formatMoney(getMoneyAccountBalance(data, CASH_ACCOUNT_ID))}` : ". Configúralo primero en Bancos y efectivo."}</p>}
+              {(paymentMethod === "debit" || paymentMethod === "transfer") && moneyAccountId && <p className="capture-card-note">Se descontará de {moneyAccountLabel(moneyAccountId, data)}.</p>}
 
               <button className="button button-primary capture-submit" type="submit" disabled={!canSave}>
                 {saving ? "Registrando…" : "Registrar gasto"}

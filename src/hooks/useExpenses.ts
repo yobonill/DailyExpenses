@@ -42,6 +42,9 @@ const normalizeExpense = (raw: Partial<Expense> & { id: string }): Expense => {
     category: typeof raw.category === "string" && raw.category.trim() ? raw.category.trim() : undefined,
     currency: paymentMethod === "creditCard" && raw.currency === "USD" ? "USD" : "DOP",
     paymentMethod,
+    moneyAccountId: paymentMethod === "debit" || paymentMethod === "transfer"
+      ? typeof raw.moneyAccountId === "string" && raw.moneyAccountId ? raw.moneyAccountId : undefined
+      : paymentMethod === "cash" ? "cash" : undefined,
     transferFeeCents: paymentMethod === "transfer" && Number(raw.transferFeeCents) > 0
       ? Math.round(Number(raw.transferFeeCents))
       : undefined,
@@ -132,6 +135,7 @@ export interface NewExpenseInput {
   category?: string;
   currency: "DOP" | "USD";
   paymentMethod: ExpensePaymentMethod;
+  moneyAccountId?: string;
   transferFeeCents?: number;
 }
 
@@ -325,6 +329,7 @@ export const useExpenses = (): UseExpensesResult => {
         category: input.category?.trim() || undefined,
         currency: input.paymentMethod === "creditCard" && input.currency === "USD" ? "USD" : "DOP",
         paymentMethod: input.paymentMethod,
+        moneyAccountId: input.paymentMethod === "cash" ? "cash" : input.paymentMethod === "debit" || input.paymentMethod === "transfer" ? input.moneyAccountId : undefined,
         transferFeeCents: input.paymentMethod === "transfer" && input.transferFeeCents && input.transferFeeCents > 0
           ? Math.round(input.transferFeeCents)
           : undefined,
@@ -365,6 +370,7 @@ export const useExpenses = (): UseExpensesResult => {
         category: changes.category?.trim() || null,
         currency: changes.paymentMethod === "creditCard" && changes.currency === "USD" ? "USD" : "DOP",
         paymentMethod: changes.paymentMethod,
+        moneyAccountId: changes.paymentMethod === "cash" ? "cash" : changes.paymentMethod === "debit" || changes.paymentMethod === "transfer" ? changes.moneyAccountId || null : null,
         transferFeeCents: changes.paymentMethod === "transfer" && changes.transferFeeCents && changes.transferFeeCents > 0
           ? Math.round(changes.transferFeeCents)
           : null,

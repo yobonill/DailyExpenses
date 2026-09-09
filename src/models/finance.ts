@@ -4,7 +4,8 @@ export type Currency = "DOP" | "USD";
 export type FinancialStatus = "upcoming" | "paid" | "cancelled";
 export type RecurrenceKind = "once" | "monthly" | "months" | "years";
 export type PaymentMethod = "cash" | "bankTransfer" | "debitCard" | "creditCard";
-export type MoneyAccountId = "bank" | "cash";
+export type MoneyAccountId = string;
+export type BankAccountType = "checking" | "savings" | "payroll" | "digital" | "other";
 export type MoneyMovementDirection = "in" | "out";
 export type HistoricalPaymentSource = "unknown" | "creditCardOpeningBalance" | "cashOrBankBeforeTracking";
 export type PurchaseGoalPriority = "low" | "medium" | "high";
@@ -124,6 +125,13 @@ export interface IncomeOccurrence extends RecordMetadata {
   reconciledAt?: string;
 }
 
+export interface Bank extends RecordMetadata {
+  id: string;
+  name: string;
+  active: boolean;
+  notes?: string;
+}
+
 export interface NonMonthlyExpense extends RecordMetadata {
   id: string;
   name: string;
@@ -161,9 +169,12 @@ export interface NonMonthlyOccurrence extends RecordMetadata {
 
 export interface MoneyAccount extends RecordMetadata {
   id: MoneyAccountId;
-  kind: MoneyAccountId;
+  kind: "bank" | "cash";
   name: string;
   currency: "DOP";
+  bankId?: string;
+  accountType?: BankAccountType;
+  lastFour?: string;
   openingBalanceMinor: number;
   openingDate: string;
   active: boolean;
@@ -193,6 +204,7 @@ export interface Loan extends RecordMetadata {
   id: string;
   name: string;
   lender?: string;
+  bankId?: string;
   currency: Currency;
   openingBalanceMinor: number;
   openingDate: string;
@@ -225,6 +237,8 @@ export interface SavingsFund extends RecordMetadata {
   targetAmountMinor?: number;
   targetDate?: string;
   active: boolean;
+  /** Physical account where this reserved money is held. Informational only. */
+  moneyAccountId?: MoneyAccountId;
   notes?: string;
 }
 
@@ -279,6 +293,7 @@ export interface CreditCard extends RecordMetadata {
   id: string;
   name: string;
   bank?: string;
+  bankId?: string;
   lastFour?: string;
   cutDay: number;
   dueDay: number;
@@ -378,6 +393,7 @@ export interface FinancialData {
   cardTransactions: Record<string, CardTransaction>;
   cardStatements: Record<string, CardStatement>;
   cardPaymentPlans: Record<string, CardPaymentPlan>;
+  banks: Record<string, Bank>;
   moneyAccounts: Record<string, MoneyAccount>;
   moneyTransactions: Record<string, MoneyTransaction>;
   loans: Record<string, Loan>;

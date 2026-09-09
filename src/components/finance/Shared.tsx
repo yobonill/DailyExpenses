@@ -2,7 +2,7 @@ import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import { formatMonthTitle, formatShortDate, getMonthKey, toLocalDateKey } from "../../lib/date";
 import { formatCurrency, minorToInput, parseMoneyToCents } from "../../lib/money";
 import { estimateLoanInterestMinor, getLoanBalance } from "../../lib/loanLedger";
-import { BANK_ACCOUNT_ID, CASH_ACCOUNT_ID, calculateTransferFeeMinor, getMoneyAccountBalance, hasInitializedMoneyAccounts, moneyAccountLabel } from "../../lib/moneyLedger";
+import { CASH_ACCOUNT_ID, calculateTransferFeeMinor, getActiveBankAccounts, getMoneyAccountBalance, isSelectableMoneyAccount, moneyAccountLabel } from "../../lib/moneyLedger";
 import type { CreditCard, Currency, FinancialData, MoneyAccountId, PaymentMethod } from "../../models/finance";
 
 export function PageHeading({ eyebrow, title, action }: { eyebrow: string; title: string; action?: ReactNode }) {
@@ -68,6 +68,21 @@ export function CheckboxField({ checked, onChange, label, help }: { checked: boo
       <span><strong>{label}</strong>{help && <small>{help}</small>}</span>
     </label>
   );
+}
+
+export function MoneyAccountField({ data, method, value, onChange, label = "Cuenta de origen" }: {
+  data: FinancialData;
+  method: "cash" | "bankTransfer" | "debitCard";
+  value: MoneyAccountId;
+  onChange: (value: MoneyAccountId) => void;
+  label?: string;
+}) {
+  const bankAccounts = getActiveBankAccounts(data);
+  if (method === "cash") {
+    const cash = data.moneyAccounts[CASH_ACCOUNT_ID];
+    return <div className="form-summary"><span>{label}</span><strong>{cash ? `Efectivo · ${formatCurrency(getMoneyAccountBalance(data, CASH_ACCOUNT_ID), "DOP")}` : "Efectivo sin configurar"}</strong></div>;
+  }
+  return <label className="field"><span>{label}</span><select value={value} onChange={(event) => onChange(event.target.value)}><option value="">Seleccionar banco y cuenta</option>{bankAccounts.map((account) => <option key={account.id} value={account.id}>{moneyAccountLabel(account.id, data)} · {formatCurrency(getMoneyAccountBalance(data, account.id), "DOP")}</option>)}</select><small className="field-help">Se descontará exactamente de esta cuenta.</small></label>;
 }
 
 export function EmptyPanel({ title, text }: { title: string; text: string }) {
@@ -136,6 +151,8 @@ export function PayModal({ title, expectedMinor, currency, canPayWithCard, cards
   const [paidDate, setPaidDate] = useState(toLocalDateKey());
   const [method, setMethod] = useState<PaymentMethod>(initialMethod);
   const [cardId, setCardId] = useState(cards[0]?.id || "");
+  const firstBankAccountId = getActiveBankAccounts(data)[0]?.id || "";
+  const [moneyAccountId, setMoneyAccountId] = useState<MoneyAccountId>(initialMethod === "cash" ? CASH_ACCOUNT_ID : firstBankAccountId);
   const [consumeSavings, setConsumeSavings] = useState(Boolean(allowSavings));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -151,22 +168,22 @@ export function PayModal({ title, expectedMinor, currency, canPayWithCard, cards
   const interestMinor = linkedLoan ? parseMoneyToCents(loanInterest) || 0 : 0;
   const chargesMinor = linkedLoan ? parseMoneyToCents(loanCharges) || 0 : 0;
   const principalMinor = linkedLoan ? Math.max(0, amountMinor - interestMinor - chargesMinor) : 0;
-  const moneyAccountId: MoneyAccountId | undefined = method === "cash" ? CASH_ACCOUNT_ID : method === "bankTransfer" || method === "debitCard" ? BANK_ACCOUNT_ID : undefined;
+  const effectiveMoneyAccountId: MoneyAccountId | undefined = method === "cash" ? CASH_ACCOUNT_ID : method === "bankTransfer" || method === "debitCard" ? moneyAccountId : undefined;
   const accountDebitMinor = currency === "USD" ? parseMoneyToCents(settlementDop) || 0 : amountMinor;
-  const accountReady = hasInitializedMoneyAccounts(data);
-  const accountBalance = moneyAccountId ? getMoneyAccountBalance(data, moneyAccountId) : 0;
+  const accountReady = method === "creditCard" || (effectiveMoneyAccountId ? isSelectableMoneyAccount(data, effectiveMoneyAccountId, method as "cash" | "bankTransfer" | "debitCard") : false);
+  const accountBalance = effectiveMoneyAccountId ? getMoneyAccountBalance(data, effectiveMoneyAccountId) : 0;
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     if (!amountMinor) return setError("Escribe un monto válido.");
     if (method === "creditCard" && !cardId) return setError("Selecciona una tarjeta activa.");
-    if (moneyAccountId && !accountReady) return setError("Configura primero Banco y Efectivo en Más → Dinero disponible.");
-    if (moneyAccountId && currency === "USD" && accountDebitMinor <= 0) return setError("Indica cuánto salió realmente en pesos.");
-    if (moneyAccountId && accountDebitMinor + feeMinor > accountBalance) return setError(`No hay suficiente dinero en ${moneyAccountLabel(moneyAccountId)}.`);
+    if (method !== "creditCard" && !accountReady) return setError(method === "cash" ? "Configura primero tu saldo en Efectivo." : "Selecciona una cuenta bancaria activa.");
+    if (effectiveMoneyAccountId && currency === "USD" && accountDebitMinor <= 0) return setError("Indica cuánto salió realmente en pesos.");
+    if (effectiveMoneyAccountId && accountDebitMinor + feeMinor > accountBalance) return setError(`No hay suficiente dinero en ${moneyAccountLabel(effectiveMoneyAccountId, data)}.`);
     if (linkedLoan && interestMinor + chargesMinor > amountMinor) return setError("Intereses y cargos no pueden exceder el pago total.");
     if (linkedLoan && principalMinor > getLoanBalance(data, linkedLoan.id)) return setError("El capital calculado excede el balance del préstamo.");
     setSaving(true); setError("");
     try {
-      await onConfirm({ amountMinor, paidDate, method, cardId: method === "creditCard" ? cardId : undefined, consumeReservedSavings: consumeSavings, moneyAccountId, transferFeeMinor: feeMinor || undefined, settlementAmountDopMinor: currency === "USD" && moneyAccountId ? accountDebitMinor : undefined, loanPrincipalMinor: linkedLoan ? principalMinor : undefined, loanInterestMinor: linkedLoan ? interestMinor : undefined, loanChargesMinor: linkedLoan ? chargesMinor : undefined });
+      await onConfirm({ amountMinor, paidDate, method, cardId: method === "creditCard" ? cardId : undefined, consumeReservedSavings: consumeSavings, moneyAccountId: effectiveMoneyAccountId, transferFeeMinor: feeMinor || undefined, settlementAmountDopMinor: currency === "USD" && effectiveMoneyAccountId ? accountDebitMinor : undefined, loanPrincipalMinor: linkedLoan ? principalMinor : undefined, loanInterestMinor: linkedLoan ? interestMinor : undefined, loanChargesMinor: linkedLoan ? chargesMinor : undefined });
       onClose();
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "No se pudo registrar el pago.");
@@ -178,10 +195,10 @@ export function PayModal({ title, expectedMinor, currency, canPayWithCard, cards
         <div className="form-summary"><span>Monto esperado</span><strong>{formatCurrency(expectedMinor, currency)}</strong></div>
         <MoneyField label="Monto pagado" value={amount} onChange={setAmount} currency={currency} />
         <label className="field"><span>Fecha de pago</span><input type="date" value={paidDate} onChange={(event) => setPaidDate(event.target.value)} /></label>
-        <label className="field"><span>¿Cómo se pagó?</span><select value={method} onChange={(event) => { const next = event.target.value as PaymentMethod; setMethod(next); if (next !== "bankTransfer") { setAddTransferFee(false); setTransferFee(""); } }}><option value="bankTransfer">Transferencia bancaria</option><option value="debitCard">Tarjeta de débito</option><option value="cash">Efectivo</option>{canPayWithCard && <option value="creditCard">Tarjeta de crédito</option>}</select></label>
+        <label className="field"><span>¿Cómo se pagó?</span><select value={method} onChange={(event) => { const next = event.target.value as PaymentMethod; setMethod(next); if (next === "cash") setMoneyAccountId(CASH_ACCOUNT_ID); else if ((next === "bankTransfer" || next === "debitCard") && !isSelectableMoneyAccount(data, moneyAccountId, next)) setMoneyAccountId(firstBankAccountId); if (next !== "bankTransfer") { setAddTransferFee(false); setTransferFee(""); } }}><option value="bankTransfer">Transferencia bancaria</option><option value="debitCard">Tarjeta de débito</option><option value="cash">Efectivo</option>{canPayWithCard && <option value="creditCard">Tarjeta de crédito</option>}</select></label>
         {method === "creditCard" && <label className="field"><span>Tarjeta</span><select value={cardId} onChange={(event) => setCardId(event.target.value)}><option value="">Seleccionar</option>{cards.map((card) => <option key={card.id} value={card.id}>{card.name}{card.lastFour ? ` · ${card.lastFour}` : ""}</option>)}</select></label>}
-        {moneyAccountId && <div className="form-summary"><span>Se descontará de {moneyAccountLabel(moneyAccountId)}</span><strong>{accountReady ? formatCurrency(accountBalance, "DOP") : "Sin configurar"}</strong></div>}
-        {moneyAccountId && currency === "USD" && <MoneyField label="Monto real que salió en pesos" value={settlementDop} onChange={setSettlementDop} currency="DOP" />}
+        {method !== "creditCard" && <MoneyAccountField data={data} method={method as "cash" | "bankTransfer" | "debitCard"} value={effectiveMoneyAccountId || ""} onChange={setMoneyAccountId} />}
+        {effectiveMoneyAccountId && currency === "USD" && <MoneyField label="Monto real que salió en pesos" value={settlementDop} onChange={setSettlementDop} currency="DOP" />}
         {method === "bankTransfer" && <><CheckboxField checked={addTransferFee} onChange={(checked) => { setAddTransferFee(checked); setTransferFee(checked ? minorToInput(calculateTransferFeeMinor(accountDebitMinor, data.settings.transferFeeRatePercent)) : ""); }} label="Agregar comisión por transferencia" help={`Calcula ${data.settings.transferFeeRatePercent}% automáticamente; puedes editarla.`} />{addTransferFee && <MoneyField label="Comisión por transferencia" value={transferFee} onChange={setTransferFee} currency="DOP" />}</>}
         {linkedLoan && <fieldset className="loan-breakdown-fieldset"><legend>Aplicación al préstamo · {linkedLoan.name}</legend><p className="privacy-note">El balance del préstamo solo baja por la porción de capital. Ajusta los valores según el comprobante del banco.</p><MoneyField label="Intereses" value={loanInterest} onChange={setLoanInterest} currency={currency} /><MoneyField label="Otros cargos" value={loanCharges} onChange={setLoanCharges} currency={currency} /><div className="form-summary"><span>Capital que reducirá la deuda</span><strong>{formatCurrency(principalMinor, currency)}</strong></div></fieldset>}
         {allowSavings && method !== "creditCard" && <CheckboxField checked={consumeSavings} onChange={setConsumeSavings} label="Usar ahorros asignados" help="Retira automáticamente el monto reservado de los fondos vinculados." />}

@@ -6,11 +6,13 @@ import { getCardCurrentDebt, getCardPaymentPlanId, getFundAllocated, getFundBala
 import { buildGenerationUpdates, buildPausedMonthlyOccurrenceUpdates } from "../lib/financialGeneration";
 import { buildStartingPointReconciliationUpdates, type StartingPointReconciliationInput } from "../lib/startingPointReconciliation";
 import { createId } from "../lib/id";
-import { BANK_ACCOUNT_ID, CASH_ACCOUNT_ID, getMoneyAccountBalance, hasInitializedMoneyAccounts } from "../lib/moneyLedger";
+import { BANK_ACCOUNT_ID, CASH_ACCOUNT_ID, LEGACY_BANK_ACCOUNT_ID, getLegacyBankBalance, getMoneyAccountBalance, hasInitializedMoneyAccounts, isSelectableMoneyAccount } from "../lib/moneyLedger";
 import { getLoanBalance } from "../lib/loanLedger";
 import type { Expense } from "../models/expense";
 import type {
   AppSettings,
+  Bank,
+  BankAccountType,
   CardPaymentPlan,
   CardStatement,
   CardTransaction,
@@ -106,6 +108,7 @@ export interface NonMonthlyInput {
 export interface CreditCardInput {
   name: string;
   bank?: string;
+  bankId?: string;
   lastFour?: string;
   cutDay: number;
   dueDay: number;
@@ -127,6 +130,7 @@ export interface SavingsFundInput {
   targetAmountMinor?: number;
   targetDate?: string;
   active: boolean;
+  moneyAccountId?: MoneyAccountId;
   notes?: string;
 }
 
@@ -163,9 +167,27 @@ export interface MoneyAccountsSetupInput {
   cashBalanceMinor: number;
 }
 
+export interface BankInput {
+  name: string;
+  active: boolean;
+  notes?: string;
+}
+
+export interface MoneyAccountInput {
+  bankId: string;
+  name: string;
+  accountType: BankAccountType;
+  lastFour?: string;
+  openingBalanceMinor: number;
+  openingDate: string;
+  active: boolean;
+  notes?: string;
+}
+
 export interface LoanInput {
   name: string;
   lender?: string;
+  bankId?: string;
   currency: Currency;
   openingBalanceMinor: number;
   openingDate: string;
@@ -332,17 +354,21 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
     const accountId: MoneyAccountId | undefined = input.method === "cash"
       ? CASH_ACCOUNT_ID
       : input.method === "bankTransfer" || input.method === "debitCard"
-        ? BANK_ACCOUNT_ID
+        ? input.moneyAccountId
         : undefined;
     const accountDebitMinor = input.currency === "DOP" ? input.amountMinor : input.settlementAmountDopMinor || 0;
     const transferFeeMinor = input.method === "bankTransfer" ? Math.max(0, Math.round(input.transferFeeMinor || 0)) : 0;
     if (accountId) {
-      if (!hasInitializedMoneyAccounts(data)) throw new Error("Configura primero tus saldos de Banco y Efectivo.");
+      if (!isSelectableMoneyAccount(data, accountId, input.method as "cash" | "bankTransfer" | "debitCard")) {
+        throw new Error(input.method === "cash" ? "Configura primero tu saldo en Efectivo." : "Selecciona una cuenta bancaria activa.");
+      }
       if (input.currency === "USD" && accountDebitMinor <= 0) throw new Error("Indica cuánto salió realmente en pesos dominicanos.");
       const available = getMoneyAccountBalance(data, accountId);
       if (accountDebitMinor + transferFeeMinor > available) {
-        throw new Error(`No hay suficiente dinero disponible en ${accountId === BANK_ACCOUNT_ID ? "Banco" : "Efectivo"}.`);
+        throw new Error(`No hay suficiente dinero disponible en ${data.moneyAccounts[accountId]?.name || "la cuenta seleccionada"}.`);
       }
+    } else if (input.method !== "creditCard") {
+      throw new Error("Selecciona la cuenta desde donde se realizó el pago.");
     }
 
     const linkedLoan = occurrence.loanId ? data.loans[occurrence.loanId] : undefined;
@@ -656,10 +682,14 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
   const receiveIncome = useCallback(async (id: string, amountMinor: number, receivedDate: string, moneyAccountId?: MoneyAccountId) => {
     const occurrence = data.incomeOccurrences[id];
     if (!occurrence) return;
-    if (occurrence.currency === "DOP" && !hasInitializedMoneyAccounts(data)) {
-      throw new Error("Configura primero tus saldos de Banco y Efectivo.");
-    }
     if (occurrence.currency === "DOP" && !moneyAccountId) throw new Error("Selecciona dónde recibiste el ingreso.");
+    if (occurrence.currency === "DOP" && moneyAccountId) {
+      const account = data.moneyAccounts[moneyAccountId];
+      const valid = account?.kind === "cash"
+        ? isSelectableMoneyAccount(data, moneyAccountId, "cash")
+        : isSelectableMoneyAccount(data, moneyAccountId, "bankTransfer");
+      if (!valid) throw new Error("Selecciona una cuenta activa para recibir el ingreso.");
+    }
     const transactionId = occurrence.currency === "DOP" && moneyAccountId ? createId() : undefined;
     const updates: Record<string, unknown> = {
       [`incomeOccurrences/${id}`]: {
@@ -768,6 +798,12 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
   const saveSavingsFund = useCallback(async (input: SavingsFundInput, id?: string) => {
     const fundId = id || createId();
     const existing = data.savingsFunds[fundId];
+    if (input.moneyAccountId) {
+      const account = data.moneyAccounts[input.moneyAccountId];
+      if (input.currency !== "DOP" || !account || account.archivedAt) {
+        throw new Error("Selecciona una cuenta DOP disponible para indicar dónde está guardado el ahorro.");
+      }
+    }
     if (existing && existing.currency !== input.currency) {
       const hasHistory = Object.values(data.savingsTransactions).some((transaction) => transaction.fundId === fundId)
         || Object.values(data.savingsAllocations).some((allocation) => allocation.fundId === fundId);
@@ -778,6 +814,7 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
       id: fundId,
       ...fundInput,
       name: input.name.trim(),
+      moneyAccountId: input.moneyAccountId || undefined,
       notes: cleanOptional(input.notes),
       ...meta(existing),
     };
@@ -985,6 +1022,7 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
     actualPaymentDopMinor: number,
     purchaseDate: string,
     linkedDailyExpenseId: string,
+    paymentMethod: Exclude<PaymentMethod, "creditCard"> = "cash",
   ) => {
     const goal = data.purchaseGoals[goalId];
     if (!goal || goal.status !== "active") throw new Error("La meta ya no está disponible para comprar.");
@@ -996,7 +1034,7 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
         status: "purchased",
         actualAmountMinor,
         actualPaymentDopMinor: goal.currency === "USD" ? actualPaymentDopMinor : undefined,
-        purchaseMethod: "cash",
+        purchaseMethod: paymentMethod,
         linkedDailyExpenseId,
         purchasedAt: purchaseDate,
         ...meta(goal),
@@ -1190,15 +1228,18 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
           ...meta(transaction),
         };
       });
-      if (!hasInitializedMoneyAccounts(data)) throw new Error("Configura primero tus saldos de Banco y Efectivo.");
-      const accountId: MoneyAccountId = expense.paymentMethod === "cash" ? CASH_ACCOUNT_ID : BANK_ACCOUNT_ID;
+      const accountId: MoneyAccountId | undefined = expense.paymentMethod === "cash" ? CASH_ACCOUNT_ID : expense.moneyAccountId;
+      const financeMethod = expense.paymentMethod === "cash" ? "cash" : expense.paymentMethod === "debit" ? "debitCard" : "bankTransfer";
+      if (!accountId || !isSelectableMoneyAccount(data, accountId, financeMethod)) {
+        throw new Error(expense.paymentMethod === "cash" ? "Configura primero tu saldo en Efectivo." : "Selecciona el banco y la cuenta usados para este gasto.");
+      }
       const amountMinor = expense.unitPriceCents * expense.quantity;
       const feeMinor = expense.paymentMethod === "transfer" ? Math.max(0, expense.transferFeeCents || 0) : 0;
       const replaceableBalance = linkedMoneyTransactions
         .filter((transaction) => transaction.accountId === accountId)
         .reduce((total, transaction) => total + transaction.amountMinor, getMoneyAccountBalance(data, accountId));
       if (amountMinor + feeMinor > replaceableBalance) {
-        throw new Error(`No hay suficiente dinero disponible en ${accountId === BANK_ACCOUNT_ID ? "Banco" : "Efectivo"}.`);
+        throw new Error(`No hay suficiente dinero disponible en ${data.moneyAccounts[accountId]?.name || "la cuenta seleccionada"}.`);
       }
       const existingExpenseMovement = linkedMoneyTransactions.find((transaction) => transaction.type === "expense");
       const expenseMovementId = existingExpenseMovement?.id || createId();
@@ -1222,7 +1263,7 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
         updates[`moneyTransactions/${feeId}`] = {
           ...(existingFeeMovement || {}),
           id: feeId,
-          accountId: BANK_ACCOUNT_ID,
+          accountId,
           direction: "out",
           type: "fee",
           amountMinor: feeMinor,
@@ -1297,6 +1338,9 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
   const saveCreditCard = useCallback(async (input: CreditCardInput, id?: string) => {
     const cardId = id || createId();
     const existing = data.creditCards[cardId];
+    if (input.bankId && (!data.banks[input.bankId] || data.banks[input.bankId].archivedAt)) {
+      throw new Error("Selecciona un banco válido para la tarjeta.");
+    }
     if (!existing && Object.values(data.creditCards).some((card) => !card.archivedAt)) {
       throw new Error("La aplicación utiliza una sola tarjeta. Edita la tarjeta existente.");
     }
@@ -1316,13 +1360,14 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
       id: cardId,
       ...input,
       name: input.name.trim(),
-      bank: cleanOptional(input.bank),
+      bankId: cleanOptional(input.bankId),
+      bank: input.bankId ? undefined : cleanOptional(input.bank),
       lastFour: cleanOptional(input.lastFour)?.slice(-4),
       notes: cleanOptional(input.notes),
       ...meta(existing),
     };
     await commitUpdates({ [`creditCards/${cardId}`]: card });
-  }, [commitUpdates, data.cardStatements, data.cardTransactions, data.creditCards, meta]);
+  }, [commitUpdates, data.banks, data.cardStatements, data.cardTransactions, data.creditCards, meta]);
 
   const addCardTransaction = useCallback(async (
     cardId: string,
@@ -1355,14 +1400,14 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
         throw new Error("Un pago ya incluido en la deuda actual no puede retirar dinero de ahorros otra vez.");
       }
       if (affectsCurrentBalance) {
-        if (!hasInitializedMoneyAccounts(data)) throw new Error("Configura primero tus saldos de Banco y Efectivo.");
         if (!moneyAccountId) throw new Error("Selecciona de dónde salió el dinero.");
-        const expectedAccount = paymentMethod === "cash" ? CASH_ACCOUNT_ID : BANK_ACCOUNT_ID;
-        if (moneyAccountId !== expectedAccount) throw new Error("El origen no coincide con el método de pago.");
+        if (!isSelectableMoneyAccount(data, moneyAccountId, paymentMethod)) {
+          throw new Error(paymentMethod === "cash" ? "Configura primero tu saldo en Efectivo." : "Selecciona una cuenta bancaria activa.");
+        }
         const cashAmount = currency === "USD" ? Math.abs(settlementAmountDopMinor || 0) : Math.abs(amountMinor);
         const fee = paymentMethod === "bankTransfer" ? Math.max(0, Math.round(transferFeeMinor)) : 0;
         if (cashAmount + fee > getMoneyAccountBalance(data, moneyAccountId)) {
-          throw new Error(`No hay suficiente dinero disponible en ${moneyAccountId === BANK_ACCOUNT_ID ? "Banco" : "Efectivo"}.`);
+          throw new Error(`No hay suficiente dinero disponible en ${data.moneyAccounts[moneyAccountId]?.name || "la cuenta seleccionada"}.`);
         }
       }
     }
@@ -1544,6 +1589,68 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
     await commitUpdates(updates);
   }, [commitUpdates, data, meta]);
 
+  const saveBank = useCallback(async (input: BankInput, id?: string) => {
+    if (!input.name.trim()) throw new Error("Escribe el nombre del banco.");
+    const bankId = id || createId();
+    const existing = data.banks[bankId];
+    const bank: Bank = {
+      id: bankId,
+      name: input.name.trim(),
+      active: input.active,
+      notes: cleanOptional(input.notes),
+      ...meta(existing),
+    };
+    await commitUpdates({ [`banks/${bankId}`]: bank });
+  }, [commitUpdates, data.banks, meta]);
+
+  const saveMoneyAccount = useCallback(async (input: MoneyAccountInput, id?: string) => {
+    const bank = data.banks[input.bankId];
+    if (!bank || bank.archivedAt) throw new Error("Selecciona un banco válido.");
+    if (!input.name.trim() || input.openingBalanceMinor < 0) throw new Error("Revisa el nombre y el balance de la cuenta.");
+    const accountId = id || createId();
+    if (accountId === CASH_ACCOUNT_ID || accountId === LEGACY_BANK_ACCOUNT_ID) throw new Error("Esta cuenta está reservada por el sistema.");
+    const existing = data.moneyAccounts[accountId];
+    const hasHistory = Boolean(existing && Object.values(data.moneyTransactions).some((item) => item.accountId === accountId));
+    if (existing && hasHistory && (existing.bankId !== input.bankId || existing.openingBalanceMinor !== input.openingBalanceMinor || existing.openingDate !== input.openingDate)) {
+      throw new Error("Una cuenta con historial no puede cambiar de banco ni de saldo inicial. Usa Ajustar balance.");
+    }
+    if (!existing && input.openingBalanceMinor > 0 && getLegacyBankBalance(data) > 0) {
+      throw new Error("Crea la cuenta con balance cero y distribuye primero el saldo bancario anterior.");
+    }
+    const account: MoneyAccount = {
+      id: accountId,
+      kind: "bank",
+      bankId: input.bankId,
+      accountType: input.accountType,
+      name: input.name.trim(),
+      lastFour: cleanOptional(input.lastFour)?.slice(-4),
+      currency: "DOP",
+      openingBalanceMinor: Math.round(input.openingBalanceMinor),
+      openingDate: input.openingDate,
+      active: input.active,
+      notes: cleanOptional(input.notes),
+      ...meta(existing),
+    };
+    await commitUpdates({ [`moneyAccounts/${accountId}`]: account });
+  }, [commitUpdates, data, meta]);
+
+  const initializeCashAccount = useCallback(async (openingBalanceMinor: number, openingDate: string) => {
+    if (data.moneyAccounts[CASH_ACCOUNT_ID]) throw new Error("Efectivo ya está configurado. Usa Ajustar balance.");
+    if (openingBalanceMinor < 0) throw new Error("El balance no puede ser negativo.");
+    const cash: MoneyAccount = {
+      id: CASH_ACCOUNT_ID,
+      kind: "cash",
+      name: "Efectivo",
+      currency: "DOP",
+      openingBalanceMinor: Math.round(openingBalanceMinor),
+      openingDate,
+      active: true,
+      notes: "Saldo inicial confirmado; incluye movimientos anteriores.",
+      ...meta(),
+    };
+    await commitUpdates({ [`moneyAccounts/${CASH_ACCOUNT_ID}`]: cash });
+  }, [commitUpdates, data.moneyAccounts, meta]);
+
   const initializeMoneyAccounts = useCallback(async (input: MoneyAccountsSetupInput) => {
     if (hasInitializedMoneyAccounts(data)) throw new Error("Los saldos iniciales ya fueron configurados.");
     if (input.bankBalanceMinor < 0 || input.cashBalanceMinor < 0) throw new Error("Los saldos iniciales no pueden ser negativos.");
@@ -1609,16 +1716,19 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
     notes?: string,
   ) => {
     if (fromAccountId === toAccountId) throw new Error("Selecciona cuentas diferentes.");
-    if (!hasInitializedMoneyAccounts(data)) throw new Error("Configura primero Banco y Efectivo.");
+    const fromAccount = data.moneyAccounts[fromAccountId];
+    const toAccount = data.moneyAccounts[toAccountId];
+    if (!fromAccount || !toAccount || fromAccount.archivedAt || toAccount.archivedAt) throw new Error("Selecciona cuentas disponibles.");
+    if (toAccount.id === LEGACY_BANK_ACCOUNT_ID) throw new Error("El saldo bancario anterior solo puede usarse como origen.");
     const amount = Math.round(amountMinor);
-    const fee = fromAccountId === BANK_ACCOUNT_ID ? Math.max(0, Math.round(feeMinor)) : 0;
+    const fee = fromAccount.kind === "bank" ? Math.max(0, Math.round(feeMinor)) : 0;
     if (amount <= 0) throw new Error("El monto debe ser mayor que cero.");
     if (amount + fee > getMoneyAccountBalance(data, fromAccountId)) throw new Error("El origen no tiene balance suficiente.");
     const transferId = createId();
     const outId = createId();
     const inId = createId();
-    const fromName = data.moneyAccounts[fromAccountId]?.name || "Origen";
-    const toName = data.moneyAccounts[toAccountId]?.name || "Destino";
+    const fromName = fromAccount.name;
+    const toName = toAccount.name;
     const updates: Record<string, unknown> = {
       [`moneyTransactions/${outId}`]: {
         id: outId, accountId: fromAccountId, direction: "out", type: "transfer", amountMinor: amount,
@@ -1636,12 +1746,18 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
         currency: "DOP", transactionDate, description: `Comisión · ${fromName} → ${toName}`, transferId, notes: cleanOptional(notes), ...meta(),
       } satisfies MoneyTransaction;
     }
+    if (fromAccountId === LEGACY_BANK_ACCOUNT_ID && amount + fee === getMoneyAccountBalance(data, fromAccountId)) {
+      updates[`moneyAccounts/${LEGACY_BANK_ACCOUNT_ID}`] = { ...fromAccount, active: false, ...meta(fromAccount) };
+    }
     await commitUpdates(updates);
   }, [commitUpdates, data, meta]);
 
   const saveLoan = useCallback(async (input: LoanInput, id?: string) => {
     const loanId = id || createId();
     const existing = data.loans[loanId];
+    if (input.bankId && (!data.banks[input.bankId] || data.banks[input.bankId].archivedAt)) {
+      throw new Error("Selecciona un banco válido para el préstamo.");
+    }
     if (!input.name.trim() || input.openingBalanceMinor < 0 || input.annualInterestRate < 0) throw new Error("Revisa el nombre, balance y tasa del préstamo.");
     if (existing && Object.values(data.loanTransactions).some((transaction) => transaction.loanId === loanId)) {
       if (existing.currency !== input.currency || existing.openingDate !== input.openingDate || existing.openingBalanceMinor !== input.openingBalanceMinor) {
@@ -1652,14 +1768,15 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
       id: loanId,
       ...input,
       name: input.name.trim(),
-      lender: cleanOptional(input.lender),
+      bankId: cleanOptional(input.bankId),
+      lender: input.bankId ? undefined : cleanOptional(input.lender),
       notes: cleanOptional(input.notes),
       openingBalanceMinor: Math.round(input.openingBalanceMinor),
       annualInterestRate: Math.max(0, input.annualInterestRate),
       ...meta(existing),
     };
     await commitUpdates({ [`loans/${loanId}`]: loan });
-  }, [commitUpdates, data.loanTransactions, data.loans, meta]);
+  }, [commitUpdates, data.banks, data.loanTransactions, data.loans, meta]);
 
   const adjustLoanBalance = useCallback(async (loanId: string, exactBalanceMinor: number, transactionDate: string, notes?: string) => {
     const loan = data.loans[loanId];
@@ -1735,6 +1852,9 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
     saveCreditCard,
     addCardTransaction,
     reverseCardTransaction,
+    saveBank,
+    saveMoneyAccount,
+    initializeCashAccount,
     initializeMoneyAccounts,
     adjustMoneyAccountBalance,
     transferMoney,

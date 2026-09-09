@@ -22,12 +22,13 @@ import {
   statusLabel,
 } from "../../lib/financialCalculations";
 import { formatCurrency, minorToInput, parseMoneyToCents } from "../../lib/money";
-import { BANK_ACCOUNT_ID, CASH_ACCOUNT_ID, calculateTransferFeeMinor, getMoneyAccountBalance, hasInitializedMoneyAccounts, moneyAccountLabel } from "../../lib/moneyLedger";
+import { CASH_ACCOUNT_ID, calculateTransferFeeMinor, getActiveBankAccounts, getMoneyAccountBalance, isSelectableMoneyAccount, moneyAccountLabel } from "../../lib/moneyLedger";
 import {
   CheckboxField,
   CurrencyField,
   EmptyPanel,
   Modal,
+  MoneyAccountField,
   MoneyField,
   PageHeading,
   StatusChip,
@@ -91,16 +92,18 @@ function MinimumPaymentModal({ statement, onSave, onClose }: {
 }
 
 function CardForm({
+  data,
   card,
   onSave,
   onClose,
 }: {
+  data: FinancialData;
   card?: CreditCard;
   onSave: (input: CreditCardInput, id?: string) => Promise<void>;
   onClose: () => void;
 }) {
   const [name, setName] = useState(card?.name || "");
-  const [bank, setBank] = useState(card?.bank || "");
+  const [bankId, setBankId] = useState(card?.bankId || "");
   const [lastFour, setLastFour] = useState(card?.lastFour || "");
   const [cutDay, setCutDay] = useState(String(card?.cutDay || 15));
   const [dueDay, setDueDay] = useState(String(card?.dueDay || 10));
@@ -127,7 +130,8 @@ function CardForm({
     try {
       await onSave({
         name,
-        bank,
+        bankId: bankId || undefined,
+        bank: bankId ? undefined : card?.bank,
         lastFour,
         cutDay: cut,
         dueDay: due,
@@ -152,7 +156,7 @@ function CardForm({
       <form className="form-grid" onSubmit={submit}>
         <div className="form-columns">
           <label className="field"><span>Nombre</span><input value={name} onChange={(event) => setName(event.target.value)} /></label>
-          <label className="field"><span>Banco (opcional)</span><input value={bank} onChange={(event) => setBank(event.target.value)} /></label>
+          <label className="field"><span>Banco emisor</span><select value={bankId} onChange={(event) => setBankId(event.target.value)}><option value="">Sin vincular</option>{Object.values(data.banks).filter((bank) => !bank.archivedAt).sort((a, b) => a.name.localeCompare(b.name, "es")).map((bank) => <option key={bank.id} value={bank.id}>{bank.name}</option>)}</select><small className="field-help">Los bancos se administran en Más → Bancos y efectivo.</small></label>
         </div>
         <div className="form-columns">
           <label className="field"><span>Últimos 4 (opcional)</span><input inputMode="numeric" maxLength={4} value={lastFour} onChange={(event) => setLastFour(event.target.value.replace(/\D/g, ""))} /></label>
@@ -212,6 +216,8 @@ function CardTransactionModal({
   const [includedInCurrentBalance, setIncludedInCurrentBalance] = useState(false);
   const [adjustmentDirection, setAdjustmentDirection] = useState<"increase" | "decrease">("increase");
   const [paymentMethod, setPaymentMethod] = useState<Exclude<PaymentMethod, "creditCard">>("bankTransfer");
+  const firstBankAccountId = getActiveBankAccounts(data)[0]?.id || "";
+  const [moneyAccountId, setMoneyAccountId] = useState<MoneyAccountId>(firstBankAccountId);
   const [addTransferFee, setAddTransferFee] = useState(false);
   const [transferFee, setTransferFee] = useState("");
   const [error, setError] = useState("");
@@ -226,10 +232,10 @@ function CardTransactionModal({
   const effectiveRate = type === "payment" && currency === "USD" && parsedAmount && parsedSettlementDop
     ? parsedSettlementDop / parsedAmount
     : null;
-  const moneyAccountId: MoneyAccountId = paymentMethod === "cash" ? CASH_ACCOUNT_ID : BANK_ACCOUNT_ID;
+  const effectiveMoneyAccountId: MoneyAccountId = paymentMethod === "cash" ? CASH_ACCOUNT_ID : moneyAccountId;
   const cashAmountMinor = currency === "USD" ? parsedSettlementDop || 0 : parsedAmount || 0;
   const feeMinor = paymentMethod === "bankTransfer" && addTransferFee ? parseMoneyToCents(transferFee) || 0 : 0;
-  const moneyReady = hasInitializedMoneyAccounts(data);
+  const moneyReady = isSelectableMoneyAccount(data, effectiveMoneyAccountId, paymentMethod);
 
   const changeType = (nextType: CardTransaction["type"]) => {
     setType(nextType);
@@ -259,11 +265,11 @@ function CardTransactionModal({
       return;
     }
     if (type === "payment" && !includedInCurrentBalance && !moneyReady) {
-      setError("Configura primero Banco y Efectivo en Más → Dinero disponible.");
+      setError(paymentMethod === "cash" ? "Configura primero tu saldo en Efectivo." : "Selecciona una cuenta bancaria activa.");
       return;
     }
-    if (type === "payment" && !includedInCurrentBalance && cashAmountMinor + feeMinor > getMoneyAccountBalance(data, moneyAccountId)) {
-      setError(`No hay suficiente dinero en ${moneyAccountLabel(moneyAccountId)}.`);
+    if (type === "payment" && !includedInCurrentBalance && cashAmountMinor + feeMinor > getMoneyAccountBalance(data, effectiveMoneyAccountId)) {
+      setError(`No hay suficiente dinero en ${moneyAccountLabel(effectiveMoneyAccountId, data)}.`);
       return;
     }
     const signed = type === "adjustment" && adjustmentDirection === "decrease"
@@ -282,7 +288,7 @@ function CardTransactionModal({
         type === "payment" ? savingsFundId || undefined : undefined,
         type === "payment" && currency === "USD" ? parsedSettlementDop || undefined : undefined,
         type === "payment" ? !includedInCurrentBalance : undefined,
-        type === "payment" && !includedInCurrentBalance ? moneyAccountId : undefined,
+        type === "payment" && !includedInCurrentBalance ? effectiveMoneyAccountId : undefined,
         type === "payment" && !includedInCurrentBalance ? paymentMethod : undefined,
         type === "payment" && !includedInCurrentBalance ? feeMinor : undefined,
       );
@@ -314,7 +320,7 @@ function CardTransactionModal({
             <MoneyField label="Monto real pagado en pesos" value={settlementDop} onChange={setSettlementDop} currency="DOP" />
             <p className="privacy-note">
               {includedInCurrentBalance
-                ? "Se conservará la deuda actual en USD y el pago histórico quedará registrado como salida en DOP."
+                ? "Se conservará la deuda actual en USD y no se volverá a registrar una salida en DOP."
                 : "La deuda se reducirá en USD y la salida de dinero quedará registrada en DOP."}
               {effectiveRate && <> Tasa efectiva: <strong>RD${formatExchangeRate(effectiveRate)} por US$1</strong>.</>}
             </p>
@@ -337,7 +343,7 @@ function CardTransactionModal({
         {type === "payment" && !includedInCurrentBalance && (
           <label className="field"><span>Origen del pago (opcional)</span><select value={savingsFundId} onChange={(event) => setSavingsFundId(event.target.value)}><option value="">Efectivo / banco</option>{funds.map((fund) => <option key={fund.id} value={fund.id}>{fund.name} · {fund.currency}</option>)}</select><small className="field-help">{currency === "USD" ? "Si eliges un fondo, se retirará el monto real pagado en DOP." : "Si eliges un fondo, el retiro y la liberación de cobertura se registran juntos."}</small></label>
         )}
-        {type === "payment" && !includedInCurrentBalance && <><label className="field"><span>¿De dónde salió el dinero?</span><select value={paymentMethod} onChange={(event) => { const next = event.target.value as Exclude<PaymentMethod, "creditCard">; setPaymentMethod(next); if (next !== "bankTransfer") { setAddTransferFee(false); setTransferFee(""); } }}><option value="bankTransfer">Transferencia bancaria</option><option value="debitCard">Tarjeta de débito</option><option value="cash">Efectivo</option></select><small className="field-help">Disponible: {formatCurrency(getMoneyAccountBalance(data, moneyAccountId), "DOP")} en {moneyAccountLabel(moneyAccountId)}.</small></label>{paymentMethod === "bankTransfer" && <><CheckboxField checked={addTransferFee} onChange={(checked) => { setAddTransferFee(checked); setTransferFee(checked ? minorToInput(calculateTransferFeeMinor(cashAmountMinor, data.settings.transferFeeRatePercent)) : ""); }} label="Agregar comisión por transferencia" help={`Calcula ${data.settings.transferFeeRatePercent}% automáticamente; puedes editarla.`} />{addTransferFee && <MoneyField label="Comisión por transferencia" value={transferFee} onChange={setTransferFee} currency="DOP" />}</>}</>}
+        {type === "payment" && !includedInCurrentBalance && <><label className="field"><span>¿Cómo se pagó?</span><select value={paymentMethod} onChange={(event) => { const next = event.target.value as Exclude<PaymentMethod, "creditCard">; setPaymentMethod(next); if (next === "cash") setMoneyAccountId(CASH_ACCOUNT_ID); else if (!isSelectableMoneyAccount(data, moneyAccountId, next)) setMoneyAccountId(firstBankAccountId); if (next !== "bankTransfer") { setAddTransferFee(false); setTransferFee(""); } }}><option value="bankTransfer">Transferencia bancaria</option><option value="debitCard">Tarjeta de débito</option><option value="cash">Efectivo</option></select></label><MoneyAccountField data={data} method={paymentMethod} value={effectiveMoneyAccountId} onChange={setMoneyAccountId} label="Cuenta de origen" />{paymentMethod === "bankTransfer" && <><CheckboxField checked={addTransferFee} onChange={(checked) => { setAddTransferFee(checked); setTransferFee(checked ? minorToInput(calculateTransferFeeMinor(cashAmountMinor, data.settings.transferFeeRatePercent)) : ""); }} label="Agregar comisión por transferencia" help={`Calcula ${data.settings.transferFeeRatePercent}% automáticamente; puedes editarla.`} />{addTransferFee && <MoneyField label="Comisión por transferencia" value={transferFee} onChange={setTransferFee} currency="DOP" />}</>}</>}
         {error && <p className="form-error">{error}</p>}
         <div className="modal-actions">
           <button type="button" className="button button-secondary" onClick={onClose}>Cancelar</button>
@@ -390,7 +396,7 @@ export function CreditCardsView({
               .sort((a, b) => b.transactionDate.localeCompare(a.transactionDate));
             return (
               <article className="credit-card-panel" key={card.id}>
-                <header><div><span>{card.bank || "Tarjeta"}{card.lastFour ? ` · •••• ${card.lastFour}` : ""}</span><h2>{card.name}</h2></div><StatusChip status={card.active ? "paid" : "cancelled"} label={card.active ? "Activa" : "Inactiva"} /></header>
+                <header><div><span>{(card.bankId && data.banks[card.bankId]?.name) || card.bank || "Tarjeta"}{card.lastFour ? ` · •••• ${card.lastFour}` : ""}</span><h2>{card.name}</h2></div><StatusChip status={card.active ? "paid" : "cancelled"} label={card.active ? "Activa" : "Inactiva"} /></header>
                 <div className="card-balance-grid">
                   <div><span>Deuda DOP</span><strong>{formatCurrency(dopDebt, "DOP")}</strong>{dopCovered > 0 && <small>{formatCurrency(dopCovered, "DOP")} cubierto por ahorros</small>}</div>
                   <div><span>Deuda USD</span><strong>{formatCurrency(usdDebt, "USD")}</strong>{usdCovered > 0 && <small>{formatCurrency(usdCovered, "USD")} cubierto por ahorros</small>}</div>
@@ -434,7 +440,7 @@ export function CreditCardsView({
           })}
         </div>
       )}
-      {form && <CardForm card={form === "new" ? undefined : form} onSave={onSaveCard} onClose={() => setForm(null)} />}
+      {form && <CardForm data={data} card={form === "new" ? undefined : form} onSave={onSaveCard} onClose={() => setForm(null)} />}
       {minimumStatement && <MinimumPaymentModal statement={minimumStatement} onSave={onSaveMinimum} onClose={() => setMinimumStatement(null)} />}
       {transaction && <CardTransactionModal data={data} card={transaction.card} initialType={transaction.type} onSave={onAddTransaction} onClose={() => setTransaction(null)} />}
     </section>

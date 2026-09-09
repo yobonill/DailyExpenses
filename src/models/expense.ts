@@ -13,6 +13,8 @@ export interface Expense {
   category?: string;
   currency?: ExpenseCurrency;
   paymentMethod?: ExpensePaymentMethod;
+  /** Exact deposit account used for transfer/debit payments. */
+  moneyAccountId?: string;
   transferFeeCents?: number;
   /**
    * Legacy compatibility field. New expenses are final as soon as they are
@@ -32,6 +34,7 @@ export interface ExpenseDraft {
   category: string;
   currency: ExpenseCurrency;
   paymentMethod: ExpensePaymentMethod;
+  moneyAccountId: string;
   includeTransferFee: boolean;
   transferFee: string;
 }
@@ -44,11 +47,13 @@ export interface ExpenseEditableFields {
   category?: string;
   currency: ExpenseCurrency;
   paymentMethod: ExpensePaymentMethod;
+  moneyAccountId?: string;
   transferFeeCents?: number;
 }
 
-export type ExpensePatch = Omit<Partial<Omit<Expense, "id">>, "category" | "transferredAt" | "deletedAt" | "transferFeeCents"> & {
+export type ExpensePatch = Omit<Partial<Omit<Expense, "id">>, "category" | "moneyAccountId" | "transferredAt" | "deletedAt" | "transferFeeCents"> & {
   category?: string | null;
+  moneyAccountId?: string | null;
   transferredAt?: string | null;
   deletedAt?: string | null;
   transferFeeCents?: number | null;

@@ -1,7 +1,7 @@
 import type { FinancialData, RecordMetadata } from "../models/finance";
 import { getCardCurrentDebt, getFundAllocated, getFundBalance, getPurchaseGoalReserved } from "./financialCalculations";
 import { getLoanBalance } from "./loanLedger";
-import { getMoneyAccountBalance } from "./moneyLedger";
+import { CASH_ACCOUNT_ID, LEGACY_BANK_ACCOUNT_ID, getMoneyAccountBalance } from "./moneyLedger";
 
 const getAtPath = (target: unknown, path: string): unknown => {
   let cursor = target;
@@ -36,6 +36,9 @@ export const reconcileVersionedUpdates = (
 };
 
 export const isFinanciallyConsistent = (candidate: FinancialData): boolean => {
+  for (const [bankId, bank] of Object.entries(candidate.banks)) {
+    if (bank.id !== bankId || !bank.name.trim() || typeof bank.active !== "boolean") return false;
+  }
   const activePaymentKeys = new Set<string>();
   for (const payment of Object.values(candidate.payments)) {
     if (payment.reversedAt) continue;
@@ -55,9 +58,13 @@ export const isFinanciallyConsistent = (candidate: FinancialData): boolean => {
     activePaymentKeys.add(key);
   }
   for (const [accountId, account] of Object.entries(candidate.moneyAccounts)) {
-    if ((accountId !== "bank" && accountId !== "cash")
-      || account.id !== accountId
-      || account.kind !== accountId
+    const isCash = accountId === CASH_ACCOUNT_ID;
+    const isLegacy = accountId === LEGACY_BANK_ACCOUNT_ID;
+    const bank = account.bankId ? candidate.banks[account.bankId] : undefined;
+    if (account.id !== accountId
+      || (isCash ? account.kind !== "cash" : account.kind !== "bank")
+      || (!isCash && !isLegacy && (!bank || !account.accountType))
+      || (isCash && Boolean(account.bankId))
       || account.currency !== "DOP"
       || account.openingBalanceMinor < 0
       || getMoneyAccountBalance(candidate, account.id) < 0) return false;
@@ -69,7 +76,8 @@ export const isFinanciallyConsistent = (candidate: FinancialData): boolean => {
       || !["in", "out"].includes(transaction.direction)) return false;
   }
   for (const loan of Object.values(candidate.loans)) {
-    if (!loan.name || loan.openingBalanceMinor < 0 || loan.annualInterestRate < 0 || getLoanBalance(candidate, loan.id) < 0) return false;
+    if (!loan.name || loan.openingBalanceMinor < 0 || loan.annualInterestRate < 0 || getLoanBalance(candidate, loan.id) < 0
+      || (loan.bankId && !candidate.banks[loan.bankId])) return false;
   }
   for (const transaction of Object.values(candidate.loanTransactions)) {
     const loan = candidate.loans[transaction.loanId];
@@ -86,6 +94,8 @@ export const isFinanciallyConsistent = (candidate: FinancialData): boolean => {
       || transaction.balanceAfterMinor !== transaction.balanceBeforeMinor + transaction.adjustmentMinor) return false;
   }
   for (const fundId of Object.keys(candidate.savingsFunds)) {
+    const fund = candidate.savingsFunds[fundId];
+    if (fund.moneyAccountId && (!candidate.moneyAccounts[fund.moneyAccountId] || fund.currency !== "DOP")) return false;
     const balance = getFundBalance(candidate, fundId);
     if (balance < 0 || getFundAllocated(candidate, fundId) > balance) return false;
   }
@@ -101,10 +111,15 @@ export const isFinanciallyConsistent = (candidate: FinancialData): boolean => {
       const goal = candidate.purchaseGoals[transaction.linkedPurchaseGoalId];
       if (!goal || goal.currency !== transaction.currency) return false;
     }
+    if (transaction.moneyAccountId && !candidate.moneyAccounts[transaction.moneyAccountId]) return false;
   }
-  for (const cardId of Object.keys(candidate.creditCards)) {
+  for (const [cardId, card] of Object.entries(candidate.creditCards)) {
+    if (card.bankId && !candidate.banks[card.bankId]) return false;
     if (getCardCurrentDebt(candidate, cardId, "DOP") < 0
       || getCardCurrentDebt(candidate, cardId, "USD") < 0) return false;
+  }
+  for (const income of Object.values(candidate.incomeOccurrences)) {
+    if (income.moneyAccountId && !candidate.moneyAccounts[income.moneyAccountId]) return false;
   }
   for (const statement of Object.values(candidate.cardStatements)) {
     if (statement.minimumPaymentMinor !== undefined && statement.minimumPaymentMinor <= 0) return false;

@@ -1,46 +1,23 @@
-# Publicación de reglas de Firebase
+# Publicación de reglas de Firebase · 1.7.0
 
-La aplicación usa el proyecto Firebase exclusivo:
+La versión 1.7.0 sigue usando exclusivamente el proyecto `app-daily-expenses-budget` y conserva las rutas `/expenses` y `/dailyExpensesBudget/v1`.
 
-```text
-app-daily-expenses-budget
-```
+Esta actualización de reglas es obligatoria: agrega bancos, permite múltiples cuentas bancarias, valida su estructura y permite que los movimientos de dinero señalen cualquier cuenta registrada. Las reglas anteriores solo aceptaban los identificadores generales `bank` y `cash`.
 
-Los gastos diarios se guardan en:
+## Publicar
 
-```text
-/expenses/{expenseId}
-```
+1. Abre Firebase Console y selecciona `app-daily-expenses-budget`.
+2. Ve a **Realtime Database → Rules**.
+3. Guarda una copia de las reglas actuales.
+4. Sustituye todo por el contenido de `firebase-database-rules.json` incluido en este paquete.
+5. Pulsa **Publish**.
 
-Los módulos financieros nuevos se guardan en:
-
-```text
-/dailyExpensesBudget/v1
-```
-
-## Usuarios autorizados
+Los UID autorizados siguen siendo:
 
 ```text
 Yorki · hmJi0g20svTPkfOF9ZzZwRi9Bdw2
 Yisel · YHtQh4N0RaViD8rXqDNE4xZTcN12
 ```
 
-Antes de publicar, confirma que estos UID todavía coinciden con **Authentication → Users** en `app-daily-expenses-budget`.
+No publiques estas reglas en TaskFollower y no crees nodos manualmente. La aplicación crea bancos, cuentas y movimientos después del acceso autenticado.
 
-## Publicar
-
-1. Abre `app-daily-expenses-budget` en Firebase Console.
-2. Realtime Database → Rules.
-3. Copia el contenido completo de `firebase-database-rules.json`.
-4. Usa el simulador de reglas para probar:
-   - lectura/escritura válida con cada UID aprobado;
-   - rechazo sin autenticación y con otro UID;
-   - rechazo de moneda, estado, tipo o forma inválidos;
-   - aceptación de `cash`, `debit`, `transfer` y `creditCard` como formas de pago de gastos extras;
-   - rechazo de un gasto USD que no use tarjeta de crédito;
-   - aceptación de `plannedQuincena` con valor 1 o 2 y rechazo de cualquier otro valor.
-5. Publica.
-
-Las reglas niegan acceso por defecto y validan las entidades financieras críticas. La aplicación usa transacciones sobre `/dailyExpensesBudget/v1`, por lo que ese nodo necesita permisos de lectura y escritura para ambos UID.
-
-No publiques estas reglas en el proyecto de TaskFollower. No hace falta crear manualmente nodos dentro de Realtime Database; la aplicación inicializa su estructura tras el primer acceso autenticado.

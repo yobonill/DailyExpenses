@@ -131,4 +131,17 @@ describe("shared financial integrity", () => {
     data.loanTransactions["loan-payment"].principalMinor = 10_000;
     expect(isFinanciallyConsistent(data)).toBe(false);
   });
+
+  it("validates bank-account ownership and linked financial products", () => {
+    const data = createEmptyFinancialData();
+    data.banks.bank = { id: "bank", name: "Banco de prueba", active: true, ...metadata };
+    data.moneyAccounts.account = { id: "account", kind: "bank", bankId: "bank", accountType: "savings", name: "Ahorros", currency: "DOP", openingBalanceMinor: 10_000, openingDate: "2026-09-03", active: true, ...metadata };
+    data.creditCards.card = { id: "card", name: "Visa", bankId: "bank", cutDay: 15, dueDay: 10, active: true, openingCurrentDebtDopMinor: 0, openingCurrentDebtUsdMinor: 0, openingStatementDopMinor: 0, openingStatementUsdMinor: 0, openingDate: "2026-09-03", ...metadata };
+    data.loans.loan = { id: "loan", name: "Personal", bankId: "bank", currency: "DOP", openingBalanceMinor: 100_000, openingDate: "2026-09-03", annualInterestRate: 18, active: true, ...metadata };
+    data.savingsFunds.fund = { id: "fund", name: "Emergencia", currency: "DOP", moneyAccountId: "account", active: true, ...metadata };
+    expect(isFinanciallyConsistent(data)).toBe(true);
+
+    data.moneyAccounts.account.bankId = "missing";
+    expect(isFinanciallyConsistent(data)).toBe(false);
+  });
 });

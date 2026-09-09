@@ -8,10 +8,18 @@ import {
   getPurchaseGoalReserved,
 } from "../../lib/financialCalculations";
 import { formatCurrency, minorToInput, parseMoneyToCents } from "../../lib/money";
+import {
+  CASH_ACCOUNT_ID,
+  calculateTransferFeeMinor,
+  getActiveBankAccounts,
+  isSelectableMoneyAccount,
+} from "../../lib/moneyLedger";
 import type {
   CreditCard,
   Currency,
   FinancialData,
+  MoneyAccountId,
+  PaymentMethod,
   PurchaseGoal,
   PurchaseGoalPriority,
 } from "../../models/finance";
@@ -20,6 +28,7 @@ import {
   CurrencyField,
   EmptyPanel,
   Modal,
+  MoneyAccountField,
   MoneyField,
   PageHeading,
   StatusChip,
@@ -161,37 +170,49 @@ function ScheduleModal({ goal, onSchedule, onClose }: { goal: PurchaseGoal; onSc
 }
 
 function PurchaseModal({
+  data,
   goal,
   cards,
-  onCash,
+  onDirect,
   onCard,
   onClose,
 }: {
+  data: FinancialData;
   goal: PurchaseGoal;
   cards: CreditCard[];
-  onCash: (goal: PurchaseGoal, actualAmountMinor: number, actualPaymentDopMinor: number, date: string) => Promise<void>;
+  onDirect: (goal: PurchaseGoal, actualAmountMinor: number, actualPaymentDopMinor: number, date: string, method: Exclude<PaymentMethod, "creditCard">, moneyAccountId: MoneyAccountId, transferFeeMinor: number) => Promise<void>;
   onCard: (goalId: string, actualAmountMinor: number, date: string, cardId: string) => Promise<void>;
   onClose: () => void;
 }) {
-  const [method, setMethod] = useState<"cash" | "creditCard">("cash");
+  const firstBankAccountId = getActiveBankAccounts(data)[0]?.id || "";
+  const [method, setMethod] = useState<PaymentMethod>(firstBankAccountId ? "bankTransfer" : "cash");
+  const [moneyAccountId, setMoneyAccountId] = useState<MoneyAccountId>(firstBankAccountId || CASH_ACCOUNT_ID);
   const [amount, setAmount] = useState(minorToInput(goal.estimatedAmountMinor));
   const [dopAmount, setDopAmount] = useState("");
   const [date, setDate] = useState(toLocalDateKey());
   const [cardId, setCardId] = useState(cards[0]?.id || "");
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
+  const [includeTransferFee, setIncludeTransferFee] = useState(false);
+  const [transferFee, setTransferFee] = useState("");
+  const actualPaymentDopMinor = goal.currency === "DOP" ? parseMoneyToCents(amount) || 0 : parseMoneyToCents(dopAmount) || 0;
+  const effectiveMoneyAccountId = method === "cash" ? CASH_ACCOUNT_ID : moneyAccountId;
+  const automaticFee = calculateTransferFeeMinor(actualPaymentDopMinor, data.settings.transferFeeRatePercent);
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     const actualAmountMinor = parseMoneyToCents(amount);
     if (!actualAmountMinor) return setError("Escribe el precio real de la compra.");
-    const actualPaymentDopMinor = goal.currency === "DOP" ? actualAmountMinor : parseMoneyToCents(dopAmount);
-    if (method === "cash" && !actualPaymentDopMinor) return setError("Escribe cuánto pagaste realmente en pesos.");
+    if (method !== "creditCard" && !actualPaymentDopMinor) return setError("Escribe cuánto pagaste realmente en pesos.");
     if (method === "creditCard" && !cardId) return setError("Selecciona una tarjeta activa.");
+    if (method !== "creditCard" && !isSelectableMoneyAccount(data, effectiveMoneyAccountId, method)) return setError("Selecciona una cuenta disponible para pagar.");
+    const transferFeeMinor = method === "bankTransfer" && includeTransferFee
+      ? parseMoneyToCents(transferFee) ?? automaticFee
+      : 0;
     setSaving(true);
     setError("");
     try {
-      if (method === "cash") await onCash(goal, actualAmountMinor, actualPaymentDopMinor as number, date);
+      if (method !== "creditCard") await onDirect(goal, actualAmountMinor, actualPaymentDopMinor, date, method, effectiveMoneyAccountId, transferFeeMinor);
       else await onCard(goal.id, actualAmountMinor, date, cardId);
       onClose();
     } catch (reason) {
@@ -206,10 +227,12 @@ function PurchaseModal({
       <form className="form-grid" onSubmit={submit}>
         <MoneyField label={`Precio real en ${goal.currency}`} value={amount} onChange={setAmount} currency={goal.currency} />
         <label className="field"><span>Fecha de compra</span><input type="date" value={date} onChange={(event) => setDate(event.target.value)} /></label>
-        <fieldset className="choice-field"><legend>Método</legend><label><input type="radio" checked={method === "cash"} onChange={() => setMethod("cash")} /> Efectivo, débito o transferencia</label><label><input type="radio" checked={method === "creditCard"} onChange={() => setMethod("creditCard")} /> Tarjeta de crédito</label></fieldset>
-        {method === "cash" && goal.currency === "USD" && <MoneyField label="Monto real pagado en pesos" value={dopAmount} onChange={setDopAmount} currency="DOP" />}
+        <label className="field"><span>¿Cómo pagaste?</span><select value={method} onChange={(event) => { const next = event.target.value as PaymentMethod; setMethod(next); if (next === "cash") setMoneyAccountId(CASH_ACCOUNT_ID); else if ((next === "bankTransfer" || next === "debitCard") && !isSelectableMoneyAccount(data, moneyAccountId, next)) setMoneyAccountId(firstBankAccountId); if (next !== "bankTransfer") { setIncludeTransferFee(false); setTransferFee(""); } }}><option value="bankTransfer">Transferencia bancaria</option><option value="debitCard">Tarjeta de débito</option><option value="cash">Efectivo</option><option value="creditCard">Tarjeta de crédito</option></select></label>
+        {method !== "creditCard" && goal.currency === "USD" && <MoneyField label="Monto real pagado en pesos" value={dopAmount} onChange={setDopAmount} currency="DOP" />}
+        {method !== "creditCard" && <MoneyAccountField data={data} method={method} value={effectiveMoneyAccountId} onChange={setMoneyAccountId} label="Origen exacto del dinero" />}
+        {method === "bankTransfer" && <><CheckboxField checked={includeTransferFee} onChange={(checked) => { setIncludeTransferFee(checked); setTransferFee(checked ? minorToInput(automaticFee) : ""); }} label="Agregar comisión por transferencia" help={`Calcula ${data.settings.transferFeeRatePercent}% automáticamente; puedes editarla.`} />{includeTransferFee && <MoneyField label="Comisión por transferencia" value={transferFee} onChange={setTransferFee} currency="DOP" required={false} />}</>}
         {method === "creditCard" && <label className="field"><span>Tarjeta</span><select value={cardId} onChange={(event) => setCardId(event.target.value)}><option value="">Seleccionar</option>{cards.map((card) => <option key={card.id} value={card.id}>{card.name}{card.lastFour ? ` · ${card.lastFour}` : ""}</option>)}</select><small className="field-help">El cargo se registrará en {goal.currency}. Los ahorros reservados permanecerán cubriendo esa deuda.</small></label>}
-        {method === "cash" && <p className="privacy-note">La compra se añadirá automáticamente como gasto diario registrado en DOP y consumirá los ahorros reservados.</p>}
+        {method !== "creditCard" && <p className="privacy-note">La compra se añadirá como gasto diario, se descontará de la cuenta elegida y consumirá los ahorros reservados.</p>}
         {error && <p className="form-error">{error}</p>}
         <div className="modal-actions"><button type="button" className="button button-secondary" onClick={onClose}>Cancelar</button><button className="button button-primary" disabled={saving}>{saving ? "Registrando…" : "Registrar compra"}</button></div>
       </form>
@@ -222,7 +245,7 @@ export function PurchaseGoalsView({
   onSave,
   onAllocate,
   onSchedule,
-  onPurchaseCash,
+  onPurchaseDirect,
   onPurchaseCard,
   onDiscard,
   onRelease,
@@ -231,7 +254,7 @@ export function PurchaseGoalsView({
   onSave: (input: PurchaseGoalInput, id?: string) => Promise<void>;
   onAllocate: (fundId: string, goalId: string, amountMinor: number) => Promise<void>;
   onSchedule: (goalId: string, dueDate: string) => Promise<void>;
-  onPurchaseCash: (goal: PurchaseGoal, actualAmountMinor: number, actualPaymentDopMinor: number, date: string) => Promise<void>;
+  onPurchaseDirect: (goal: PurchaseGoal, actualAmountMinor: number, actualPaymentDopMinor: number, date: string, method: Exclude<PaymentMethod, "creditCard">, moneyAccountId: MoneyAccountId, transferFeeMinor: number) => Promise<void>;
   onPurchaseCard: (goalId: string, actualAmountMinor: number, date: string, cardId: string) => Promise<void>;
   onDiscard: (goalId: string) => Promise<void>;
   onRelease: (allocationId: string) => Promise<void>;
@@ -293,7 +316,7 @@ export function PurchaseGoalsView({
       {form && <GoalForm goal={form === "new" ? undefined : form} onSave={onSave} onClose={() => setForm(null)} />}
       {allocationGoal && <AllocateModal data={data} goal={allocationGoal} onAllocate={onAllocate} onClose={() => setAllocationGoal(null)} />}
       {scheduleGoal && <ScheduleModal goal={scheduleGoal} onSchedule={onSchedule} onClose={() => setScheduleGoal(null)} />}
-      {purchaseGoal && <PurchaseModal goal={purchaseGoal} cards={activeCards} onCash={onPurchaseCash} onCard={onPurchaseCard} onClose={() => setPurchaseGoal(null)} />}
+      {purchaseGoal && <PurchaseModal data={data} goal={purchaseGoal} cards={activeCards} onDirect={onPurchaseDirect} onCard={onPurchaseCard} onClose={() => setPurchaseGoal(null)} />}
     </section>
   );
 }
