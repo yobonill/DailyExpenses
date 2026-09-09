@@ -1,0 +1,31 @@
+import { describe, expect, it } from "vitest";
+import { createEmptyFinancialData } from "./financialState";
+import { calculateTransferFeeMinor, getMoneyAccountBalance, getTotalMoneyAvailable } from "./moneyLedger";
+import { estimateLoanInterestMinor, getLoanBalance } from "./loanLedger";
+
+const meta = { createdAt: "2026-09-01T00:00:00.000Z", createdBy: "u", updatedAt: "2026-09-01T00:00:00.000Z", updatedBy: "u", version: 1 };
+
+describe("money and loan ledgers", () => {
+  it("tracks exact bank and cash balances including fees and internal transfers", () => {
+    const data = createEmptyFinancialData();
+    data.moneyAccounts.bank = { id: "bank", kind: "bank", name: "Banco", currency: "DOP", openingBalanceMinor: 100_000, openingDate: "2026-09-01", active: true, ...meta };
+    data.moneyAccounts.cash = { id: "cash", kind: "cash", name: "Efectivo", currency: "DOP", openingBalanceMinor: 5_000, openingDate: "2026-09-01", active: true, ...meta };
+    data.moneyTransactions.payment = { id: "payment", accountId: "bank", direction: "out", type: "payment", amountMinor: 20_000, currency: "DOP", transactionDate: "2026-09-02", description: "Factura", ...meta };
+    data.moneyTransactions.fee = { id: "fee", accountId: "bank", direction: "out", type: "fee", amountMinor: 30, currency: "DOP", transactionDate: "2026-09-02", description: "Comisión", ...meta };
+    data.moneyTransactions.withdrawal = { id: "withdrawal", accountId: "bank", direction: "out", type: "transfer", amountMinor: 10_000, currency: "DOP", transactionDate: "2026-09-02", description: "Retiro", transferId: "t", ...meta };
+    data.moneyTransactions.cashIn = { id: "cashIn", accountId: "cash", direction: "in", type: "transfer", amountMinor: 10_000, currency: "DOP", transactionDate: "2026-09-02", description: "Retiro", transferId: "t", ...meta };
+    expect(getMoneyAccountBalance(data, "bank")).toBe(69_970);
+    expect(getMoneyAccountBalance(data, "cash")).toBe(15_000);
+    expect(getTotalMoneyAvailable(data)).toBe(84_970);
+    expect(calculateTransferFeeMinor(200_000, 0.15)).toBe(300);
+  });
+
+  it("reduces loans only by principal and supports exact bank adjustments", () => {
+    const data = createEmptyFinancialData();
+    data.loans.loan = { id: "loan", name: "Préstamo", currency: "DOP", openingBalanceMinor: 1_000_000, openingDate: "2026-09-01", annualInterestRate: 18, active: true, ...meta };
+    data.loanTransactions.payment = { id: "payment", loanId: "loan", type: "payment", transactionDate: "2026-10-01", totalPaymentMinor: 100_000, principalMinor: 85_000, interestMinor: 15_000, chargesMinor: 0, balanceBeforeMinor: 1_000_000, balanceAfterMinor: 915_000, ...meta };
+    data.loanTransactions.adjustment = { id: "adjustment", loanId: "loan", type: "adjustment", transactionDate: "2026-10-02", adjustmentMinor: -5_000, balanceBeforeMinor: 915_000, balanceAfterMinor: 910_000, ...meta };
+    expect(getLoanBalance(data, "loan")).toBe(910_000);
+    expect(estimateLoanInterestMinor(createEmptyFinancialData(), "missing", "2026-10-01")).toBe(0);
+  });
+});

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 import { clearDraft, readDraft, storeDraft } from "../lib/localState";
 import { formatMoney, parseMoneyToCents } from "../lib/money";
+import { calculateTransferFeeMinor } from "../lib/moneyLedger";
 import { EXPENSE_CATEGORIES } from "../config/financeCategories";
 import type { NewExpenseInput } from "../hooks/useExpenses";
 import type { ExpenseCurrency, ExpensePaymentMethod } from "../models/expense";
@@ -9,6 +10,9 @@ interface CaptureViewProps {
   onCreate: (input: NewExpenseInput) => Promise<unknown>;
   onSaved: () => void;
   activeCardName?: string;
+  transferFeeRatePercent: number;
+  bankBalanceMinor?: number;
+  cashBalanceMinor?: number;
 }
 
 const PAYMENT_METHOD_LABELS: Record<ExpensePaymentMethod, string> = {
@@ -18,7 +22,7 @@ const PAYMENT_METHOD_LABELS: Record<ExpensePaymentMethod, string> = {
   creditCard: "Tarjeta de crédito",
 };
 
-export function CaptureView({ onCreate, onSaved, activeCardName }: CaptureViewProps) {
+export function CaptureView({ onCreate, onSaved, activeCardName, transferFeeRatePercent, bankBalanceMinor, cashBalanceMinor }: CaptureViewProps) {
   const initialDraft = useMemo(readDraft, []);
   const [name, setName] = useState(initialDraft.name);
   const [price, setPrice] = useState(initialDraft.price);
@@ -26,6 +30,8 @@ export function CaptureView({ onCreate, onSaved, activeCardName }: CaptureViewPr
   const [category, setCategory] = useState(initialDraft.category);
   const [paymentMethod, setPaymentMethod] = useState<ExpensePaymentMethod>(initialDraft.paymentMethod);
   const [currency, setCurrency] = useState<ExpenseCurrency>(initialDraft.currency);
+  const [includeTransferFee, setIncludeTransferFee] = useState(initialDraft.includeTransferFee);
+  const [transferFee, setTransferFee] = useState(initialDraft.transferFee);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
@@ -43,10 +49,14 @@ export function CaptureView({ onCreate, onSaved, activeCardName }: CaptureViewPr
   const cardReady = paymentMethod !== "creditCard" || Boolean(activeCardName);
   const canSave = showQuantity && validQuantity && cardReady && !saving;
   const totalCents = unitPriceCents && validQuantity ? unitPriceCents * quantityNumber : 0;
+  const suggestedFee = calculateTransferFeeMinor(totalCents, transferFeeRatePercent);
+  const transferFeeCents = paymentMethod === "transfer" && includeTransferFee
+    ? parseMoneyToCents(transferFee)
+    : 0;
 
   useEffect(() => {
-    storeDraft({ name, price, quantity, category, currency, paymentMethod });
-  }, [category, currency, name, paymentMethod, price, quantity]);
+    storeDraft({ name, price, quantity, category, currency, paymentMethod, includeTransferFee, transferFee });
+  }, [category, currency, includeTransferFee, name, paymentMethod, price, quantity, transferFee]);
 
   useEffect(() => {
     nameRef.current?.focus();
@@ -59,6 +69,8 @@ export function CaptureView({ onCreate, onSaved, activeCardName }: CaptureViewPr
     setCategory("");
     setPaymentMethod("cash");
     setCurrency("DOP");
+    setIncludeTransferFee(false);
+    setTransferFee("");
     clearDraft();
     requestAnimationFrame(() => nameRef.current?.focus());
   };
@@ -77,6 +89,7 @@ export function CaptureView({ onCreate, onSaved, activeCardName }: CaptureViewPr
         category,
         currency: paymentMethod === "creditCard" ? currency : "DOP",
         paymentMethod,
+        transferFeeCents: paymentMethod === "transfer" && includeTransferFee ? transferFeeCents || 0 : undefined,
       });
       reset();
       onSaved();
@@ -169,6 +182,7 @@ export function CaptureView({ onCreate, onSaved, activeCardName }: CaptureViewPr
                     const next = event.target.value as ExpensePaymentMethod;
                     setPaymentMethod(next);
                     if (next !== "creditCard") setCurrency("DOP");
+                    if (next !== "transfer") { setIncludeTransferFee(false); setTransferFee(""); }
                   }}
                 >
                   {(Object.keys(PAYMENT_METHOD_LABELS) as ExpensePaymentMethod[]).map((method) => (
@@ -192,6 +206,17 @@ export function CaptureView({ onCreate, onSaved, activeCardName }: CaptureViewPr
                 </>
               )}
 
+              {paymentMethod === "transfer" && (
+                <div className="form-grid inline-finance-options">
+                  <label className="checkbox-field"><input type="checkbox" checked={includeTransferFee} onChange={(event) => {
+                    const checked = event.target.checked;
+                    setIncludeTransferFee(checked);
+                    setTransferFee(checked ? (suggestedFee / 100).toFixed(2) : "");
+                  }} /><span><strong>Agregar comisión por transferencia</strong><small>Calcula {transferFeeRatePercent}% automáticamente; puedes editarla.</small></span></label>
+                  {includeTransferFee && <label className="capture-field"><span>Comisión</span><div className="money-input-wrap"><span>RD$</span><input inputMode="decimal" value={transferFee} onChange={(event) => setTransferFee(event.target.value)} placeholder="0.00" /></div></label>}
+                </div>
+              )}
+
               <label className="capture-field">
                 <span>Categoría (opcional)</span>
                 <select value={category} onChange={(event) => setCategory(event.target.value)}>
@@ -201,9 +226,11 @@ export function CaptureView({ onCreate, onSaved, activeCardName }: CaptureViewPr
               </label>
 
               <div className="capture-total" aria-live="polite">
-                <span>Total</span>
-                <strong>{currency === "USD" && paymentMethod === "creditCard" ? `US$${(totalCents / 100).toLocaleString("es-DO", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : formatMoney(totalCents)}</strong>
+                <span>{transferFeeCents ? "Total con comisión" : "Total"}</span>
+                <strong>{currency === "USD" && paymentMethod === "creditCard" ? `US$${(totalCents / 100).toLocaleString("es-DO", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : formatMoney(totalCents + (transferFeeCents || 0))}</strong>
               </div>
+
+              {paymentMethod !== "creditCard" && <p className="capture-card-note">Se descontará de {paymentMethod === "cash" ? "Efectivo" : "Banco"}{typeof (paymentMethod === "cash" ? cashBalanceMinor : bankBalanceMinor) === "number" ? ` · Disponible ${formatMoney((paymentMethod === "cash" ? cashBalanceMinor : bankBalanceMinor) || 0)}` : ". Configura primero tus saldos en Dinero."}</p>}
 
               <button className="button button-primary capture-submit" type="submit" disabled={!canSave}>
                 {saving ? "Registrando…" : "Registrar gasto"}

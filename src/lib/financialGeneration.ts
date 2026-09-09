@@ -76,6 +76,7 @@ export const buildGenerationUpdates = (
         oneTime: false,
         notes: template.notes,
         excelRowLabel: template.excelRowLabel,
+        loanId: template.loanId,
         ...metadata(actor, nowIso),
       };
       updates[`monthlyOccurrences/${id}`] = occurrence;
@@ -125,6 +126,7 @@ export const buildGenerationUpdates = (
       status: "upcoming",
       canPayWithCard: plan.canPayWithCard,
       notes: plan.notes,
+      loanId: plan.loanId,
       ...metadata(actor, nowIso),
     };
     updates[`nonMonthlyOccurrences/${id}`] = occurrence;

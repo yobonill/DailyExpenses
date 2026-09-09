@@ -6,6 +6,8 @@ import type {
   CreditCard,
   Currency,
   FinancialData,
+  MoneyAccountId,
+  PaymentMethod,
 } from "../../models/finance";
 import { formatShortDate, toLocalDateKey } from "../../lib/date";
 import {
@@ -20,6 +22,7 @@ import {
   statusLabel,
 } from "../../lib/financialCalculations";
 import { formatCurrency, minorToInput, parseMoneyToCents } from "../../lib/money";
+import { BANK_ACCOUNT_ID, CASH_ACCOUNT_ID, calculateTransferFeeMinor, getMoneyAccountBalance, hasInitializedMoneyAccounts, moneyAccountLabel } from "../../lib/moneyLedger";
 import {
   CheckboxField,
   CurrencyField,
@@ -40,6 +43,9 @@ type AddCardTransaction = (
   savingsFundId?: string,
   settlementAmountDopMinor?: number,
   affectsCurrentBalance?: boolean,
+  moneyAccountId?: MoneyAccountId,
+  paymentMethod?: Exclude<PaymentMethod, "creditCard">,
+  transferFeeMinor?: number,
 ) => Promise<void>;
 
 const formatExchangeRate = (rate: number): string => new Intl.NumberFormat("es-DO", {
@@ -205,6 +211,9 @@ function CardTransactionModal({
   const [savingsFundId, setSavingsFundId] = useState("");
   const [includedInCurrentBalance, setIncludedInCurrentBalance] = useState(false);
   const [adjustmentDirection, setAdjustmentDirection] = useState<"increase" | "decrease">("increase");
+  const [paymentMethod, setPaymentMethod] = useState<Exclude<PaymentMethod, "creditCard">>("bankTransfer");
+  const [addTransferFee, setAddTransferFee] = useState(false);
+  const [transferFee, setTransferFee] = useState("");
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
 
@@ -217,6 +226,10 @@ function CardTransactionModal({
   const effectiveRate = type === "payment" && currency === "USD" && parsedAmount && parsedSettlementDop
     ? parsedSettlementDop / parsedAmount
     : null;
+  const moneyAccountId: MoneyAccountId = paymentMethod === "cash" ? CASH_ACCOUNT_ID : BANK_ACCOUNT_ID;
+  const cashAmountMinor = currency === "USD" ? parsedSettlementDop || 0 : parsedAmount || 0;
+  const feeMinor = paymentMethod === "bankTransfer" && addTransferFee ? parseMoneyToCents(transferFee) || 0 : 0;
+  const moneyReady = hasInitializedMoneyAccounts(data);
 
   const changeType = (nextType: CardTransaction["type"]) => {
     setType(nextType);
@@ -245,6 +258,14 @@ function CardTransactionModal({
       setError("Escribe cuánto se pagó realmente en pesos dominicanos.");
       return;
     }
+    if (type === "payment" && !includedInCurrentBalance && !moneyReady) {
+      setError("Configura primero Banco y Efectivo en Más → Dinero disponible.");
+      return;
+    }
+    if (type === "payment" && !includedInCurrentBalance && cashAmountMinor + feeMinor > getMoneyAccountBalance(data, moneyAccountId)) {
+      setError(`No hay suficiente dinero en ${moneyAccountLabel(moneyAccountId)}.`);
+      return;
+    }
     const signed = type === "adjustment" && adjustmentDirection === "decrease"
       ? -parsedAmount
       : parsedAmount;
@@ -261,6 +282,9 @@ function CardTransactionModal({
         type === "payment" ? savingsFundId || undefined : undefined,
         type === "payment" && currency === "USD" ? parsedSettlementDop || undefined : undefined,
         type === "payment" ? !includedInCurrentBalance : undefined,
+        type === "payment" && !includedInCurrentBalance ? moneyAccountId : undefined,
+        type === "payment" && !includedInCurrentBalance ? paymentMethod : undefined,
+        type === "payment" && !includedInCurrentBalance ? feeMinor : undefined,
       );
       onClose();
     } catch (reason) {
@@ -313,6 +337,7 @@ function CardTransactionModal({
         {type === "payment" && !includedInCurrentBalance && (
           <label className="field"><span>Origen del pago (opcional)</span><select value={savingsFundId} onChange={(event) => setSavingsFundId(event.target.value)}><option value="">Efectivo / banco</option>{funds.map((fund) => <option key={fund.id} value={fund.id}>{fund.name} · {fund.currency}</option>)}</select><small className="field-help">{currency === "USD" ? "Si eliges un fondo, se retirará el monto real pagado en DOP." : "Si eliges un fondo, el retiro y la liberación de cobertura se registran juntos."}</small></label>
         )}
+        {type === "payment" && !includedInCurrentBalance && <><label className="field"><span>¿De dónde salió el dinero?</span><select value={paymentMethod} onChange={(event) => { const next = event.target.value as Exclude<PaymentMethod, "creditCard">; setPaymentMethod(next); if (next !== "bankTransfer") { setAddTransferFee(false); setTransferFee(""); } }}><option value="bankTransfer">Transferencia bancaria</option><option value="debitCard">Tarjeta de débito</option><option value="cash">Efectivo</option></select><small className="field-help">Disponible: {formatCurrency(getMoneyAccountBalance(data, moneyAccountId), "DOP")} en {moneyAccountLabel(moneyAccountId)}.</small></label>{paymentMethod === "bankTransfer" && <><CheckboxField checked={addTransferFee} onChange={(checked) => { setAddTransferFee(checked); setTransferFee(checked ? minorToInput(calculateTransferFeeMinor(cashAmountMinor, data.settings.transferFeeRatePercent)) : ""); }} label="Agregar comisión por transferencia" help={`Calcula ${data.settings.transferFeeRatePercent}% automáticamente; puedes editarla.`} />{addTransferFee && <MoneyField label="Comisión por transferencia" value={transferFee} onChange={setTransferFee} currency="DOP" />}</>}</>}
         {error && <p className="form-error">{error}</p>}
         <div className="modal-actions">
           <button type="button" className="button button-secondary" onClick={onClose}>Cancelar</button>

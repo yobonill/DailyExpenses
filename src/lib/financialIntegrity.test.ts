@@ -118,4 +118,17 @@ describe("shared financial integrity", () => {
     data.cardStatements.statement.minimumPaymentMinor = 0;
     expect(isFinanciallyConsistent(data)).toBe(false);
   });
+
+  it("keeps exact money balances nonnegative and validates loan principal history", () => {
+    const data = createEmptyFinancialData();
+    data.moneyAccounts.bank = { id: "bank", kind: "bank", name: "Banco", currency: "DOP", openingBalanceMinor: 50_000, openingDate: "2026-09-03", active: true, ...metadata };
+    data.moneyAccounts.cash = { id: "cash", kind: "cash", name: "Efectivo", currency: "DOP", openingBalanceMinor: 10_000, openingDate: "2026-09-03", active: true, ...metadata };
+    data.loans.loan = { id: "loan", name: "Préstamo", currency: "DOP", openingBalanceMinor: 100_000, openingDate: "2026-09-03", annualInterestRate: 18, active: true, ...metadata };
+    data.payments.payment = { id: "payment", sourceType: "monthly", sourceId: "bill", amountMinor: 12_000, currency: "DOP", paidDate: "2026-10-03", method: "bankTransfer", moneyAccountId: "bank", moneyTransactionId: "money", loanId: "loan", loanTransactionId: "loan-payment", ...metadata };
+    data.moneyTransactions.money = { id: "money", accountId: "bank", direction: "out", type: "loanPayment", amountMinor: 12_000, currency: "DOP", transactionDate: "2026-10-03", description: "Cuota", linkedPaymentId: "payment", linkedLoanTransactionId: "loan-payment", ...metadata };
+    data.loanTransactions["loan-payment"] = { id: "loan-payment", loanId: "loan", type: "payment", transactionDate: "2026-10-03", totalPaymentMinor: 12_000, principalMinor: 9_000, interestMinor: 2_500, chargesMinor: 500, balanceBeforeMinor: 100_000, balanceAfterMinor: 91_000, linkedPaymentId: "payment", ...metadata };
+    expect(isFinanciallyConsistent(data)).toBe(true);
+    data.loanTransactions["loan-payment"].principalMinor = 10_000;
+    expect(isFinanciallyConsistent(data)).toBe(false);
+  });
 });

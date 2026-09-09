@@ -6,6 +6,8 @@ import { getCardCurrentDebt, getCardPaymentPlanId, getFundAllocated, getFundBala
 import { buildGenerationUpdates, buildPausedMonthlyOccurrenceUpdates } from "../lib/financialGeneration";
 import { buildStartingPointReconciliationUpdates, type StartingPointReconciliationInput } from "../lib/startingPointReconciliation";
 import { createId } from "../lib/id";
+import { BANK_ACCOUNT_ID, CASH_ACCOUNT_ID, getMoneyAccountBalance, hasInitializedMoneyAccounts } from "../lib/moneyLedger";
+import { getLoanBalance } from "../lib/loanLedger";
 import type { Expense } from "../models/expense";
 import type {
   AppSettings,
@@ -20,6 +22,9 @@ import type {
   IncomeTemplate,
   MonthlyExpenseOccurrence,
   MonthlyExpenseTemplate,
+  MoneyAccount,
+  MoneyAccountId,
+  MoneyTransaction,
   NonMonthlyExpense,
   NonMonthlyOccurrence,
   Payment,
@@ -27,6 +32,8 @@ import type {
   PurchaseGoal,
   PurchaseGoalPriority,
   RecordMetadata,
+  Loan,
+  LoanTransaction,
   SavingsAllocation,
   SavingsFund,
   SavingsTransaction,
@@ -52,6 +59,7 @@ export interface MonthlyTemplateInput {
   active: boolean;
   notes?: string;
   excelRowLabel?: string;
+  loanId?: string;
 }
 
 export interface OneTimeMonthlyInput extends MonthlyTemplateInput {
@@ -92,6 +100,7 @@ export interface NonMonthlyInput {
   canPayWithCard: boolean;
   active: boolean;
   notes?: string;
+  loanId?: string;
 }
 
 export interface CreditCardInput {
@@ -138,7 +147,30 @@ export interface PayObligationInput {
   paidDate: string;
   method: PaymentMethod;
   cardId?: string;
+  moneyAccountId?: MoneyAccountId;
+  transferFeeMinor?: number;
+  settlementAmountDopMinor?: number;
+  loanPrincipalMinor?: number;
+  loanInterestMinor?: number;
+  loanChargesMinor?: number;
   consumeReservedSavings?: boolean;
+  notes?: string;
+}
+
+export interface MoneyAccountsSetupInput {
+  openingDate: string;
+  bankBalanceMinor: number;
+  cashBalanceMinor: number;
+}
+
+export interface LoanInput {
+  name: string;
+  lender?: string;
+  currency: Currency;
+  openingBalanceMinor: number;
+  openingDate: string;
+  annualInterestRate: number;
+  active: boolean;
   notes?: string;
 }
 
@@ -163,6 +195,11 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
   }, [actor, commitUpdates, data]);
 
   const saveMonthlyTemplate = useCallback(async (input: MonthlyTemplateInput, id?: string) => {
+    if (input.loanId) {
+      const loan = data.loans[input.loanId];
+      if (!loan || loan.archivedAt) throw new Error("Selecciona un préstamo vigente.");
+      if (loan.currency !== input.currency) throw new Error("La moneda del gasto debe coincidir con la del préstamo.");
+    }
     const templateId = id || createId();
     const existing = data.monthlyTemplates[templateId];
     const template: MonthlyExpenseTemplate = {
@@ -172,6 +209,7 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
       category: cleanOptional(input.category),
       notes: cleanOptional(input.notes),
       excelRowLabel: cleanOptional(input.excelRowLabel),
+      loanId: cleanOptional(input.loanId),
       ...meta(existing),
     };
     const updates: Record<string, unknown> = { [`monthlyTemplates/${templateId}`]: template };
@@ -190,6 +228,7 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
           canPayWithCard: template.canPayWithCard,
           notes: template.notes,
           excelRowLabel: template.excelRowLabel,
+          loanId: template.loanId,
           ...meta(occurrence),
         };
       });
@@ -212,6 +251,10 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
   }, [commitUpdates, data, meta]);
 
   const createOneTimeMonthly = useCallback(async (input: OneTimeMonthlyInput) => {
+    if (input.loanId) {
+      const loan = data.loans[input.loanId];
+      if (!loan || loan.archivedAt || loan.currency !== input.currency) throw new Error("Revisa el préstamo relacionado y su moneda.");
+    }
     const id = createId();
     const occurrence: MonthlyExpenseOccurrence = {
       id,
@@ -227,15 +270,20 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
       oneTime: true,
       notes: cleanOptional(input.notes),
       excelRowLabel: cleanOptional(input.excelRowLabel),
+      loanId: cleanOptional(input.loanId),
       ...meta(),
     };
     await commitUpdates({ [`monthlyOccurrences/${id}`]: occurrence });
-  }, [commitUpdates, meta]);
+  }, [commitUpdates, data.loans, meta]);
 
   const updateOneTimeMonthly = useCallback(async (id: string, input: OneTimeMonthlyInput) => {
     const existing = data.monthlyOccurrences[id];
     if (!existing?.oneTime) throw new Error("Este gasto no es una obligación de una sola vez.");
     if (existing.status !== "upcoming") throw new Error("Solo se puede editar una obligación pendiente.");
+    if (input.loanId) {
+      const loan = data.loans[input.loanId];
+      if (!loan || loan.archivedAt || loan.currency !== input.currency) throw new Error("Revisa el préstamo relacionado y su moneda.");
+    }
     const occurrence: MonthlyExpenseOccurrence = {
       ...existing,
       name: input.name.trim(),
@@ -248,10 +296,11 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
       canPayWithCard: input.canPayWithCard,
       notes: cleanOptional(input.notes),
       excelRowLabel: cleanOptional(input.excelRowLabel),
+      loanId: cleanOptional(input.loanId),
       ...meta(existing),
     };
     await commitUpdates({ [`monthlyOccurrences/${id}`]: occurrence });
-  }, [commitUpdates, data.monthlyOccurrences, meta]);
+  }, [commitUpdates, data.loans, data.monthlyOccurrences, meta]);
 
   const cancelMonthlyOccurrence = useCallback(async (id: string, reason?: string) => {
     const occurrence = data.monthlyOccurrences[id];
@@ -273,15 +322,49 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
       : data.nonMonthlyOccurrences[input.sourceId];
     if (!occurrence || occurrence.status !== "upcoming") throw new Error("Esta obligación ya no está pendiente.");
     if (occurrence.currency !== input.currency) throw new Error("La moneda no coincide con la obligación.");
+    if (input.amountMinor <= 0) throw new Error("El monto debe ser mayor que cero.");
     if (input.method === "creditCard") {
       const card = input.cardId ? data.creditCards[input.cardId] : undefined;
       if (!card?.active) throw new Error("Selecciona una tarjeta activa.");
       if (!occurrence.canPayWithCard) throw new Error("Esta obligación no admite pago con tarjeta.");
     }
 
+    const accountId: MoneyAccountId | undefined = input.method === "cash"
+      ? CASH_ACCOUNT_ID
+      : input.method === "bankTransfer" || input.method === "debitCard"
+        ? BANK_ACCOUNT_ID
+        : undefined;
+    const accountDebitMinor = input.currency === "DOP" ? input.amountMinor : input.settlementAmountDopMinor || 0;
+    const transferFeeMinor = input.method === "bankTransfer" ? Math.max(0, Math.round(input.transferFeeMinor || 0)) : 0;
+    if (accountId) {
+      if (!hasInitializedMoneyAccounts(data)) throw new Error("Configura primero tus saldos de Banco y Efectivo.");
+      if (input.currency === "USD" && accountDebitMinor <= 0) throw new Error("Indica cuánto salió realmente en pesos dominicanos.");
+      const available = getMoneyAccountBalance(data, accountId);
+      if (accountDebitMinor + transferFeeMinor > available) {
+        throw new Error(`No hay suficiente dinero disponible en ${accountId === BANK_ACCOUNT_ID ? "Banco" : "Efectivo"}.`);
+      }
+    }
+
+    const linkedLoan = occurrence.loanId ? data.loans[occurrence.loanId] : undefined;
+    if (occurrence.loanId && !linkedLoan) throw new Error("El préstamo vinculado ya no está disponible.");
+    if (linkedLoan && linkedLoan.currency !== input.currency) throw new Error("La moneda del préstamo no coincide con la obligación.");
+    const loanInterestMinor = linkedLoan ? Math.max(0, Math.round(input.loanInterestMinor || 0)) : 0;
+    const loanChargesMinor = linkedLoan ? Math.max(0, Math.round(input.loanChargesMinor || 0)) : 0;
+    const loanPrincipalMinor = linkedLoan
+      ? Math.max(0, Math.round(input.loanPrincipalMinor ?? input.amountMinor - loanInterestMinor - loanChargesMinor))
+      : 0;
+    if (linkedLoan && loanPrincipalMinor + loanInterestMinor + loanChargesMinor !== input.amountMinor) {
+      throw new Error("Capital, intereses y cargos deben sumar el total pagado.");
+    }
+    const loanBalanceBefore = linkedLoan ? getLoanBalance(data, linkedLoan.id) : 0;
+    if (linkedLoan && loanPrincipalMinor > loanBalanceBefore) throw new Error("El capital pagado no puede exceder el balance pendiente del préstamo.");
+
     const now = new Date().toISOString();
     const paymentId = createId();
     const cardTransactionId = input.method === "creditCard" ? createId() : undefined;
+    const moneyTransactionId = accountId ? createId() : undefined;
+    const feeMoneyTransactionId = accountId && transferFeeMinor > 0 ? createId() : undefined;
+    const loanTransactionId = linkedLoan ? createId() : undefined;
     const payment: Payment = {
       id: paymentId,
       sourceType: input.sourceType,
@@ -292,10 +375,69 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
       method: input.method,
       cardId: input.cardId,
       cardTransactionId,
+      moneyAccountId: accountId,
+      moneyTransactionId,
+      feeMoneyTransactionId,
+      transferFeeMinor: transferFeeMinor || undefined,
+      settlementAmountDopMinor: input.currency === "USD" && accountId ? accountDebitMinor : undefined,
+      loanId: linkedLoan?.id,
+      loanTransactionId,
       notes: cleanOptional(input.notes),
       ...meta(),
     };
     const updates: Record<string, unknown> = { [`payments/${paymentId}`]: payment };
+
+    if (accountId && moneyTransactionId) {
+      updates[`moneyTransactions/${moneyTransactionId}`] = {
+        id: moneyTransactionId,
+        accountId,
+        direction: "out",
+        type: linkedLoan ? "loanPayment" : "payment",
+        amountMinor: accountDebitMinor,
+        currency: "DOP",
+        transactionDate: input.paidDate,
+        description: occurrence.name,
+        linkedPaymentId: paymentId,
+        linkedLoanTransactionId: loanTransactionId,
+        ...meta(),
+      } satisfies MoneyTransaction;
+    }
+    if (accountId && feeMoneyTransactionId && transferFeeMinor > 0) {
+      updates[`moneyTransactions/${feeMoneyTransactionId}`] = {
+        id: feeMoneyTransactionId,
+        accountId,
+        direction: "out",
+        type: "fee",
+        amountMinor: transferFeeMinor,
+        currency: "DOP",
+        transactionDate: input.paidDate,
+        description: `Comisión por transferencia · ${occurrence.name}`,
+        linkedPaymentId: paymentId,
+        ...meta(),
+      } satisfies MoneyTransaction;
+    }
+
+    if (linkedLoan && loanTransactionId) {
+      const loanTransaction: LoanTransaction = {
+        id: loanTransactionId,
+        loanId: linkedLoan.id,
+        type: "payment",
+        transactionDate: input.paidDate,
+        totalPaymentMinor: input.amountMinor,
+        principalMinor: loanPrincipalMinor,
+        interestMinor: loanInterestMinor,
+        chargesMinor: loanChargesMinor,
+        balanceBeforeMinor: loanBalanceBefore,
+        balanceAfterMinor: Math.max(0, loanBalanceBefore - loanPrincipalMinor),
+        linkedPaymentId: paymentId,
+        notes: cleanOptional(input.notes),
+        ...meta(),
+      };
+      updates[`loanTransactions/${loanTransactionId}`] = loanTransaction;
+      if (loanTransaction.balanceAfterMinor === 0) {
+        updates[`loans/${linkedLoan.id}`] = { ...linkedLoan, active: false, ...meta(linkedLoan) };
+      }
+    }
 
     if (input.method === "creditCard" && cardTransactionId && input.cardId) {
       const transaction: CardTransaction = {
@@ -344,7 +486,7 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
     }
 
     const savingsTransactionIds: string[] = [];
-    if (input.sourceType === "nonMonthly" && input.method === "cash" && input.consumeReservedSavings) {
+    if (input.sourceType === "nonMonthly" && input.method !== "creditCard" && input.consumeReservedSavings) {
       let amountLeft = input.amountMinor;
       for (const allocation of getObligationAllocations(data, "nonMonthly", input.sourceId)) {
         if (amountLeft <= 0) break;
@@ -424,6 +566,17 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
       const cardTransaction = data.cardTransactions[payment.cardTransactionId];
       updates[`cardTransactions/${cardTransaction.id}`] = { ...cardTransaction, reversedAt: now, ...meta(cardTransaction) };
     }
+    for (const transactionId of [payment.moneyTransactionId, payment.feeMoneyTransactionId]) {
+      if (!transactionId) continue;
+      const transaction = data.moneyTransactions[transactionId];
+      if (transaction) updates[`moneyTransactions/${transactionId}`] = { ...transaction, reversedAt: now, ...meta(transaction) };
+    }
+    if (payment.loanTransactionId && data.loanTransactions[payment.loanTransactionId]) {
+      const transaction = data.loanTransactions[payment.loanTransactionId];
+      updates[`loanTransactions/${transaction.id}`] = { ...transaction, reversedAt: now, ...meta(transaction) };
+      const loan = data.loans[transaction.loanId];
+      if (loan && !loan.active) updates[`loans/${loan.id}`] = { ...loan, active: true, ...meta(loan) };
+    }
     for (const transactionId of payment.savingsTransactionIds || []) {
       const transaction = data.savingsTransactions[transactionId];
       if (transaction) updates[`savingsTransactions/${transactionId}`] = { ...transaction, reversedAt: now, ...meta(transaction) };
@@ -500,36 +653,69 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
     await commitUpdates({ [`incomeOccurrences/${id}`]: occurrence });
   }, [commitUpdates, meta]);
 
-  const receiveIncome = useCallback(async (id: string, amountMinor: number, receivedDate: string) => {
+  const receiveIncome = useCallback(async (id: string, amountMinor: number, receivedDate: string, moneyAccountId?: MoneyAccountId) => {
     const occurrence = data.incomeOccurrences[id];
     if (!occurrence) return;
-    await commitUpdates({
+    if (occurrence.currency === "DOP" && !hasInitializedMoneyAccounts(data)) {
+      throw new Error("Configura primero tus saldos de Banco y Efectivo.");
+    }
+    if (occurrence.currency === "DOP" && !moneyAccountId) throw new Error("Selecciona dónde recibiste el ingreso.");
+    const transactionId = occurrence.currency === "DOP" && moneyAccountId ? createId() : undefined;
+    const updates: Record<string, unknown> = {
       [`incomeOccurrences/${id}`]: {
         ...occurrence,
         status: "received",
         actualAmountMinor: amountMinor,
         receivedDate,
+        moneyAccountId,
+        moneyTransactionId: transactionId,
         ...meta(occurrence),
       },
-    });
-  }, [commitUpdates, data.incomeOccurrences, meta]);
+    };
+    if (transactionId && moneyAccountId) {
+      updates[`moneyTransactions/${transactionId}`] = {
+        id: transactionId,
+        accountId: moneyAccountId,
+        direction: "in",
+        type: "income",
+        amountMinor,
+        currency: "DOP",
+        transactionDate: receivedDate,
+        description: occurrence.name,
+        linkedIncomeOccurrenceId: occurrence.id,
+        ...meta(),
+      } satisfies MoneyTransaction;
+    }
+    await commitUpdates(updates);
+  }, [commitUpdates, data, meta]);
 
   const reopenIncome = useCallback(async (id: string) => {
     const occurrence = data.incomeOccurrences[id];
     if (!occurrence) return;
-    await commitUpdates({
+    const updates: Record<string, unknown> = {
       [`incomeOccurrences/${id}`]: {
         ...occurrence,
         status: "expected",
         actualAmountMinor: null,
         receivedDate: null,
         reconciledAt: null,
+        moneyAccountId: null,
+        moneyTransactionId: null,
         ...meta(occurrence),
       },
-    });
-  }, [commitUpdates, data.incomeOccurrences, meta]);
+    };
+    if (occurrence.moneyTransactionId && data.moneyTransactions[occurrence.moneyTransactionId]) {
+      const transaction = data.moneyTransactions[occurrence.moneyTransactionId];
+      updates[`moneyTransactions/${transaction.id}`] = { ...transaction, reversedAt: new Date().toISOString(), ...meta(transaction) };
+    }
+    await commitUpdates(updates);
+  }, [commitUpdates, data.incomeOccurrences, data.moneyTransactions, meta]);
 
   const saveNonMonthly = useCallback(async (input: NonMonthlyInput, id?: string) => {
+    if (input.loanId) {
+      const loan = data.loans[input.loanId];
+      if (!loan || loan.archivedAt || loan.currency !== input.currency) throw new Error("Revisa el préstamo relacionado y su moneda.");
+    }
     const planId = id || createId();
     const existing = data.nonMonthlyExpenses[planId];
     if (existing && existing.currency !== input.currency) {
@@ -546,6 +732,7 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
       name: input.name.trim(),
       category: cleanOptional(input.category),
       notes: cleanOptional(input.notes),
+      loanId: cleanOptional(input.loanId),
       ...meta(existing),
     };
     const updates: Record<string, unknown> = { [`nonMonthlyExpenses/${planId}`]: plan };
@@ -564,6 +751,7 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
         dueDate: plan.nextDueDate,
         canPayWithCard: plan.canPayWithCard,
         notes: plan.notes,
+        loanId: plan.loanId,
         ...meta(pending),
       };
       if (pending.id !== occurrenceId) updates[`nonMonthlyOccurrences/${pending.id}`] = null;
@@ -575,7 +763,7 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
         });
     }
     await commitUpdates(updates);
-  }, [commitUpdates, data.nonMonthlyExpenses, data.nonMonthlyOccurrences, data.savingsAllocations, meta]);
+  }, [commitUpdates, data.loans, data.nonMonthlyExpenses, data.nonMonthlyOccurrences, data.savingsAllocations, meta]);
 
   const saveSavingsFund = useCallback(async (input: SavingsFundInput, id?: string) => {
     const fundId = id || createId();
@@ -990,6 +1178,9 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
       .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
     const updates: Record<string, unknown> = {};
     const now = new Date().toISOString();
+    const linkedMoneyTransactions = Object.values(data.moneyTransactions)
+      .filter((transaction) => transaction.linkedDailyExpenseId === expense.id && !transaction.reversedAt)
+      .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
 
     if (expense.paymentMethod !== "creditCard") {
       linkedTransactions.forEach((transaction) => {
@@ -999,6 +1190,57 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
           ...meta(transaction),
         };
       });
+      if (!hasInitializedMoneyAccounts(data)) throw new Error("Configura primero tus saldos de Banco y Efectivo.");
+      const accountId: MoneyAccountId = expense.paymentMethod === "cash" ? CASH_ACCOUNT_ID : BANK_ACCOUNT_ID;
+      const amountMinor = expense.unitPriceCents * expense.quantity;
+      const feeMinor = expense.paymentMethod === "transfer" ? Math.max(0, expense.transferFeeCents || 0) : 0;
+      const replaceableBalance = linkedMoneyTransactions
+        .filter((transaction) => transaction.accountId === accountId)
+        .reduce((total, transaction) => total + transaction.amountMinor, getMoneyAccountBalance(data, accountId));
+      if (amountMinor + feeMinor > replaceableBalance) {
+        throw new Error(`No hay suficiente dinero disponible en ${accountId === BANK_ACCOUNT_ID ? "Banco" : "Efectivo"}.`);
+      }
+      const existingExpenseMovement = linkedMoneyTransactions.find((transaction) => transaction.type === "expense");
+      const expenseMovementId = existingExpenseMovement?.id || createId();
+      updates[`moneyTransactions/${expenseMovementId}`] = {
+        ...(existingExpenseMovement || {}),
+        id: expenseMovementId,
+        accountId,
+        direction: "out",
+        type: "expense",
+        amountMinor,
+        currency: "DOP",
+        transactionDate: expense.occurredDate,
+        description: expense.name,
+        linkedDailyExpenseId: expense.id,
+        reversedAt: undefined,
+        ...meta(existingExpenseMovement),
+      } satisfies MoneyTransaction;
+      const existingFeeMovement = linkedMoneyTransactions.find((transaction) => transaction.type === "fee");
+      if (feeMinor > 0) {
+        const feeId = existingFeeMovement?.id || createId();
+        updates[`moneyTransactions/${feeId}`] = {
+          ...(existingFeeMovement || {}),
+          id: feeId,
+          accountId: BANK_ACCOUNT_ID,
+          direction: "out",
+          type: "fee",
+          amountMinor: feeMinor,
+          currency: "DOP",
+          transactionDate: expense.occurredDate,
+          description: `Comisión por transferencia · ${expense.name}`,
+          linkedDailyExpenseId: expense.id,
+          reversedAt: undefined,
+          ...meta(existingFeeMovement),
+        } satisfies MoneyTransaction;
+      } else if (existingFeeMovement) {
+        updates[`moneyTransactions/${existingFeeMovement.id}`] = { ...existingFeeMovement, reversedAt: now, ...meta(existingFeeMovement) };
+      }
+      linkedMoneyTransactions
+        .filter((transaction) => transaction.id !== expenseMovementId && transaction.id !== existingFeeMovement?.id)
+        .forEach((transaction) => {
+          updates[`moneyTransactions/${transaction.id}`] = { ...transaction, reversedAt: now, ...meta(transaction) };
+        });
     } else {
       const card = Object.values(data.creditCards).find((item) => item.active && !item.archivedAt);
       if (!card) throw new Error("Configura una tarjeta activa antes de registrar una compra con crédito.");
@@ -1024,10 +1266,13 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
           ...meta(duplicate),
         };
       });
+      linkedMoneyTransactions.forEach((transaction) => {
+        updates[`moneyTransactions/${transaction.id}`] = { ...transaction, reversedAt: now, ...meta(transaction) };
+      });
     }
 
     if (Object.keys(updates).length) await commitUpdates(updates);
-  }, [commitUpdates, data.cardTransactions, data.creditCards, meta]);
+  }, [commitUpdates, data, meta]);
 
   const removeDailyExpenseCardCharge = useCallback(async (expenseId: string) => {
     const now = new Date().toISOString();
@@ -1041,8 +1286,13 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
           ...meta(transaction),
         };
       });
+    Object.values(data.moneyTransactions)
+      .filter((transaction) => transaction.linkedDailyExpenseId === expenseId && !transaction.reversedAt)
+      .forEach((transaction) => {
+        updates[`moneyTransactions/${transaction.id}`] = { ...transaction, reversedAt: now, ...meta(transaction) };
+      });
     if (Object.keys(updates).length) await commitUpdates(updates);
-  }, [commitUpdates, data.cardTransactions, meta]);
+  }, [commitUpdates, data.cardTransactions, data.moneyTransactions, meta]);
 
   const saveCreditCard = useCallback(async (input: CreditCardInput, id?: string) => {
     const cardId = id || createId();
@@ -1084,6 +1334,9 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
     savingsFundId?: string,
     settlementAmountDopMinor?: number,
     affectsCurrentBalance = true,
+    moneyAccountId?: MoneyAccountId,
+    paymentMethod: Exclude<PaymentMethod, "creditCard"> = "bankTransfer",
+    transferFeeMinor = 0,
   ) => {
     const card = data.creditCards[cardId];
     if (!card) throw new Error("Tarjeta no encontrada.");
@@ -1101,8 +1354,26 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
       if (!affectsCurrentBalance && savingsFundId) {
         throw new Error("Un pago ya incluido en la deuda actual no puede retirar dinero de ahorros otra vez.");
       }
+      if (affectsCurrentBalance) {
+        if (!hasInitializedMoneyAccounts(data)) throw new Error("Configura primero tus saldos de Banco y Efectivo.");
+        if (!moneyAccountId) throw new Error("Selecciona de dónde salió el dinero.");
+        const expectedAccount = paymentMethod === "cash" ? CASH_ACCOUNT_ID : BANK_ACCOUNT_ID;
+        if (moneyAccountId !== expectedAccount) throw new Error("El origen no coincide con el método de pago.");
+        const cashAmount = currency === "USD" ? Math.abs(settlementAmountDopMinor || 0) : Math.abs(amountMinor);
+        const fee = paymentMethod === "bankTransfer" ? Math.max(0, Math.round(transferFeeMinor)) : 0;
+        if (cashAmount + fee > getMoneyAccountBalance(data, moneyAccountId)) {
+          throw new Error(`No hay suficiente dinero disponible en ${moneyAccountId === BANK_ACCOUNT_ID ? "Banco" : "Efectivo"}.`);
+        }
+      }
     }
     const id = createId();
+    const paymentCashAmount = type === "payment"
+      ? currency === "USD" ? Math.abs(settlementAmountDopMinor || 0) : Math.abs(amountMinor)
+      : 0;
+    const normalizedFee = type === "payment" && affectsCurrentBalance && paymentMethod === "bankTransfer"
+      ? Math.max(0, Math.round(transferFeeMinor))
+      : 0;
+    const moneyTransactionIds: string[] = [];
     const transaction: CardTransaction = {
       id,
       cardId,
@@ -1115,9 +1386,46 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
       affectsCurrentBalance: type === "payment" ? affectsCurrentBalance : undefined,
       transactionDate,
       description: description.trim(),
+      moneyAccountId: type === "payment" && affectsCurrentBalance ? moneyAccountId : undefined,
+      paymentMethod: type === "payment" && affectsCurrentBalance ? paymentMethod : undefined,
+      transferFeeMinor: normalizedFee || undefined,
       ...meta(),
     };
     const updates: Record<string, unknown> = { [`cardTransactions/${id}`]: transaction };
+    if (type === "payment" && affectsCurrentBalance && moneyAccountId) {
+      const cashTransactionId = createId();
+      moneyTransactionIds.push(cashTransactionId);
+      updates[`moneyTransactions/${cashTransactionId}`] = {
+        id: cashTransactionId,
+        accountId: moneyAccountId,
+        direction: "out",
+        type: "cardPayment",
+        amountMinor: paymentCashAmount,
+        currency: "DOP",
+        transactionDate,
+        description: description.trim(),
+        linkedCardTransactionId: id,
+        ...meta(),
+      } satisfies MoneyTransaction;
+      if (normalizedFee > 0) {
+        const feeId = createId();
+        moneyTransactionIds.push(feeId);
+        updates[`moneyTransactions/${feeId}`] = {
+          id: feeId,
+          accountId: moneyAccountId,
+          direction: "out",
+          type: "fee",
+          amountMinor: normalizedFee,
+          currency: "DOP",
+          transactionDate,
+          description: `Comisión por transferencia · ${description.trim()}`,
+          linkedCardTransactionId: id,
+          ...meta(),
+        } satisfies MoneyTransaction;
+      }
+      transaction.moneyTransactionIds = moneyTransactionIds;
+      updates[`cardTransactions/${id}`] = transaction;
+    }
     if (type === "payment" && savingsFundId) {
       const fund = data.savingsFunds[savingsFundId];
       const paymentCurrency: Currency = currency === "USD" ? "DOP" : currency;
@@ -1218,6 +1526,10 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
     Object.values(data.savingsTransactions)
       .filter((item) => item.linkedCardTransactionId === id && !item.reversedAt)
       .forEach((item) => { updates[`savingsTransactions/${item.id}`] = { ...item, reversedAt: now, ...meta(item) }; });
+    for (const transactionId of transaction.moneyTransactionIds || []) {
+      const moneyTransaction = data.moneyTransactions[transactionId];
+      if (moneyTransaction) updates[`moneyTransactions/${transactionId}`] = { ...moneyTransaction, reversedAt: now, ...meta(moneyTransaction) };
+    }
     Object.values(data.savingsAllocations)
       .filter((allocation) => allocation.linkedCardTransactionId === id)
       .forEach((allocation) => {
@@ -1230,7 +1542,158 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
         };
       });
     await commitUpdates(updates);
-  }, [commitUpdates, data.cardTransactions, data.purchaseGoals, data.savingsAllocations, data.savingsTransactions, meta]);
+  }, [commitUpdates, data, meta]);
+
+  const initializeMoneyAccounts = useCallback(async (input: MoneyAccountsSetupInput) => {
+    if (hasInitializedMoneyAccounts(data)) throw new Error("Los saldos iniciales ya fueron configurados.");
+    if (input.bankBalanceMinor < 0 || input.cashBalanceMinor < 0) throw new Error("Los saldos iniciales no pueden ser negativos.");
+    const bank: MoneyAccount = {
+      id: BANK_ACCOUNT_ID,
+      kind: "bank",
+      name: "Banco",
+      currency: "DOP",
+      openingBalanceMinor: Math.round(input.bankBalanceMinor),
+      openingDate: input.openingDate,
+      active: true,
+      notes: "Saldo inicial confirmado; incluye movimientos anteriores.",
+      ...meta(),
+    };
+    const cash: MoneyAccount = {
+      id: CASH_ACCOUNT_ID,
+      kind: "cash",
+      name: "Efectivo",
+      currency: "DOP",
+      openingBalanceMinor: Math.round(input.cashBalanceMinor),
+      openingDate: input.openingDate,
+      active: true,
+      notes: "Saldo inicial confirmado; incluye movimientos anteriores.",
+      ...meta(),
+    };
+    await commitUpdates({ [`moneyAccounts/${BANK_ACCOUNT_ID}`]: bank, [`moneyAccounts/${CASH_ACCOUNT_ID}`]: cash });
+  }, [commitUpdates, data, meta]);
+
+  const adjustMoneyAccountBalance = useCallback(async (
+    accountId: MoneyAccountId,
+    exactBalanceMinor: number,
+    transactionDate: string,
+    notes?: string,
+  ) => {
+    const account = data.moneyAccounts[accountId];
+    if (!account) throw new Error("La cuenta todavía no está configurada.");
+    if (exactBalanceMinor < 0) throw new Error("El balance no puede ser negativo.");
+    const current = getMoneyAccountBalance(data, accountId);
+    const difference = Math.round(exactBalanceMinor) - current;
+    if (!difference) throw new Error("El balance ya coincide con el monto indicado.");
+    const id = createId();
+    const transaction: MoneyTransaction = {
+      id,
+      accountId,
+      direction: difference > 0 ? "in" : "out",
+      type: "adjustment",
+      amountMinor: Math.abs(difference),
+      currency: "DOP",
+      transactionDate,
+      description: `Ajuste de balance · ${account.name}`,
+      notes: cleanOptional(notes),
+      ...meta(),
+    };
+    await commitUpdates({ [`moneyTransactions/${id}`]: transaction });
+  }, [commitUpdates, data, meta]);
+
+  const transferMoney = useCallback(async (
+    fromAccountId: MoneyAccountId,
+    toAccountId: MoneyAccountId,
+    amountMinor: number,
+    transactionDate: string,
+    feeMinor = 0,
+    notes?: string,
+  ) => {
+    if (fromAccountId === toAccountId) throw new Error("Selecciona cuentas diferentes.");
+    if (!hasInitializedMoneyAccounts(data)) throw new Error("Configura primero Banco y Efectivo.");
+    const amount = Math.round(amountMinor);
+    const fee = fromAccountId === BANK_ACCOUNT_ID ? Math.max(0, Math.round(feeMinor)) : 0;
+    if (amount <= 0) throw new Error("El monto debe ser mayor que cero.");
+    if (amount + fee > getMoneyAccountBalance(data, fromAccountId)) throw new Error("El origen no tiene balance suficiente.");
+    const transferId = createId();
+    const outId = createId();
+    const inId = createId();
+    const fromName = data.moneyAccounts[fromAccountId]?.name || "Origen";
+    const toName = data.moneyAccounts[toAccountId]?.name || "Destino";
+    const updates: Record<string, unknown> = {
+      [`moneyTransactions/${outId}`]: {
+        id: outId, accountId: fromAccountId, direction: "out", type: "transfer", amountMinor: amount,
+        currency: "DOP", transactionDate, description: `${fromName} → ${toName}`, transferId, notes: cleanOptional(notes), ...meta(),
+      } satisfies MoneyTransaction,
+      [`moneyTransactions/${inId}`]: {
+        id: inId, accountId: toAccountId, direction: "in", type: "transfer", amountMinor: amount,
+        currency: "DOP", transactionDate, description: `${fromName} → ${toName}`, transferId, notes: cleanOptional(notes), ...meta(),
+      } satisfies MoneyTransaction,
+    };
+    if (fee > 0) {
+      const feeId = createId();
+      updates[`moneyTransactions/${feeId}`] = {
+        id: feeId, accountId: fromAccountId, direction: "out", type: "fee", amountMinor: fee,
+        currency: "DOP", transactionDate, description: `Comisión · ${fromName} → ${toName}`, transferId, notes: cleanOptional(notes), ...meta(),
+      } satisfies MoneyTransaction;
+    }
+    await commitUpdates(updates);
+  }, [commitUpdates, data, meta]);
+
+  const saveLoan = useCallback(async (input: LoanInput, id?: string) => {
+    const loanId = id || createId();
+    const existing = data.loans[loanId];
+    if (!input.name.trim() || input.openingBalanceMinor < 0 || input.annualInterestRate < 0) throw new Error("Revisa el nombre, balance y tasa del préstamo.");
+    if (existing && Object.values(data.loanTransactions).some((transaction) => transaction.loanId === loanId)) {
+      if (existing.currency !== input.currency || existing.openingDate !== input.openingDate || existing.openingBalanceMinor !== input.openingBalanceMinor) {
+        throw new Error("Usa Ajustar balance para igualar un préstamo que ya tiene historial.");
+      }
+    }
+    const loan: Loan = {
+      id: loanId,
+      ...input,
+      name: input.name.trim(),
+      lender: cleanOptional(input.lender),
+      notes: cleanOptional(input.notes),
+      openingBalanceMinor: Math.round(input.openingBalanceMinor),
+      annualInterestRate: Math.max(0, input.annualInterestRate),
+      ...meta(existing),
+    };
+    await commitUpdates({ [`loans/${loanId}`]: loan });
+  }, [commitUpdates, data.loanTransactions, data.loans, meta]);
+
+  const adjustLoanBalance = useCallback(async (loanId: string, exactBalanceMinor: number, transactionDate: string, notes?: string) => {
+    const loan = data.loans[loanId];
+    if (!loan) throw new Error("Préstamo no encontrado.");
+    if (exactBalanceMinor < 0) throw new Error("El balance no puede ser negativo.");
+    const balanceBeforeMinor = getLoanBalance(data, loanId);
+    const adjustmentMinor = Math.round(exactBalanceMinor) - balanceBeforeMinor;
+    if (!adjustmentMinor) throw new Error("El balance ya coincide con el banco.");
+    const id = createId();
+    const transaction: LoanTransaction = {
+      id,
+      loanId,
+      type: "adjustment",
+      transactionDate,
+      adjustmentMinor,
+      balanceBeforeMinor,
+      balanceAfterMinor: Math.round(exactBalanceMinor),
+      notes: cleanOptional(notes) || "Balance confirmado según el banco.",
+      ...meta(),
+    };
+    await commitUpdates({
+      [`loanTransactions/${id}`]: transaction,
+      [`loans/${loanId}`]: { ...loan, active: exactBalanceMinor > 0, ...meta(loan) },
+    });
+  }, [commitUpdates, data, meta]);
+
+  const reverseLoanAdjustment = useCallback(async (transactionId: string) => {
+    const transaction = data.loanTransactions[transactionId];
+    if (!transaction || transaction.reversedAt) return;
+    if (transaction.linkedPaymentId) throw new Error("Reabre la factura relacionada para corregir este pago.");
+    await commitUpdates({
+      [`loanTransactions/${transactionId}`]: { ...transaction, reversedAt: new Date().toISOString(), ...meta(transaction) },
+    });
+  }, [commitUpdates, data.loanTransactions, meta]);
 
   const updateSettings = useCallback(async (settings: AppSettings) => {
     await commitUpdates({ settings: { ...settings, updatedAt: new Date().toISOString(), updatedBy: actor } });
@@ -1272,6 +1735,12 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
     saveCreditCard,
     addCardTransaction,
     reverseCardTransaction,
+    initializeMoneyAccounts,
+    adjustMoneyAccountBalance,
+    transferMoney,
+    saveLoan,
+    adjustLoanBalance,
+    reverseLoanAdjustment,
     reconcileStartingPoint,
     updateSettings,
   };

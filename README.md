@@ -1,6 +1,6 @@
 # Gastos & Presupuesto
 
-PWA compartida para Yorki y Yisel. Integra gastos extras, presupuesto mensual, Dashboard, ingresos, una tarjeta de crédito, gastos no mensuales, metas de compra, ahorros, reportes y respaldo/restauración.
+PWA compartida para Yorki y Yisel. Integra gastos extras, presupuesto mensual, Dashboard, ingresos, una tarjeta de crédito, Banco/Efectivo, préstamos, gastos no mensuales, metas de compra, ahorros, reportes y respaldo/restauración.
 
 ## Arquitectura
 
@@ -23,6 +23,8 @@ Los gastos diarios viven en `/expenses`. Los módulos de presupuesto viven en el
 - **Presupuesto:** gastos recurrentes y puntuales asignados explícitamente a Q1 o Q2, pago normal o con tarjeta, esperado/real y variación.
 - **Ingresos:** salario, otros ingresos recurrentes y puntuales; esperado frente a recibido.
 - **Tarjeta:** una tarjeta, deuda DOP/USD independiente, cortes, vencimientos, cargos, pagos y ajustes.
+- **Dinero disponible:** saldos exactos en Banco y Efectivo, movimientos internos, ajustes y comisiones.
+- **Préstamos:** capital pendiente, tasa anual, historial de pagos y ajuste exacto contra el banco.
 - **Gastos no mensuales:** una vez, cada N meses o cada N años, horizonte de 12 meses y alertas internas.
 - **Ahorros:** fondos por propósito, depósitos, retiros, correcciones, transferencias y asignaciones.
 - **Reportes:** gastos, flujo de caja, planificación, filtros de quincena/múltiples meses/año, desglose anual y resumen por categorías predefinidas.
@@ -43,9 +45,11 @@ La fecha de vencimiento controla los avisos, pero un gasto de presupuesto puede 
 ## Contabilidad esencial
 
 - Un gasto extra se guarda como realizado desde el formulario; no tiene una etapa posterior de revisión.
-- Efectivo, débito y transferencia reducen inmediatamente el disponible del período.
+- Efectivo reduce la cuenta Efectivo; débito y transferencia reducen Banco. La comisión de transferencia se registra por separado.
 - Un gasto pagado con tarjeta cuenta como gasto una sola vez y crea deuda, pero no reduce el efectivo hasta registrar o planificar el pago de la tarjeta.
 - Pagar la tarjeta reduce deuda y flujo de caja; no crea otro gasto.
+- Un pago vinculado a un préstamo reduce su balance únicamente por la porción de capital; interés y cargos permanecen en el historial.
+- Los saldos iniciales de Banco/Efectivo y préstamos forman un punto de partida: los movimientos anteriores no se vuelven a aplicar.
 - Los fondos de ahorro son activos reservados, no gastos.
 - Una asignación reserva saldo sin moverlo; consumirla genera el retiro correspondiente.
 - Los pagos vinculados, cargos de tarjeta, retiros y cambios de estado se guardan juntos.

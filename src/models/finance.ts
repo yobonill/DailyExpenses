@@ -3,7 +3,9 @@ import type { SyncState } from "./expense";
 export type Currency = "DOP" | "USD";
 export type FinancialStatus = "upcoming" | "paid" | "cancelled";
 export type RecurrenceKind = "once" | "monthly" | "months" | "years";
-export type PaymentMethod = "cash" | "creditCard";
+export type PaymentMethod = "cash" | "bankTransfer" | "debitCard" | "creditCard";
+export type MoneyAccountId = "bank" | "cash";
+export type MoneyMovementDirection = "in" | "out";
 export type HistoricalPaymentSource = "unknown" | "creditCardOpeningBalance" | "cashOrBankBeforeTracking";
 export type PurchaseGoalPriority = "low" | "medium" | "high";
 export type PurchaseGoalStatus = "active" | "scheduled" | "purchased" | "discarded";
@@ -35,6 +37,7 @@ export interface MonthlyExpenseTemplate extends RecordMetadata {
   active: boolean;
   notes?: string;
   excelRowLabel?: string;
+  loanId?: string;
 }
 
 export interface MonthlyExpenseOccurrence extends RecordMetadata {
@@ -57,6 +60,7 @@ export interface MonthlyExpenseOccurrence extends RecordMetadata {
   cancelledAt?: string;
   cancelledReason?: string;
   reconciledAt?: string;
+  loanId?: string;
 }
 
 export interface Payment extends RecordMetadata {
@@ -70,6 +74,13 @@ export interface Payment extends RecordMetadata {
   cardId?: string;
   cardTransactionId?: string;
   savingsTransactionIds?: string[];
+  moneyAccountId?: MoneyAccountId;
+  moneyTransactionId?: string;
+  feeMoneyTransactionId?: string;
+  transferFeeMinor?: number;
+  settlementAmountDopMinor?: number;
+  loanId?: string;
+  loanTransactionId?: string;
   /** A historical payment documents a settled bill without changing current cash, savings or card debt. */
   historical?: boolean;
   historicalSource?: HistoricalPaymentSource;
@@ -108,6 +119,9 @@ export interface IncomeOccurrence extends RecordMetadata {
   notes?: string;
   excelRowLabel?: string;
   exportExpectedWhenPending: boolean;
+  moneyAccountId?: MoneyAccountId;
+  moneyTransactionId?: string;
+  reconciledAt?: string;
 }
 
 export interface NonMonthlyExpense extends RecordMetadata {
@@ -124,6 +138,7 @@ export interface NonMonthlyExpense extends RecordMetadata {
   active: boolean;
   notes?: string;
   sourcePurchaseGoalId?: string;
+  loanId?: string;
 }
 
 export interface NonMonthlyOccurrence extends RecordMetadata {
@@ -141,6 +156,66 @@ export interface NonMonthlyOccurrence extends RecordMetadata {
   notes?: string;
   sourcePurchaseGoalId?: string;
   completedAt?: string;
+  loanId?: string;
+}
+
+export interface MoneyAccount extends RecordMetadata {
+  id: MoneyAccountId;
+  kind: MoneyAccountId;
+  name: string;
+  currency: "DOP";
+  openingBalanceMinor: number;
+  openingDate: string;
+  active: boolean;
+  notes?: string;
+}
+
+export interface MoneyTransaction extends RecordMetadata {
+  id: string;
+  accountId: MoneyAccountId;
+  direction: MoneyMovementDirection;
+  type: "income" | "payment" | "expense" | "cardPayment" | "loanPayment" | "transfer" | "fee" | "adjustment";
+  amountMinor: number;
+  currency: "DOP";
+  transactionDate: string;
+  description: string;
+  linkedIncomeOccurrenceId?: string;
+  linkedPaymentId?: string;
+  linkedCardTransactionId?: string;
+  linkedLoanTransactionId?: string;
+  linkedDailyExpenseId?: string;
+  transferId?: string;
+  notes?: string;
+  reversedAt?: string;
+}
+
+export interface Loan extends RecordMetadata {
+  id: string;
+  name: string;
+  lender?: string;
+  currency: Currency;
+  openingBalanceMinor: number;
+  openingDate: string;
+  annualInterestRate: number;
+  active: boolean;
+  notes?: string;
+}
+
+export interface LoanTransaction extends RecordMetadata {
+  id: string;
+  loanId: string;
+  type: "payment" | "adjustment";
+  transactionDate: string;
+  totalPaymentMinor?: number;
+  principalMinor?: number;
+  interestMinor?: number;
+  chargesMinor?: number;
+  adjustmentMinor?: number;
+  balanceBeforeMinor: number;
+  balanceAfterMinor: number;
+  linkedPaymentId?: string;
+  notes?: string;
+  reversedAt?: string;
 }
 
 export interface SavingsFund extends RecordMetadata {
@@ -237,6 +312,10 @@ export interface CardTransaction extends RecordMetadata {
   linkedExpenseId?: string;
   linkedDailyExpenseId?: string;
   linkedPurchaseGoalId?: string;
+  moneyAccountId?: MoneyAccountId;
+  moneyTransactionIds?: string[];
+  paymentMethod?: Exclude<PaymentMethod, "creditCard">;
+  transferFeeMinor?: number;
   notes?: string;
   reversedAt?: string;
 }
@@ -273,6 +352,8 @@ export interface AppSettings {
   nonMonthlyWarningMonths: number;
   /** Informational rate used only to estimate USD commitments in DOP projections. */
   estimatedUsdToDopRate: number;
+  /** Default optional bank-transfer commission percentage. */
+  transferFeeRatePercent: number;
   /** First date from which normal movements are expected to affect live balances. */
   trackingStartDate?: string;
   reconciliationCompletedAt?: string;
@@ -297,6 +378,10 @@ export interface FinancialData {
   cardTransactions: Record<string, CardTransaction>;
   cardStatements: Record<string, CardStatement>;
   cardPaymentPlans: Record<string, CardPaymentPlan>;
+  moneyAccounts: Record<string, MoneyAccount>;
+  moneyTransactions: Record<string, MoneyTransaction>;
+  loans: Record<string, Loan>;
+  loanTransactions: Record<string, LoanTransaction>;
   settings: AppSettings;
   lastBackupAt?: string;
 }

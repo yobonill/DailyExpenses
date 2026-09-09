@@ -1,5 +1,7 @@
 import type { FinancialData, RecordMetadata } from "../models/finance";
 import { getCardCurrentDebt, getFundAllocated, getFundBalance, getPurchaseGoalReserved } from "./financialCalculations";
+import { getLoanBalance } from "./loanLedger";
+import { getMoneyAccountBalance } from "./moneyLedger";
 
 const getAtPath = (target: unknown, path: string): unknown => {
   let cursor = target;
@@ -41,6 +43,9 @@ export const isFinanciallyConsistent = (candidate: FinancialData): boolean => {
       if (!payment.historicalSource
         || !["unknown", "creditCardOpeningBalance", "cashOrBankBeforeTracking"].includes(payment.historicalSource)
         || payment.cardTransactionId
+        || payment.moneyTransactionId
+        || payment.feeMoneyTransactionId
+        || payment.loanTransactionId
         || (payment.savingsTransactionIds && payment.savingsTransactionIds.length > 0)) return false;
       if (payment.historicalSource === "creditCardOpeningBalance"
         && (payment.method !== "creditCard" || !payment.cardId || !candidate.creditCards[payment.cardId])) return false;
@@ -48,6 +53,37 @@ export const isFinanciallyConsistent = (candidate: FinancialData): boolean => {
     const key = `${payment.sourceType}:${payment.sourceId}`;
     if (activePaymentKeys.has(key)) return false;
     activePaymentKeys.add(key);
+  }
+  for (const [accountId, account] of Object.entries(candidate.moneyAccounts)) {
+    if ((accountId !== "bank" && accountId !== "cash")
+      || account.id !== accountId
+      || account.kind !== accountId
+      || account.currency !== "DOP"
+      || account.openingBalanceMinor < 0
+      || getMoneyAccountBalance(candidate, account.id) < 0) return false;
+  }
+  for (const transaction of Object.values(candidate.moneyTransactions)) {
+    if (!candidate.moneyAccounts[transaction.accountId]
+      || transaction.currency !== "DOP"
+      || transaction.amountMinor <= 0
+      || !["in", "out"].includes(transaction.direction)) return false;
+  }
+  for (const loan of Object.values(candidate.loans)) {
+    if (!loan.name || loan.openingBalanceMinor < 0 || loan.annualInterestRate < 0 || getLoanBalance(candidate, loan.id) < 0) return false;
+  }
+  for (const transaction of Object.values(candidate.loanTransactions)) {
+    const loan = candidate.loans[transaction.loanId];
+    if (!loan || transaction.balanceBeforeMinor < 0 || transaction.balanceAfterMinor < 0) return false;
+    if (transaction.type === "payment") {
+      const principal = transaction.principalMinor || 0;
+      const interest = transaction.interestMinor || 0;
+      const charges = transaction.chargesMinor || 0;
+      if (!transaction.linkedPaymentId || !candidate.payments[transaction.linkedPaymentId]
+        || principal < 0 || interest < 0 || charges < 0
+        || principal + interest + charges !== transaction.totalPaymentMinor
+        || transaction.balanceAfterMinor !== Math.max(0, transaction.balanceBeforeMinor - principal)) return false;
+    } else if (!transaction.adjustmentMinor
+      || transaction.balanceAfterMinor !== transaction.balanceBeforeMinor + transaction.adjustmentMinor) return false;
   }
   for (const fundId of Object.keys(candidate.savingsFunds)) {
     const balance = getFundBalance(candidate, fundId);

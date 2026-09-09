@@ -457,6 +457,14 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px s
 .minimum-missing { color: #9a5c18 !important; font-weight: 700; }
 .card-plan-fieldset { display: grid; gap: 12px; margin: 0; padding: 14px; border: 1px solid var(--border); border-radius: 15px; }
 .card-plan-fieldset legend { padding: 0 7px; color: var(--brand-dark); font-size: .8rem; font-weight: 850; }
+.loan-breakdown-fieldset { display: grid; gap: 11px; margin: 0; padding: 14px; border: 1px solid #cbd8ce; border-radius: 15px; background: #f7faf7; }
+.loan-breakdown-fieldset legend { padding: 0 7px; color: var(--brand-dark); font-size: .8rem; font-weight: 850; }
+.inline-finance-options { width: 100%; }
+.money-balance-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.money-balance-grid .projection-card { min-height: 145px; }
+.money-balance-grid .text-button { justify-self: start; align-self: end; }
+.loan-panel .privacy-note { margin: 12px; }
+.dashboard-balance-strip { margin-top: 13px; }
 .projection-card.positive { border-color: #bad6c2; }
 .projection-card.negative { border-color: #e6bbb6; background: linear-gradient(145deg, #fff, #f9ecea); }
 .projection-card.negative strong { color: var(--danger); }
@@ -640,6 +648,7 @@ tbody tr:last-child td { border-bottom: 0; }
   .budget-search-field { grid-column: 1 / -1; }
   .summary-strip, .metric-grid, .four-metrics { grid-template-columns: repeat(2, 1fr); }
   .fund-grid, .card-grid, .more-grid, .report-detail-grid { grid-template-columns: 1fr; }
+  .money-balance-grid { grid-template-columns: 1fr; }
   .category-report-heading { align-items: stretch; flex-direction: column; }
   .category-report-heading .compact-field { min-width: 0; width: 100%; }
   .template-list article { grid-template-columns: minmax(0,1fr) auto; }

@@ -13,6 +13,7 @@ export interface Expense {
   category?: string;
   currency?: ExpenseCurrency;
   paymentMethod?: ExpensePaymentMethod;
+  transferFeeCents?: number;
   /**
    * Legacy compatibility field. New expenses are final as soon as they are
    * created, so the application always stores them as transferred.
@@ -31,6 +32,8 @@ export interface ExpenseDraft {
   category: string;
   currency: ExpenseCurrency;
   paymentMethod: ExpensePaymentMethod;
+  includeTransferFee: boolean;
+  transferFee: string;
 }
 
 export interface ExpenseEditableFields {
@@ -41,12 +44,14 @@ export interface ExpenseEditableFields {
   category?: string;
   currency: ExpenseCurrency;
   paymentMethod: ExpensePaymentMethod;
+  transferFeeCents?: number;
 }
 
-export type ExpensePatch = Omit<Partial<Omit<Expense, "id">>, "category" | "transferredAt" | "deletedAt"> & {
+export type ExpensePatch = Omit<Partial<Omit<Expense, "id">>, "category" | "transferredAt" | "deletedAt" | "transferFeeCents"> & {
   category?: string | null;
   transferredAt?: string | null;
   deletedAt?: string | null;
+  transferFeeCents?: number | null;
 };
 
 export type PendingOperation =

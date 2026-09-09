@@ -42,6 +42,9 @@ const normalizeExpense = (raw: Partial<Expense> & { id: string }): Expense => {
     category: typeof raw.category === "string" && raw.category.trim() ? raw.category.trim() : undefined,
     currency: paymentMethod === "creditCard" && raw.currency === "USD" ? "USD" : "DOP",
     paymentMethod,
+    transferFeeCents: paymentMethod === "transfer" && Number(raw.transferFeeCents) > 0
+      ? Math.round(Number(raw.transferFeeCents))
+      : undefined,
     // Captured expenses are real, completed expenses. Treat legacy pending
     // records as completed too so the old Excel review queue disappears.
     status: "transferred",
@@ -129,6 +132,7 @@ export interface NewExpenseInput {
   category?: string;
   currency: "DOP" | "USD";
   paymentMethod: ExpensePaymentMethod;
+  transferFeeCents?: number;
 }
 
 export interface UseExpensesResult {
@@ -321,6 +325,9 @@ export const useExpenses = (): UseExpensesResult => {
         category: input.category?.trim() || undefined,
         currency: input.paymentMethod === "creditCard" && input.currency === "USD" ? "USD" : "DOP",
         paymentMethod: input.paymentMethod,
+        transferFeeCents: input.paymentMethod === "transfer" && input.transferFeeCents && input.transferFeeCents > 0
+          ? Math.round(input.transferFeeCents)
+          : undefined,
         status: "transferred",
         transferredAt: nowIso,
         createdAt: nowIso,
@@ -358,6 +365,9 @@ export const useExpenses = (): UseExpensesResult => {
         category: changes.category?.trim() || null,
         currency: changes.paymentMethod === "creditCard" && changes.currency === "USD" ? "USD" : "DOP",
         paymentMethod: changes.paymentMethod,
+        transferFeeCents: changes.paymentMethod === "transfer" && changes.transferFeeCents && changes.transferFeeCents > 0
+          ? Math.round(changes.transferFeeCents)
+          : null,
       });
     },
     [patchExpense],

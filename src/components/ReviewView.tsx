@@ -20,6 +20,7 @@ interface ReviewViewProps {
   onDelete: (id: string) => Promise<void>;
   onRestore: (expense: Expense) => Promise<void>;
   onNotice: (message: string, actionLabel?: string, action?: () => void) => void;
+  transferFeeRatePercent: number;
 }
 
 interface ExpenseGroup {
@@ -64,7 +65,7 @@ const sumExpenses = (expenses: Expense[], currency: "DOP" | "USD"): number =>
     .filter((expense) => expenseCurrency(expense) === currency)
     .reduce((total, expense) => total + expenseTotal(expense), 0);
 
-export function ReviewView({ expenses, activeCardName, onEdit, onDelete, onRestore, onNotice }: ReviewViewProps) {
+export function ReviewView({ expenses, activeCardName, onEdit, onDelete, onRestore, onNotice, transferFeeRatePercent }: ReviewViewProps) {
   const todayKey = toLocalDateKey();
   const currentMonth = getMonthKey(todayKey);
   const currentQuincena = getQuincena(todayKey);
@@ -150,7 +151,7 @@ export function ReviewView({ expenses, activeCardName, onEdit, onDelete, onResto
         </section>)}</div>
       )}
 
-      {editing && <EditExpenseModal expense={editing} activeCardName={activeCardName} onClose={() => setEditing(null)} onSave={onEdit} />}
+      {editing && <EditExpenseModal expense={editing} activeCardName={activeCardName} transferFeeRatePercent={transferFeeRatePercent} onClose={() => setEditing(null)} onSave={onEdit} />}
     </section>
   );
 }

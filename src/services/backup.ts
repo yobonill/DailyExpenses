@@ -56,6 +56,10 @@ export const validateBackupText = (text: string): BackupPreview => {
     gastosNoMensuales: Object.keys(financial.nonMonthlyOccurrences).length,
     metasDeCompra: Object.keys(financial.purchaseGoals).length,
     fondos: Object.keys(financial.savingsFunds).length,
+    cuentasDeDinero: Object.keys(financial.moneyAccounts).length,
+    movimientosDeDinero: Object.keys(financial.moneyTransactions).length,
+    prestamos: Object.keys(financial.loans).length,
+    movimientosDePrestamos: Object.keys(financial.loanTransactions).length,
   };
   const backup: DailyExpensesBackup | undefined = errors.length ? undefined : {
     format: "daily-expenses-budget-backup",

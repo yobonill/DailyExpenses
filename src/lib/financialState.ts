@@ -14,6 +14,7 @@ export const createDefaultSettings = (): AppSettings => ({
   dueSoonDaysCards: 7,
   nonMonthlyWarningMonths: 3,
   estimatedUsdToDopRate: 0,
+  transferFeeRatePercent: 0.15,
   updatedAt: new Date(0).toISOString(),
   updatedBy: "system",
 });
@@ -35,6 +36,10 @@ export const createEmptyFinancialData = (): FinancialData => ({
   cardTransactions: {},
   cardStatements: {},
   cardPaymentPlans: {},
+  moneyAccounts: {},
+  moneyTransactions: {},
+  loans: {},
+  loanTransactions: {},
   settings: createDefaultSettings(),
 });
 
@@ -63,6 +68,10 @@ export const normalizeFinancialData = (value: unknown): FinancialData => {
     cardTransactions: asRecord(raw.cardTransactions),
     cardStatements: asRecord(raw.cardStatements),
     cardPaymentPlans: asRecord(raw.cardPaymentPlans),
+    moneyAccounts: asRecord(raw.moneyAccounts),
+    moneyTransactions: asRecord(raw.moneyTransactions),
+    loans: asRecord(raw.loans),
+    loanTransactions: asRecord(raw.loanTransactions),
     settings: raw.settings && typeof raw.settings === "object"
       ? { ...defaults.settings, ...raw.settings }
       : defaults.settings,
