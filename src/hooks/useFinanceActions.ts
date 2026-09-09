@@ -1603,6 +1603,16 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
     await commitUpdates({ [`banks/${bankId}`]: bank });
   }, [commitUpdates, data.banks, meta]);
 
+  const deleteEmptyBank = useCallback(async (bankId: string) => {
+    const bank = data.banks[bankId];
+    if (!bank) return;
+    const hasLinkedProduct = Object.values(data.moneyAccounts).some((account) => account.bankId === bankId)
+      || Object.values(data.creditCards).some((card) => !card.archivedAt && card.bankId === bankId)
+      || Object.values(data.loans).some((loan) => !loan.archivedAt && loan.bankId === bankId);
+    if (hasLinkedProduct) throw new Error("Este banco tiene cuentas o productos vinculados y no puede eliminarse.");
+    await commitUpdates({ [`banks/${bankId}`]: null });
+  }, [commitUpdates, data.banks, data.creditCards, data.loans, data.moneyAccounts]);
+
   const saveMoneyAccount = useCallback(async (input: MoneyAccountInput, id?: string) => {
     const bank = data.banks[input.bankId];
     if (!bank || bank.archivedAt) throw new Error("Selecciona un banco válido.");
@@ -1853,6 +1863,7 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
     addCardTransaction,
     reverseCardTransaction,
     saveBank,
+    deleteEmptyBank,
     saveMoneyAccount,
     initializeCashAccount,
     initializeMoneyAccounts,

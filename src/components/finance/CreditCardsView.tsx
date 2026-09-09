@@ -34,7 +34,7 @@ import {
   StatusChip,
 } from "./Shared";
 
-type AddCardTransaction = (
+export type AddCardTransaction = (
   cardId: string,
   currency: Currency,
   type: CardTransaction["type"],
@@ -156,7 +156,7 @@ function CardForm({
       <form className="form-grid" onSubmit={submit}>
         <div className="form-columns">
           <label className="field"><span>Nombre</span><input value={name} onChange={(event) => setName(event.target.value)} /></label>
-          <label className="field"><span>Banco emisor</span><select value={bankId} onChange={(event) => setBankId(event.target.value)}><option value="">Sin vincular</option>{Object.values(data.banks).filter((bank) => !bank.archivedAt).sort((a, b) => a.name.localeCompare(b.name, "es")).map((bank) => <option key={bank.id} value={bank.id}>{bank.name}</option>)}</select><small className="field-help">Los bancos se administran en Más → Bancos y efectivo.</small></label>
+          <label className="field"><span>Banco emisor</span><select value={bankId} onChange={(event) => setBankId(event.target.value)}><option value="">Sin vincular</option>{Object.values(data.banks).filter((bank) => !bank.archivedAt).sort((a, b) => a.name.localeCompare(b.name, "es")).map((bank) => <option key={bank.id} value={bank.id}>{bank.name}</option>)}</select><small className="field-help">Los bancos se administran en Más → Cuentas y productos.</small></label>
         </div>
         <div className="form-columns">
           <label className="field"><span>Últimos 4 (opcional)</span><input inputMode="numeric" maxLength={4} value={lastFour} onChange={(event) => setLastFour(event.target.value.replace(/\D/g, ""))} /></label>

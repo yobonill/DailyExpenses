@@ -463,6 +463,15 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px s
 .money-balance-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .money-balance-grid .projection-card { min-height: 145px; }
 .money-balance-grid .text-button { justify-self: start; align-self: end; }
+.financial-hub-shell { display: grid; gap: 20px; }
+.financial-hub-header { display: grid; gap: 17px; }
+.financial-hub-header h1 { margin: 5px 0 0; font-size: clamp(1.9rem, 7vw, 2.65rem); letter-spacing: -.045em; line-height: 1; }
+.financial-hub-tabs { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 5px; padding: 5px; border-radius: 15px; background: #e9e8e2; }
+.financial-hub-tabs button { min-height: 43px; border: 0; border-radius: 11px; background: transparent; color: var(--muted); font-size: .78rem; font-weight: 850; cursor: pointer; }
+.financial-hub-tabs button.active { background: var(--surface); color: var(--brand-dark); box-shadow: 0 2px 8px rgba(30,38,31,.08); }
+.account-center-summary { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.account-center-summary .projection-card { min-height: 158px; }
+.account-center-summary .text-button { justify-self: start; align-self: end; }
 .loan-panel .privacy-note { margin: 12px; }
 .dashboard-balance-strip { margin-top: 13px; }
 .projection-card.positive { border-color: #bad6c2; }
@@ -643,6 +652,23 @@ tbody tr:last-child td { border-bottom: 0; }
 .bank-account-row .inline-actions { grid-column: 1 / -1; justify-content: flex-end; }
 .bank-products { display: grid; gap: 4px; padding: 11px 14px; border-bottom: 1px solid var(--border); background: var(--surface-soft); }
 .bank-products small { color: var(--muted); }
+.cash-center-panel { margin: 14px 0; }
+.bank-product-section { display: grid; border-bottom: 1px solid var(--border); background: #fbfbf9; }
+.bank-product-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 14px 7px; }
+.bank-product-heading > span { color: var(--brand-dark); font-size: .7rem; font-weight: 850; letter-spacing: .055em; text-transform: uppercase; }
+.bank-product-heading > button, .unassigned-product-group > button { border: 0; background: transparent; color: var(--brand); padding: 3px 0; font-size: .72rem; font-weight: 850; cursor: pointer; }
+.bank-product-row { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 8px 14px 11px; }
+.bank-product-row > span { display: grid; gap: 3px; min-width: 0; }
+.bank-product-row strong { font-size: .84rem; overflow-wrap: anywhere; }
+.bank-product-row small { color: var(--muted); font-size: .7rem; line-height: 1.35; }
+.bank-product-row > b { flex: 0 0 auto; font-size: .82rem; text-align: right; }
+.unassigned-products-panel { display: grid; grid-template-columns: minmax(0, 1.4fr) repeat(3, minmax(150px, 1fr)); gap: 12px; margin-top: 18px; padding: 17px; border: 1px solid #ddc27b; border-radius: 19px; background: #fff8e7; }
+.unassigned-products-panel h2 { margin: 4px 0; font-size: 1.08rem; }
+.unassigned-products-panel p { margin: 0; color: #71561e; font-size: .8rem; line-height: 1.45; }
+.unassigned-product-group { display: grid; align-content: start; gap: 6px; padding: 11px; border: 1px solid rgba(162,122,44,.2); border-radius: 13px; background: rgba(255,255,255,.62); }
+.unassigned-product-group > span { color: #71561e; font-size: .68rem; font-weight: 850; letter-spacing: .05em; text-transform: uppercase; }
+.unassigned-product-group > strong { font-size: .78rem; }
+.unassigned-product-group > button { justify-self: start; margin-top: 3px; }
 .legacy-bank-panel { display: flex; align-items: center; justify-content: space-between; gap: 18px; margin: 14px 0; padding: 17px; border: 1px solid #ddc27b; border-radius: 18px; background: #fff8e7; }
 .legacy-bank-panel h2 { margin: 4px 0; font-size: 1.08rem; }
 .legacy-bank-panel p { margin: 0; color: #71561e; font-size: .8rem; line-height: 1.45; }
@@ -668,6 +694,9 @@ tbody tr:last-child td { border-bottom: 0; }
   .summary-strip, .metric-grid, .four-metrics { grid-template-columns: repeat(2, 1fr); }
   .fund-grid, .card-grid, .more-grid, .report-detail-grid, .bank-grid { grid-template-columns: 1fr; }
   .money-balance-grid { grid-template-columns: 1fr; }
+  .account-center-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .unassigned-products-panel { grid-template-columns: 1fr 1fr; }
+  .unassigned-products-panel > div:first-child { grid-column: 1 / -1; }
   .category-report-heading { align-items: stretch; flex-direction: column; }
   .category-report-heading .compact-field { min-width: 0; width: 100%; }
   .template-list article { grid-template-columns: minmax(0,1fr) auto; }
@@ -701,4 +730,7 @@ tbody tr:last-child td { border-bottom: 0; }
   .reconciliation-list .money-input-wrap { margin-left: 27px; }
   .legacy-bank-panel { align-items: stretch; flex-direction: column; }
   .legacy-bank-panel .button { width: 100%; }
+  .financial-hub-tabs { grid-template-columns: repeat(2, 1fr); }
+  .account-center-summary, .unassigned-products-panel { grid-template-columns: 1fr; }
+  .unassigned-products-panel > div:first-child { grid-column: auto; }
 }

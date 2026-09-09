@@ -5,15 +5,12 @@ import { CaptureView } from "./components/CaptureView";
 import { ReviewView } from "./components/ReviewView";
 import { SyncStatus } from "./components/SyncStatus";
 import { BudgetView } from "./components/finance/BudgetView";
-import { CreditCardsView } from "./components/finance/CreditCardsView";
 import { DashboardView } from "./components/finance/DashboardView";
+import { FinancialHubView, type FinancialHubSection } from "./components/finance/FinancialHubView";
 import { FinanceReportView } from "./components/finance/FinanceReportView";
 import { FutureExpensesView } from "./components/finance/FutureExpensesView";
 import { IncomeView } from "./components/finance/IncomeView";
 import { PurchaseGoalsView } from "./components/finance/PurchaseGoalsView";
-import { SavingsView } from "./components/finance/SavingsView";
-import { MoneyView } from "./components/finance/MoneyView";
-import { LoansView } from "./components/finance/LoansView";
 import { SettingsView } from "./components/finance/SettingsView";
 import { useAuth } from "./hooks/useAuth";
 import { useExpenses } from "./hooks/useExpenses";
@@ -41,11 +38,8 @@ function MoreView({ onNavigate }: { onNavigate: (view: View) => void }) {
   const items: Array<{ view: View; icon: string; title: string; text: string }> = [
     { view: "future", icon: "◷", title: "Gastos no mensuales", text: "Seguros, renovaciones y próximos 12 meses" },
     { view: "goals", icon: "☆", title: "Metas de compra", text: "Compras deseadas sin fecha ni impacto en proyecciones" },
-    { view: "savings", icon: "◎", title: "Ahorros", text: "Fondos, movimientos y dinero reservado" },
     { view: "income", icon: "↓", title: "Ingresos", text: "Salarios, otros ingresos y valores recibidos" },
-    { view: "cards", icon: "▰", title: "Tarjetas", text: "Deuda DOP/USD, cortes, estados y pagos" },
-    { view: "money", icon: "$", title: "Bancos y efectivo", text: "Bancos, cuentas y saldos exactos" },
-    { view: "loans", icon: "↘", title: "Préstamos", text: "Capital, tasa, ajustes e historial de pagos" },
+    { view: "money", icon: "$", title: "Cuentas y productos", text: "Bancos, efectivo, ahorros, tarjeta y préstamos" },
     { view: "reports", icon: "▥", title: "Reportes", text: "Gastos, flujo de caja y planificación" },
     { view: "settings", icon: "⚙", title: "Configuración", text: "Avisos, respaldo, restauración y app" },
   ];
@@ -199,6 +193,28 @@ function AuthenticatedApp({ user, onLogout }: { user: AppUserDefinition; onLogou
     await Promise.all([financial.retrySync(), expensesState.retrySync()]);
   }, [combinedPendingCount, expensesState.retrySync, financial.retrySync]);
 
+  const renderFinancialHub = (initialSection: FinancialHubSection) => <FinancialHubView
+    data={financial.data}
+    initialSection={initialSection}
+    onSaveBank={actions.saveBank}
+    onDeleteBank={actions.deleteEmptyBank}
+    onSaveAccount={actions.saveMoneyAccount}
+    onInitializeCash={actions.initializeCashAccount}
+    onAdjustAccount={actions.adjustMoneyAccountBalance}
+    onTransferMoney={actions.transferMoney}
+    onSaveSavingsFund={actions.saveSavingsFund}
+    onAddSavingsTransaction={actions.addSavingsTransaction}
+    onTransferSavings={actions.transferSavings}
+    onReleaseSavings={actions.releaseAllocation}
+    onSaveCard={actions.saveCreditCard}
+    onSaveCardMinimum={actions.saveCardStatementMinimum}
+    onAddCardTransaction={actions.addCardTransaction}
+    onReverseCardTransaction={actions.reverseCardTransaction}
+    onSaveLoan={actions.saveLoan}
+    onAdjustLoan={actions.adjustLoanBalance}
+    onReverseLoanAdjustment={actions.reverseLoanAdjustment}
+  />;
+
   const renderView = () => {
     switch (view) {
       case "capture": return <CaptureView data={financial.data} activeCardName={activeCard?.name} transferFeeRatePercent={financial.data.settings.transferFeeRatePercent} onCreate={handleCreateExpense} onSaved={() => showNotice("Gasto registrado en el sistema")} />;
@@ -208,10 +224,10 @@ function AuthenticatedApp({ user, onLogout }: { user: AppUserDefinition; onLogou
       case "income": return <IncomeView data={financial.data} onSaveTemplate={actions.saveIncomeTemplate} onCreateOneTime={actions.createOneTimeIncome} onReceive={actions.receiveIncome} onReopen={actions.reopenIncome} />;
       case "future": return <FutureExpensesView data={financial.data} onSave={actions.saveNonMonthly} onPay={(value) => actions.payObligation(value)} onReopen={(id) => actions.reopenObligation("nonMonthly", id)} onAllocate={actions.allocateSavings} />;
       case "goals": return <PurchaseGoalsView data={financial.data} onSave={actions.savePurchaseGoal} onAllocate={actions.allocatePurchaseGoalSavings} onSchedule={actions.schedulePurchaseGoal} onPurchaseDirect={handlePurchaseGoalDirect} onPurchaseCard={actions.purchaseGoalWithCard} onDiscard={actions.discardPurchaseGoal} onRelease={actions.releaseAllocation} />;
-      case "savings": return <SavingsView data={financial.data} onSave={actions.saveSavingsFund} onAddTransaction={actions.addSavingsTransaction} onTransfer={actions.transferSavings} onRelease={actions.releaseAllocation} />;
-      case "cards": return <CreditCardsView data={financial.data} onSaveCard={actions.saveCreditCard} onSaveMinimum={actions.saveCardStatementMinimum} onAddTransaction={actions.addCardTransaction} onReverseTransaction={actions.reverseCardTransaction} />;
-      case "money": return <MoneyView data={financial.data} onSaveBank={actions.saveBank} onSaveAccount={actions.saveMoneyAccount} onInitializeCash={actions.initializeCashAccount} onAdjust={actions.adjustMoneyAccountBalance} onTransfer={actions.transferMoney} />;
-      case "loans": return <LoansView data={financial.data} onSave={actions.saveLoan} onAdjust={actions.adjustLoanBalance} onReverseAdjustment={actions.reverseLoanAdjustment} />;
+      case "savings": return renderFinancialHub("savings");
+      case "cards": return renderFinancialHub("cards");
+      case "money": return renderFinancialHub("overview");
+      case "loans": return renderFinancialHub("loans");
       case "reports": return <FinanceReportView data={financial.data} expenses={expensesState.expenses} />;
       case "settings": return <SettingsView data={financial.data} expenses={expensesState.expenses} syncPendingCount={combinedPendingCount} syncDiagnostics={{ expenses: { state: expensesState.syncState, message: expensesState.syncMessage, pendingCount: expensesState.pendingCount }, financial: { state: financial.syncState, message: financial.syncMessage, pendingCount: financial.pendingCount } }} onRetrySync={retryCombinedSync} onDiscardExpenseChanges={expensesState.discardPendingChanges} onUpdateSettings={actions.updateSettings} onRecordBackup={(timestamp) => financial.commitUpdates({ lastBackupAt: timestamp })} canInstall={canInstall} onInstall={handleInstall} onLogout={onLogout} />;
       default: return <MoreView onNavigate={setView} />;

@@ -23,10 +23,10 @@ Los gastos diarios viven en `/expenses`. Los módulos de presupuesto viven en el
 - **Presupuesto:** gastos recurrentes y puntuales asignados explícitamente a Q1 o Q2, pago normal o con tarjeta, esperado/real y variación.
 - **Ingresos:** salario, otros ingresos recurrentes y puntuales; esperado frente a recibido.
 - **Tarjeta:** una tarjeta, deuda DOP/USD independiente, cortes, vencimientos, cargos, pagos y ajustes.
-- **Bancos y efectivo:** múltiples bancos y cuentas, saldo exacto por cuenta, movimientos internos, ajustes y comisiones.
-- **Préstamos:** capital pendiente, tasa anual, historial de pagos y ajuste exacto contra el banco.
+- **Cuentas y productos:** un centro para bancos, cuentas, efectivo, ahorros, la tarjeta y préstamos, con agrupación por banco y datos pendientes de organizar.
+- **Préstamos:** capital pendiente, tasa anual, historial de pagos y ajuste exacto contra el banco, administrados desde Cuentas y productos.
 - **Gastos no mensuales:** una vez, cada N meses o cada N años, horizonte de 12 meses y alertas internas.
-- **Ahorros:** fondos por propósito, depósitos, retiros, correcciones, transferencias y asignaciones.
+- **Ahorros:** fondos por propósito, depósitos, retiros, correcciones, transferencias y asignaciones, administrados desde Cuentas y productos.
 - **Reportes:** gastos, flujo de caja, planificación, filtros de quincena/múltiples meses/año, desglose anual y resumen por categorías predefinidas.
 - **Configuración:** umbrales del Dashboard, respaldo JSON, validación, restauración e instalación PWA.
 
