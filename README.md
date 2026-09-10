@@ -23,10 +23,10 @@ Los gastos diarios viven en `/expenses`. Los módulos de presupuesto viven en el
 - **Presupuesto:** gastos recurrentes y puntuales asignados explícitamente a Q1 o Q2, pago normal o con tarjeta, postergación individual, esperado/real y variación.
 - **Ingresos:** salario, otros ingresos recurrentes y puntuales; esperado frente a recibido y cuenta DOP/USD donde entró.
 - **Tarjeta:** una tarjeta, deuda DOP/USD independiente, cortes, vencimientos, cargos, pagos y ajustes.
-- **Cuentas y productos:** un centro para bancos, cuentas DOP/USD, efectivo DOP, ahorros, la tarjeta y préstamos, con agrupación por banco y datos pendientes de organizar.
+- **Cuentas y productos:** un centro para bancos, cuentas DOP/USD, efectivo DOP, ahorros, la tarjeta y préstamos. Cada cuenta separa saldo total, ahorro apartado y disponible sin apartar.
 - **Préstamos:** capital pendiente, tasa anual, historial de pagos y ajuste exacto contra el banco, administrados desde Cuentas y productos.
 - **Gastos no mensuales:** una vez, cada N meses o cada N años, horizonte de 12 meses, alertas internas y postergación de un vencimiento sin mover el calendario recurrente.
-- **Ahorros:** fondos por propósito, depósitos, retiros, correcciones, transferencias y asignaciones; cada fondo puede indicar la cuenta física de su misma moneda donde está guardado.
+- **Ahorros:** fondos por propósito que representan porciones apartadas dentro de una cuenta física de la misma moneda, con movimientos, transferencias y compromisos para gastos o metas.
 - **Reportes:** gastos, flujo de caja, planificación, filtros de quincena/múltiples meses/año, desglose anual y resumen por categorías predefinidas.
 - **Configuración:** umbrales del Dashboard, respaldo JSON, validación, restauración e instalación PWA.
 
@@ -50,9 +50,10 @@ La fecha de vencimiento controla los avisos, pero un gasto de presupuesto puede 
 - Pagar la tarjeta reduce deuda y flujo de caja; no crea otro gasto.
 - Un pago vinculado a un préstamo reduce su balance únicamente por la porción de capital; interés y cargos permanecen en el historial.
 - Los saldos iniciales por cuenta, Efectivo y préstamos forman un punto de partida: los movimientos anteriores no se vuelven a aplicar.
-- Los fondos de ahorro son activos reservados, no gastos.
+- Los fondos de ahorro son porciones apartadas del saldo total de sus cuentas, no dinero adicional ni gastos.
 - Una cuenta bancaria y un fondo vinculado siempre usan la misma moneda. Sus importes DOP y USD se muestran por separado y nunca se suman entre sí.
 - Una asignación reserva saldo sin moverlo; consumirla genera el retiro correspondiente.
+- Después de la reconciliación única, pagos, gastos y transferencias ordinarias solo pueden usar el disponible sin apartar. Consumir un ahorro vinculado libera su reserva dentro de la misma operación.
 - Los pagos vinculados, cargos de tarjeta, retiros y cambios de estado se guardan juntos.
 - Las transacciones financieras validan versiones, pagos duplicados y sobreasignación para uso simultáneo.
 

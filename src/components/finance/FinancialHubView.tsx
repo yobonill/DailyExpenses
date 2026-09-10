@@ -11,6 +11,7 @@ import type {
   MoneyAccountId,
   SavingsTransaction,
 } from "../../models/finance";
+import type { SavingsAccountReconciliationInput } from "../../lib/savingsAccountReconciliation";
 import { CreditCardsView, type AddCardTransaction } from "./CreditCardsView";
 import { LoansView } from "./LoansView";
 import { MoneyView } from "./MoneyView";
@@ -20,6 +21,7 @@ export type FinancialHubSection = "overview" | "savings" | "cards" | "loans";
 
 interface FinancialHubViewProps {
   data: FinancialData;
+  canReconcileSavingsAccounts: boolean;
   initialSection?: FinancialHubSection;
   onSaveBank: (input: BankInput, id?: string) => Promise<void>;
   onDeleteBank: (bankId: string) => Promise<void>;
@@ -27,6 +29,7 @@ interface FinancialHubViewProps {
   onInitializeCash: (balance: number, date: string) => Promise<void>;
   onAdjustAccount: (accountId: MoneyAccountId, exact: number, date: string, notes?: string) => Promise<void>;
   onTransferMoney: (from: MoneyAccountId, to: MoneyAccountId, amount: number, date: string, fee: number, notes?: string) => Promise<void>;
+  onReconcileSavingsAccounts: (input: SavingsAccountReconciliationInput) => Promise<void>;
   onSaveSavingsFund: (input: SavingsFundInput, id?: string) => Promise<void>;
   onAddSavingsTransaction: (fundId: string, type: SavingsTransaction["type"], amount: number, date: string, notes?: string) => Promise<void>;
   onTransferSavings: (fromId: string, toId: string, amount: number, date: string) => Promise<void>;
@@ -49,6 +52,7 @@ const sections: Array<{ id: FinancialHubSection; label: string }> = [
 
 export function FinancialHubView({
   data,
+  canReconcileSavingsAccounts,
   initialSection = "overview",
   onSaveBank,
   onDeleteBank,
@@ -56,6 +60,7 @@ export function FinancialHubView({
   onInitializeCash,
   onAdjustAccount,
   onTransferMoney,
+  onReconcileSavingsAccounts,
   onSaveSavingsFund,
   onAddSavingsTransaction,
   onTransferSavings,
@@ -82,12 +87,14 @@ export function FinancialHubView({
 
     {section === "overview" && <MoneyView
       data={data}
+      canReconcile={canReconcileSavingsAccounts}
       onSaveBank={onSaveBank}
       onDeleteBank={onDeleteBank}
       onSaveAccount={onSaveAccount}
       onInitializeCash={onInitializeCash}
       onAdjust={onAdjustAccount}
       onTransfer={onTransferMoney}
+      onReconcileSavingsAccounts={onReconcileSavingsAccounts}
       onOpenSection={setSection}
     />}
     {section === "savings" && <SavingsView data={data} onSave={onSaveSavingsFund} onAddTransaction={onAddSavingsTransaction} onTransfer={onTransferSavings} onRelease={onReleaseSavings} />}

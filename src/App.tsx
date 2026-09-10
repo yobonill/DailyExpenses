@@ -195,6 +195,7 @@ function AuthenticatedApp({ user, onLogout }: { user: AppUserDefinition; onLogou
 
   const renderFinancialHub = (initialSection: FinancialHubSection) => <FinancialHubView
     data={financial.data}
+    canReconcileSavingsAccounts={financial.syncState === "synced" && financial.pendingCount === 0}
     initialSection={initialSection}
     onSaveBank={actions.saveBank}
     onDeleteBank={actions.deleteEmptyBank}
@@ -202,6 +203,7 @@ function AuthenticatedApp({ user, onLogout }: { user: AppUserDefinition; onLogou
     onInitializeCash={actions.initializeCashAccount}
     onAdjustAccount={actions.adjustMoneyAccountBalance}
     onTransferMoney={actions.transferMoney}
+    onReconcileSavingsAccounts={actions.reconcileSavingsAccounts}
     onSaveSavingsFund={actions.saveSavingsFund}
     onAddSavingsTransaction={actions.addSavingsTransaction}
     onTransferSavings={actions.transferSavings}

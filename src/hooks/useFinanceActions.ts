@@ -2,13 +2,14 @@ import { useCallback } from "react";
 import type { AppUserDefinition } from "../config/appUsers";
 import { getMonthKey, getQuincena, toLocalDateKey } from "../lib/date";
 import { dateFromFinancialMonthRule, nextOccurrenceDate } from "../lib/financeDates";
-import { getCardCurrentDebt, getCardPaymentPlanId, getFundAllocated, getFundBalance, getObligationAllocations, getPurchaseGoalReserved } from "../lib/financialCalculations";
+import { getCardCurrentDebt, getCardPaymentPlanId, getFundAllocated, getFundBalance, getObligationAllocations, getPurchaseGoalReserved, getSavingsTransactionEffect } from "../lib/financialCalculations";
 import { buildGenerationUpdates, buildPausedMonthlyOccurrenceUpdates } from "../lib/financialGeneration";
 import { buildStartingPointReconciliationUpdates, type StartingPointReconciliationInput } from "../lib/startingPointReconciliation";
 import { createId } from "../lib/id";
-import { BANK_ACCOUNT_ID, CASH_ACCOUNT_ID, LEGACY_BANK_ACCOUNT_ID, getLegacyBankBalance, getMoneyAccountBalance, hasInitializedMoneyAccounts, isSelectableMoneyAccount } from "../lib/moneyLedger";
+import { BANK_ACCOUNT_ID, CASH_ACCOUNT_ID, LEGACY_BANK_ACCOUNT_ID, getAccountReservedSavings, getLegacyBankBalance, getMoneyAccountBalance, getMoneyAccountSpendableBalance, hasInitializedMoneyAccounts, hasUnifiedSavingsAccounts, isSelectableMoneyAccount } from "../lib/moneyLedger";
 import { getLoanBalance } from "../lib/loanLedger";
 import { buildPostponedMonthlyOccurrence, buildPostponedNonMonthlyOccurrence } from "../lib/obligationPostponement";
+import { buildSavingsAccountReconciliationUpdates, type SavingsAccountReconciliationInput } from "../lib/savingsAccountReconciliation";
 import type { Expense } from "../models/expense";
 import type {
   AppSettings,
@@ -384,7 +385,15 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
         throw new Error(input.method === "cash" ? "Configura primero tu saldo en Efectivo." : "Selecciona una cuenta bancaria activa.");
       }
       if (input.currency === "USD" && accountDebitMinor <= 0) throw new Error("Indica cuánto salió realmente en pesos dominicanos.");
-      const available = getMoneyAccountBalance(data, accountId);
+      const releasableFromAccount = hasUnifiedSavingsAccounts(data)
+        && input.sourceType === "nonMonthly"
+        && input.currency === "DOP"
+        && input.consumeReservedSavings
+        ? Math.min(accountDebitMinor, getObligationAllocations(data, "nonMonthly", input.sourceId)
+          .filter((allocation) => data.savingsFunds[allocation.fundId]?.moneyAccountId === accountId)
+          .reduce((total, allocation) => total + allocation.amountMinor, 0))
+        : 0;
+      const available = getMoneyAccountSpendableBalance(data, accountId) + releasableFromAccount;
       if (accountDebitMinor + transferFeeMinor > available) {
         throw new Error(`No hay suficiente dinero disponible en ${data.moneyAccounts[accountId]?.name || "la cuenta seleccionada"}.`);
       }
@@ -535,8 +544,20 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
     const savingsTransactionIds: string[] = [];
     if (input.sourceType === "nonMonthly" && input.method !== "creditCard" && input.consumeReservedSavings) {
       let amountLeft = input.amountMinor;
-      for (const allocation of getObligationAllocations(data, "nonMonthly", input.sourceId)) {
-        if (amountLeft <= 0) break;
+      const allocations = getObligationAllocations(data, "nonMonthly", input.sourceId);
+      for (const allocation of allocations) {
+        const canConsume = amountLeft > 0 && (!hasUnifiedSavingsAccounts(data)
+          || !accountId
+          || data.savingsFunds[allocation.fundId]?.moneyAccountId === accountId);
+        if (!canConsume) {
+          updates[`savingsAllocations/${allocation.id}`] = {
+            ...allocation,
+            active: false,
+            releasedAt: now,
+            ...meta(allocation),
+          };
+          continue;
+        }
         const used = Math.min(allocation.amountMinor, amountLeft);
         const transactionId = createId();
         savingsTransactionIds.push(transactionId);
@@ -830,6 +851,18 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
         || Object.values(data.savingsAllocations).some((allocation) => allocation.fundId === fundId);
       if (hasHistory) throw new Error("No se puede cambiar la moneda de un fondo con movimientos o asignaciones.");
     }
+    const currentBalance = existing ? getFundBalance(data, fundId) : 0;
+    if (hasUnifiedSavingsAccounts(data)) {
+      if (!input.moneyAccountId && (currentBalance > 0 || (input.initialBalanceMinor || 0) > 0)) {
+        throw new Error("Selecciona la cuenta donde está guardado este ahorro.");
+      }
+      if (existing && currentBalance > 0 && existing.moneyAccountId !== input.moneyAccountId) {
+        throw new Error("Para cambiar de cuenta un fondo con dinero, crea un fondo en la nueva cuenta y usa Transferir a otro fondo.");
+      }
+      if (!existing && input.moneyAccountId && (input.initialBalanceMinor || 0) > getMoneyAccountSpendableBalance(data, input.moneyAccountId)) {
+        throw new Error("El monto inicial excede el disponible sin apartar de la cuenta seleccionada.");
+      }
+    }
     const { initialBalanceMinor, ...fundInput } = input;
     const fund: SavingsFund = {
       id: fundId,
@@ -865,11 +898,19 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
   ) => {
     const fund = data.savingsFunds[fundId];
     if (!fund) throw new Error("Fondo no encontrado.");
+    if (!amountMinor || !Number.isFinite(amountMinor)) throw new Error("El monto debe ser mayor que cero.");
     if (!fund.active && (type === "deposit" || type === "transferIn")) {
       throw new Error("Activa el fondo antes de añadir dinero nuevo.");
     }
-    if ((type === "withdrawal" || type === "transferOut") && amountMinor > getFundBalance(data, fundId) - getFundAllocated(data, fundId)) {
+    const effect = getSavingsTransactionEffect(type, amountMinor);
+    if (effect < 0 && Math.abs(effect) > getFundBalance(data, fundId) - getFundAllocated(data, fundId)) {
       throw new Error("El monto excede el balance no asignado del fondo.");
+    }
+    if (hasUnifiedSavingsAccounts(data) && effect > 0) {
+      if (!fund.moneyAccountId) throw new Error("Vincula el fondo a una cuenta antes de apartar dinero.");
+      if (effect > getMoneyAccountSpendableBalance(data, fund.moneyAccountId)) {
+        throw new Error(`La cuenta no tiene suficiente disponible sin apartar para reservar este monto.`);
+      }
     }
     const id = createId();
     const transaction: SavingsTransaction = {
@@ -889,16 +930,40 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
     const from = data.savingsFunds[fromFundId];
     const to = data.savingsFunds[toFundId];
     if (!from || !to || from.currency !== to.currency) throw new Error("Los fondos deben existir y usar la misma moneda.");
+    if (amountMinor <= 0) throw new Error("El monto debe ser mayor que cero.");
     if (!to.active) throw new Error("El fondo de destino está inactivo.");
     if (amountMinor > getFundBalance(data, fromFundId) - getFundAllocated(data, fromFundId)) throw new Error("El monto excede el balance no asignado.");
     const transferId = createId();
     const outId = createId();
     const inId = createId();
     const base = { currency: from.currency, transactionDate: date, transferId, notes: `Transferencia a ${to.name}` };
-    await commitUpdates({
+    const updates: Record<string, unknown> = {
       [`savingsTransactions/${outId}`]: { id: outId, fundId: fromFundId, type: "transferOut", amountMinor, ...base, ...meta() },
       [`savingsTransactions/${inId}`]: { id: inId, fundId: toFundId, type: "transferIn", amountMinor, ...base, notes: `Transferencia desde ${from.name}`, ...meta() },
-    });
+    };
+    if (hasUnifiedSavingsAccounts(data)) {
+      if (!from.moneyAccountId || !to.moneyAccountId) throw new Error("Ambos fondos deben estar vinculados a una cuenta.");
+      if (from.moneyAccountId !== to.moneyAccountId) {
+        const fromAccount = data.moneyAccounts[from.moneyAccountId];
+        const toAccount = data.moneyAccounts[to.moneyAccountId];
+        if (!fromAccount || !toAccount || fromAccount.currency !== from.currency || toAccount.currency !== to.currency) {
+          throw new Error("Las cuentas vinculadas a los fondos no son compatibles.");
+        }
+        const moneyOutId = createId();
+        const moneyInId = createId();
+        updates[`moneyTransactions/${moneyOutId}`] = {
+          id: moneyOutId, accountId: fromAccount.id, direction: "out", type: "transfer", amountMinor,
+          currency: from.currency, transactionDate: date, description: `${from.name} → ${to.name}`,
+          transferId, notes: "Traslado físico de ahorro entre cuentas", ...meta(),
+        } satisfies MoneyTransaction;
+        updates[`moneyTransactions/${moneyInId}`] = {
+          id: moneyInId, accountId: toAccount.id, direction: "in", type: "transfer", amountMinor,
+          currency: to.currency, transactionDate: date, description: `${from.name} → ${to.name}`,
+          transferId, notes: "Traslado físico de ahorro entre cuentas", ...meta(),
+        } satisfies MoneyTransaction;
+      }
+    }
+    await commitUpdates(updates);
   }, [commitUpdates, data, meta]);
 
   const allocateSavings = useCallback(async (fundId: string, occurrenceId: string, amountMinor: number) => {
@@ -1258,7 +1323,7 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
       const feeMinor = expense.paymentMethod === "transfer" ? Math.max(0, expense.transferFeeCents || 0) : 0;
       const replaceableBalance = linkedMoneyTransactions
         .filter((transaction) => transaction.accountId === accountId)
-        .reduce((total, transaction) => total + transaction.amountMinor, getMoneyAccountBalance(data, accountId));
+        .reduce((total, transaction) => total + transaction.amountMinor, getMoneyAccountSpendableBalance(data, accountId));
       if (amountMinor + feeMinor > replaceableBalance) {
         throw new Error(`No hay suficiente dinero disponible en ${data.moneyAccounts[accountId]?.name || "la cuenta seleccionada"}.`);
       }
@@ -1427,7 +1492,14 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
         }
         const cashAmount = currency === "USD" ? Math.abs(settlementAmountDopMinor || 0) : Math.abs(amountMinor);
         const fee = paymentMethod === "bankTransfer" ? Math.max(0, Math.round(transferFeeMinor)) : 0;
-        if (cashAmount + fee > getMoneyAccountBalance(data, moneyAccountId)) {
+        const selectedFund = savingsFundId ? data.savingsFunds[savingsFundId] : undefined;
+        if (hasUnifiedSavingsAccounts(data) && selectedFund && selectedFund.moneyAccountId !== moneyAccountId) {
+          throw new Error("El fondo elegido debe estar guardado en la misma cuenta usada para pagar la tarjeta.");
+        }
+        const releasedSavings = hasUnifiedSavingsAccounts(data) && selectedFund?.moneyAccountId === moneyAccountId
+          ? Math.min(cashAmount, getFundBalance(data, selectedFund.id))
+          : 0;
+        if (cashAmount + fee > getMoneyAccountSpendableBalance(data, moneyAccountId) + releasedSavings) {
           throw new Error(`No hay suficiente dinero disponible en ${data.moneyAccounts[moneyAccountId]?.name || "la cuenta seleccionada"}.`);
         }
       }
@@ -1723,6 +1795,10 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
     const account = data.moneyAccounts[accountId];
     if (!account) throw new Error("La cuenta todavía no está configurada.");
     if (exactBalanceMinor < 0) throw new Error("El balance no puede ser negativo.");
+    const reserved = getAccountReservedSavings(data, accountId);
+    if (hasUnifiedSavingsAccounts(data) && exactBalanceMinor < reserved) {
+      throw new Error("El balance total no puede quedar por debajo del ahorro apartado en esta cuenta.");
+    }
     const current = getMoneyAccountBalance(data, accountId);
     const difference = Math.round(exactBalanceMinor) - current;
     if (!difference) throw new Error("El balance ya coincide con el monto indicado.");
@@ -1759,7 +1835,7 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
     const amount = Math.round(amountMinor);
     const fee = fromAccount.kind === "bank" ? Math.max(0, Math.round(feeMinor)) : 0;
     if (amount <= 0) throw new Error("El monto debe ser mayor que cero.");
-    if (amount + fee > getMoneyAccountBalance(data, fromAccountId)) throw new Error("El origen no tiene balance suficiente.");
+    if (amount + fee > getMoneyAccountSpendableBalance(data, fromAccountId)) throw new Error("El origen no tiene suficiente disponible sin apartar.");
     const transferId = createId();
     const outId = createId();
     const inId = createId();
@@ -1856,6 +1932,11 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
     await commitUpdates(buildStartingPointReconciliationUpdates(data, input, actor));
   }, [actor, commitUpdates, data]);
 
+  const reconcileSavingsAccounts = useCallback(async (input: SavingsAccountReconciliationInput) => {
+    if (!navigator.onLine) throw new Error("Conéctate a internet antes de realizar esta reconciliación única.");
+    await commitUpdates(buildSavingsAccountReconciliationUpdates(data, input, actor));
+  }, [actor, commitUpdates, data]);
+
   return {
     generateRecurring,
     saveMonthlyTemplate,
@@ -1900,6 +1981,7 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
     adjustLoanBalance,
     reverseLoanAdjustment,
     reconcileStartingPoint,
+    reconcileSavingsAccounts,
     updateSettings,
   };
 };

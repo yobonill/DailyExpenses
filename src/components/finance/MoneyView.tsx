@@ -11,14 +11,21 @@ import {
   CASH_ACCOUNT_ID,
   LEGACY_BANK_ACCOUNT_ID,
   calculateTransferFeeMinor,
+  getAccountAvailableUnreserved,
+  getAccountReservedSavings,
   getBankAccounts,
   getLegacyBankBalance,
   getMoneyAccountBalance,
-  getTotalBankBalance,
+  getMoneyAccountSpendableBalance,
+  getTotalAvailableUnreserved,
   getTotalMoneyAvailable,
+  getTotalReservedInAccounts,
+  hasUnifiedSavingsAccounts,
   moneyAccountLabel,
 } from "../../lib/moneyLedger";
+import type { SavingsAccountReconciliationInput } from "../../lib/savingsAccountReconciliation";
 import { CheckboxField, EmptyPanel, Modal, MoneyField, PageHeading, StatusChip } from "./Shared";
+import { SavingsAccountReconciliationModal } from "./SavingsAccountReconciliationModal";
 
 function BankForm({ bank, onSave, onClose }: {
   bank?: Bank;
@@ -81,7 +88,7 @@ function AccountForm({ data, bank, account, onSave, onClose }: {
     <label className="field"><span>Nombre de la cuenta</span><input autoFocus value={name} onChange={(event) => setName(event.target.value)} placeholder="Ej. Nómina, Ahorros o Pagos" /></label>
     <div className="form-columns"><label className="field"><span>Tipo de cuenta</span><select value={accountType} onChange={(event) => setAccountType(event.target.value as BankAccountType)}>{Object.entries(BANK_ACCOUNT_TYPE_LABELS).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select></label><label className="field"><span>Moneda</span><select value={currency} disabled={hasHistory} onChange={(event) => setCurrency(event.target.value as Currency)}><option value="DOP">Pesos dominicanos (DOP)</option><option value="USD">Dólares (USD)</option></select></label></div>
     <label className="field"><span>Últimos 4 dígitos (opcional)</span><input inputMode="numeric" maxLength={4} value={lastFour} onChange={(event) => setLastFour(event.target.value.replace(/\D/g, "").slice(-4))} /></label>
-    <div className="form-columns"><MoneyField label="Balance inicial" value={openingBalance} onChange={setOpeningBalance} currency={currency} /><label className="field"><span>Fecha del balance</span><input type="date" value={openingDate} onChange={(event) => setOpeningDate(event.target.value)} /></label></div>
+    <div className="form-columns"><MoneyField label="Saldo total inicial" value={openingBalance} onChange={setOpeningBalance} currency={currency} /><label className="field"><span>Fecha del saldo</span><input type="date" value={openingDate} onChange={(event) => setOpeningDate(event.target.value)} /></label></div>
     {!account && currency === "DOP" && legacyBalance > 0 && <p className="form-warning">Existe {formatCurrency(legacyBalance, "DOP")} en el saldo bancario anterior. Crea esta cuenta en cero y luego usa “Distribuir saldo”.</p>}
     {hasHistory && <p className="form-warning">El banco, moneda, balance inicial y fecha ya no pueden cambiarse porque existe historial. Usa “Ajustar balance”.</p>}
     <CheckboxField checked={active} onChange={setActive} label="Cuenta activa" />
@@ -126,13 +133,14 @@ function AdjustModal({ data, accountId, onSave, onClose }: {
 }) {
   const current = getMoneyAccountBalance(data, accountId);
   const currency = data.moneyAccounts[accountId]?.currency || "DOP";
+  const reserved = getAccountReservedSavings(data, accountId);
   const [amount, setAmount] = useState(minorToInput(current));
   const [date, setDate] = useState(toLocalDateKey());
   const [notes, setNotes] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const submit = async (event: FormEvent) => { event.preventDefault(); const exact = parseMoneyToCents(amount); if (exact === null) return setError("Escribe el balance exacto."); setSaving(true); setError(""); try { await onSave(accountId, exact, date, notes); onClose(); } catch (reason) { setError(reason instanceof Error ? reason.message : "No se pudo ajustar."); } finally { setSaving(false); } };
-  return <Modal title={`Ajustar · ${moneyAccountLabel(accountId, data)}`} onClose={onClose} confirmClose><form className="form-grid" onSubmit={submit}><div className="form-summary"><span>Balance calculado</span><strong>{formatCurrency(current, currency)}</strong></div><MoneyField label="Balance exacto actual" value={amount} onChange={setAmount} currency={currency} /><label className="field"><span>Fecha</span><input type="date" value={date} onChange={(event) => setDate(event.target.value)} /></label><label className="field"><span>Motivo o nota</span><textarea value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="Ej. Balance confirmado en la aplicación del banco" /></label><p className="privacy-note">Se registrará la diferencia como un ajuste y se conservará el historial anterior.</p>{error && <p className="form-error">{error}</p>}<div className="modal-actions"><button type="button" className="button button-secondary" onClick={onClose}>Cancelar</button><button className="button button-primary" disabled={saving}>Guardar ajuste</button></div></form></Modal>;
+  return <Modal title={`Ajustar · ${moneyAccountLabel(accountId, data)}`} onClose={onClose} confirmClose><form className="form-grid" onSubmit={submit}><div className="form-summary"><span>Saldo total calculado</span><strong>{formatCurrency(current, currency)}</strong></div>{hasUnifiedSavingsAccounts(data) && reserved > 0 && <div className="form-summary"><span>Apartado en ahorros</span><strong>{formatCurrency(reserved, currency)}</strong></div>}<MoneyField label="Saldo total exacto actual" value={amount} onChange={setAmount} currency={currency} /><label className="field"><span>Fecha</span><input type="date" value={date} onChange={(event) => setDate(event.target.value)} /></label><label className="field"><span>Motivo o nota</span><textarea value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="Ej. Balance confirmado en la aplicación del banco" /></label><p className="privacy-note">Se registrará la diferencia como un ajuste y se conservará el historial anterior. El saldo total no puede ser menor que lo apartado.</p>{error && <p className="form-error">{error}</p>}<div className="modal-actions"><button type="button" className="button button-secondary" onClick={onClose}>Cancelar</button><button className="button button-primary" disabled={saving}>Guardar ajuste</button></div></form></Modal>;
 }
 
 function TransferModal({ data, legacyOnly = false, onSave, onClose }: {
@@ -165,7 +173,7 @@ function TransferModal({ data, legacyOnly = false, onSave, onClose }: {
   return <Modal title={legacyOnly ? "Distribuir saldo anterior" : "Mover dinero"} onClose={onClose} confirmClose><form className="form-grid" onSubmit={submit}>
     <label className="field"><span>Desde</span><select value={from} disabled={legacyOnly} onChange={(event) => { const next = event.target.value; const nextCurrency = data.moneyAccounts[next]?.currency; setFrom(next); setTo(availableAccounts.find((account) => account.id !== next && account.currency === nextCurrency)?.id || ""); setIncludeFee(false); setManualFee(""); }}>{sources.map((account) => <option key={account.id} value={account.id}>{moneyAccountLabel(account.id, data)} · {account.currency}</option>)}</select></label>
     <label className="field"><span>Hacia</span><select value={to} onChange={(event) => setTo(event.target.value)}><option value="">Seleccionar cuenta</option>{destinations.map((account) => <option key={account.id} value={account.id}>{moneyAccountLabel(account.id, data)}</option>)}</select></label>
-    {source && <div className="form-summary"><span>Disponible en origen</span><strong>{formatCurrency(getMoneyAccountBalance(data, source.id), source.currency)}</strong></div>}
+    {source && <div className="form-summary"><span>{hasUnifiedSavingsAccounts(data) ? "Disponible sin apartar" : "Disponible en origen"}</span><strong>{formatCurrency(getMoneyAccountSpendableBalance(data, source.id), source.currency)}</strong></div>}
     <MoneyField label="Monto" value={amount} onChange={(value) => { setAmount(value); if (includeFee) setManualFee(minorToInput(calculateTransferFeeMinor(parseMoneyToCents(value) || 0, data.settings.transferFeeRatePercent))); }} currency={source?.currency || "DOP"} />
     <label className="field"><span>Fecha</span><input type="date" value={date} onChange={(event) => setDate(event.target.value)} /></label>
     {!legacyOnly && source?.kind === "bank" && <><CheckboxField checked={includeFee} onChange={toggleFee} label="Agregar comisión por transferencia" help={`Calcula ${data.settings.transferFeeRatePercent}% y permite editar el resultado.`} />{includeFee && <MoneyField label="Comisión" value={manualFee} onChange={setManualFee} currency={source.currency} required={false} />}</>}
@@ -177,14 +185,16 @@ function TransferModal({ data, legacyOnly = false, onSave, onClose }: {
 
 const movementLabel = (type: string): string => ({ income: "Ingreso", payment: "Pago", expense: "Gasto", cardPayment: "Pago de tarjeta", loanPayment: "Pago de préstamo", transfer: "Movimiento interno", fee: "Comisión", adjustment: "Ajuste" })[type] || "Movimiento";
 
-export function MoneyView({ data, onSaveBank, onDeleteBank, onSaveAccount, onInitializeCash, onAdjust, onTransfer, onOpenSection }: {
+export function MoneyView({ data, canReconcile, onSaveBank, onDeleteBank, onSaveAccount, onInitializeCash, onAdjust, onTransfer, onReconcileSavingsAccounts, onOpenSection }: {
   data: FinancialData;
+  canReconcile: boolean;
   onSaveBank: (input: BankInput, id?: string) => Promise<void>;
   onDeleteBank: (bankId: string) => Promise<void>;
   onSaveAccount: (input: MoneyAccountInput, id?: string) => Promise<void>;
   onInitializeCash: (balance: number, date: string) => Promise<void>;
   onAdjust: (accountId: MoneyAccountId, exact: number, date: string, notes?: string) => Promise<void>;
   onTransfer: (from: MoneyAccountId, to: MoneyAccountId, amount: number, date: string, fee: number, notes?: string) => Promise<void>;
+  onReconcileSavingsAccounts: (input: SavingsAccountReconciliationInput) => Promise<void>;
   onOpenSection: (section: "savings" | "cards" | "loans") => void;
 }) {
   const [bankForm, setBankForm] = useState<Bank | "new" | null>(null);
@@ -193,6 +203,7 @@ export function MoneyView({ data, onSaveBank, onDeleteBank, onSaveAccount, onIni
   const [adjusting, setAdjusting] = useState<MoneyAccountId | null>(null);
   const [transferring, setTransferring] = useState(false);
   const [distributing, setDistributing] = useState(false);
+  const [reconcilingSavings, setReconcilingSavings] = useState(false);
   const center = useMemo(() => buildAccountCenterGroups(data), [data]);
   const banks = center.banks;
   const accounts = useMemo(() => getBankAccounts(data), [data]);
@@ -207,19 +218,25 @@ export function MoneyView({ data, onSaveBank, onDeleteBank, onSaveAccount, onIni
   const loanDop = Object.values(data.loans).filter((loan) => !loan.archivedAt && loan.currency === "DOP").reduce((total, loan) => total + getLoanBalance(data, loan.id), 0);
   const loanUsd = Object.values(data.loans).filter((loan) => !loan.archivedAt && loan.currency === "USD").reduce((total, loan) => total + getLoanBalance(data, loan.id), 0);
   const unassignedCount = center.unassignedSavingsFunds.length + center.unassignedCards.length + center.unassignedLoans.length;
+  const savingsUnified = hasUnifiedSavingsAccounts(data);
+  const needsSavingsReconciliation = !savingsUnified && Object.values(data.savingsFunds)
+    .some((fund) => !fund.archivedAt && getFundBalance(data, fund.id) > 0);
 
   return <section className="finance-page">
     <PageHeading eyebrow="Dinero, reservas y deudas" title="Resumen por banco" action={<button className="button button-primary heading-action" type="button" onClick={() => setBankForm("new")}>＋ Banco</button>} />
     <div className="projection-grid account-center-summary">
-      <article className="projection-card projection-card-featured positive"><span>Dinero disponible</span><strong>{formatCurrency(getTotalMoneyAvailable(data, "DOP"), "DOP")}</strong><small>{formatCurrency(getTotalMoneyAvailable(data, "USD"), "USD")} · Bancos DOP {formatCurrency(getTotalBankBalance(data, "DOP"), "DOP")} · Efectivo {cash ? formatCurrency(getMoneyAccountBalance(data, CASH_ACCOUNT_ID), "DOP") : "sin configurar"}</small></article>
-      <article className="projection-card"><span>Ahorros reservados</span><strong>{formatCurrency(savingsDop, "DOP")}</strong><small>{formatCurrency(savingsUsd, "USD")} · No se suman otra vez al disponible.</small><button className="text-button" type="button" onClick={() => onOpenSection("savings")}>Administrar ahorros</button></article>
+      <article className="projection-card projection-card-featured positive"><span>Disponible sin apartar</span><strong>{formatCurrency(savingsUnified ? getTotalAvailableUnreserved(data, "DOP") : getTotalMoneyAvailable(data, "DOP"), "DOP")}</strong><small>{formatCurrency(savingsUnified ? getTotalAvailableUnreserved(data, "USD") : getTotalMoneyAvailable(data, "USD"), "USD")} · Saldo total DOP {formatCurrency(getTotalMoneyAvailable(data, "DOP"), "DOP")}</small></article>
+      <article className="projection-card"><span>Apartado en ahorros</span><strong>{formatCurrency(savingsUnified ? getTotalReservedInAccounts(data, "DOP") : savingsDop, "DOP")}</strong><small>{formatCurrency(savingsUnified ? getTotalReservedInAccounts(data, "USD") : savingsUsd, "USD")} · Es parte del saldo total, no dinero adicional.</small><button className="text-button" type="button" onClick={() => onOpenSection("savings")}>Administrar ahorros</button></article>
       <article className="projection-card"><span>Deuda de tarjeta</span><strong>{formatCurrency(cardDebtDop, "DOP")}</strong><small>{formatCurrency(cardDebtUsd, "USD")}</small><button className="text-button" type="button" onClick={() => onOpenSection("cards")}>Administrar tarjeta</button></article>
       <article className="projection-card"><span>Préstamos pendientes</span><strong>{formatCurrency(loanDop, "DOP")}</strong><small>{formatCurrency(loanUsd, "USD")}</small><button className="text-button" type="button" onClick={() => onOpenSection("loans")}>Administrar préstamos</button></article>
     </div>
 
+    {needsSavingsReconciliation && <section className="legacy-bank-panel savings-unification-panel"><div><span className="eyebrow">Actualización única</span><h2>Unificar cuentas y ahorros</h2><p>Confirma el saldo total real de cada cuenta. Los fondos vinculados pasarán a mostrarse y protegerse como dinero apartado dentro de ese total.</p></div><button className="button button-primary" type="button" disabled={!canReconcile} onClick={() => setReconcilingSavings(true)}>Reconciliar saldos</button></section>}
+    {savingsUnified && <p className="unification-status">✓ Cuentas y ahorros unificados. Los fondos son porciones apartadas del saldo total.</p>}
+
     {legacyBalance > 0 && <section className="legacy-bank-panel"><div><span className="eyebrow">Actualización desde 1.6.0</span><h2>Saldo bancario por distribuir</h2><p>{formatCurrency(legacyBalance, "DOP")} permanece intacto. Crea tus bancos y cuentas, luego distribuye este total entre ellas.</p></div><button className="button button-primary" type="button" disabled={!accounts.length} onClick={() => setDistributing(true)}>Distribuir saldo</button></section>}
 
-    <article className="bank-panel cash-center-panel"><header><div><span>Disponible fuera de bancos</span><h2>Efectivo</h2></div><strong>{cash ? formatCurrency(getMoneyAccountBalance(data, CASH_ACCOUNT_ID), "DOP") : "Sin configurar"}</strong></header>
+    <article className="bank-panel cash-center-panel"><header><div><span>Disponible fuera de bancos</span><h2>Efectivo</h2></div><div><strong>{cash ? formatCurrency(getMoneyAccountBalance(data, CASH_ACCOUNT_ID), "DOP") : "Sin configurar"}</strong>{cash && savingsUnified && <small>Apartado {formatCurrency(getAccountReservedSavings(data, CASH_ACCOUNT_ID), "DOP")} · Disponible {formatCurrency(getAccountAvailableUnreserved(data, CASH_ACCOUNT_ID), "DOP")}</small>}</div></header>
       {center.cashSavingsFunds.length > 0 && <div className="bank-product-section"><div className="bank-product-heading"><span>Ahorros guardados aquí</span><button type="button" onClick={() => onOpenSection("savings")}>Administrar</button></div>{center.cashSavingsFunds.map((fund) => <div className="bank-product-row" key={fund.id}><span><strong>{fund.name}</strong><small>Fondo de ahorro · {fund.currency}</small></span><b>{formatCurrency(getFundBalance(data, fund.id), fund.currency)}</b></div>)}</div>}
       <div className="row-actions">{cash ? <button className="button button-secondary" type="button" onClick={() => setAdjusting(CASH_ACCOUNT_ID)}>Ajustar efectivo</button> : <button className="button button-primary" type="button" onClick={() => setCashSetup(true)}>Configurar efectivo</button>}</div>
     </article>
@@ -230,7 +247,7 @@ export function MoneyView({ data, onSaveBank, onDeleteBank, onSaveAccount, onIni
       const bankTotalDop = bankAccounts.filter((account) => account.currency === "DOP").reduce((total, account) => total + getMoneyAccountBalance(data, account.id), 0);
       const bankTotalUsd = bankAccounts.filter((account) => account.currency === "USD").reduce((total, account) => total + getMoneyAccountBalance(data, account.id), 0);
       return <article className="bank-panel" key={bank.id}><header><div><span>{bank.active ? "Banco activo" : "Banco inactivo"}</span><h2>{bank.name}</h2></div><div><strong>{formatCurrency(bankTotalDop, "DOP")}</strong><small>{formatCurrency(bankTotalUsd, "USD")}</small></div></header>
-        <div className="bank-account-list">{bankAccounts.length ? bankAccounts.map((account) => <div className="bank-account-row" key={account.id}><span><strong>{account.name}</strong><small>{BANK_ACCOUNT_TYPE_LABELS[account.accountType || "other"]} · {account.currency}{account.lastFour ? ` · •••• ${account.lastFour}` : ""}</small></span><span><b>{formatCurrency(getMoneyAccountBalance(data, account.id), account.currency)}</b><small>{account.active ? "Activa" : "Inactiva"}</small></span><div className="inline-actions"><button type="button" onClick={() => setAdjusting(account.id)}>Ajustar</button><button type="button" onClick={() => setAccountForm({ bank, account })}>Editar</button></div></div>) : <p className="muted-panel">Este banco todavía no tiene cuentas.</p>}</div>
+        <div className="bank-account-list">{bankAccounts.length ? bankAccounts.map((account) => { const accountTotal = getMoneyAccountBalance(data, account.id); const accountReserved = getAccountReservedSavings(data, account.id); return <div className="bank-account-row" key={account.id}><span><strong>{account.name}</strong><small>{BANK_ACCOUNT_TYPE_LABELS[account.accountType || "other"]} · {account.currency}{account.lastFour ? ` · •••• ${account.lastFour}` : ""}</small></span><span><b>{formatCurrency(accountTotal, account.currency)}</b><small>{savingsUnified ? `Apartado ${formatCurrency(accountReserved, account.currency)} · Disponible ${formatCurrency(accountTotal - accountReserved, account.currency)}` : account.active ? "Activa" : "Inactiva"}</small>{savingsUnified && <small>{account.active ? "Activa" : "Inactiva"}</small>}</span><div className="inline-actions"><button type="button" onClick={() => setAdjusting(account.id)}>Ajustar</button><button type="button" onClick={() => setAccountForm({ bank, account })}>Editar</button></div></div>; }) : <p className="muted-panel">Este banco todavía no tiene cuentas.</p>}</div>
         {group.savingsFunds.length > 0 && <div className="bank-product-section"><div className="bank-product-heading"><span>Ahorros</span><button type="button" onClick={() => onOpenSection("savings")}>Administrar</button></div>{group.savingsFunds.map((fund) => <div className="bank-product-row" key={fund.id}><span><strong>{fund.name}</strong><small>{fund.moneyAccountId ? moneyAccountLabel(fund.moneyAccountId, data) : "Sin cuenta"}</small></span><b>{formatCurrency(getFundBalance(data, fund.id), fund.currency)}</b></div>)}</div>}
         {group.cards.length > 0 && <div className="bank-product-section"><div className="bank-product-heading"><span>Tarjeta</span><button type="button" onClick={() => onOpenSection("cards")}>Administrar</button></div>{group.cards.map((linkedCard) => <div className="bank-product-row" key={linkedCard.id}><span><strong>{linkedCard.name}</strong><small>Deuda {formatCurrency(getCardCurrentDebt(data, linkedCard.id, "DOP"), "DOP")} · {formatCurrency(getCardCurrentDebt(data, linkedCard.id, "USD"), "USD")}</small></span><StatusChip status={linkedCard.active ? "paid" : "cancelled"} label={linkedCard.active ? "Activa" : "Inactiva"} /></div>)}</div>}
         {group.loans.length > 0 && <div className="bank-product-section"><div className="bank-product-heading"><span>Préstamos</span><button type="button" onClick={() => onOpenSection("loans")}>Administrar</button></div>{group.loans.map((loan) => <div className="bank-product-row" key={loan.id}><span><strong>{loan.name}</strong><small>Capital pendiente</small></span><b>{formatCurrency(getLoanBalance(data, loan.id), loan.currency)}</b></div>)}</div>}
@@ -254,5 +271,6 @@ export function MoneyView({ data, onSaveBank, onDeleteBank, onSaveAccount, onIni
     {adjusting && <AdjustModal data={data} accountId={adjusting} onSave={onAdjust} onClose={() => setAdjusting(null)} />}
     {transferring && <TransferModal data={data} onSave={onTransfer} onClose={() => setTransferring(false)} />}
     {distributing && <TransferModal data={data} legacyOnly onSave={onTransfer} onClose={() => setDistributing(false)} />}
+    {reconcilingSavings && <SavingsAccountReconciliationModal data={data} canReconcile={canReconcile} onSave={onReconcileSavingsAccounts} onClose={() => setReconcilingSavings(false)} />}
   </section>;
 }

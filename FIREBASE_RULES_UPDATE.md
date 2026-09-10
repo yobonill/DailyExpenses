@@ -1,22 +1,22 @@
-# Publicación de reglas de Firebase · 1.9.0
+# Publicación de reglas de Firebase · 2.0.0
 
-La versión 1.9.0 sigue usando exclusivamente el proyecto `app-daily-expenses-budget` y conserva las rutas `/expenses` y `/dailyExpensesBudget/v1`.
+La versión 2.0.0 conserva el proyecto `app-daily-expenses-budget`, la ruta `/expenses` y el esquema `/dailyExpensesBudget/v1`.
 
-Esta publicación única reemplaza la actualización 1.8.1: incluye cuentas bancarias y movimientos en DOP o USD, fondos vinculados a cuentas de su misma moneda y los campos de auditoría requeridos al postergar obligaciones. Efectivo y el saldo bancario heredado permanecen exclusivamente en DOP.
+La única ampliación es el nodo `/dailyExpensesBudget/v1/savingsAccountReconciliations`, utilizado para guardar el resumen auditable de la reconciliación y evitar que se ejecute dos veces. No se modifican los nodos ni los balances de tarjetas o préstamos.
 
-## Publicar
+## Publicar antes de desplegar la app
 
 1. Abre Firebase Console y selecciona `app-daily-expenses-budget`.
 2. Ve a **Realtime Database → Rules**.
 3. Guarda una copia de las reglas actuales.
-4. Sustituye todo por el contenido de `firebase-database-rules.json` incluido en este paquete.
+4. Sustituye el documento completo por `firebase-database-rules.json` incluido en el parche.
 5. Pulsa **Publish**.
 
-Los UID autorizados siguen siendo:
+Los UID autorizados no cambian:
 
 ```text
 Yorki · hmJi0g20svTPkfOF9ZzZwRi9Bdw2
 Yisel · YHtQh4N0RaViD8rXqDNE4xZTcN12
 ```
 
-No publiques estas reglas en TaskFollower y no crees nodos manualmente. La aplicación crea bancos, cuentas y movimientos después del acceso autenticado.
+No publiques estas reglas en TaskFollower. No crees manualmente el nodo de reconciliación ni edites saldos desde Firebase Console.

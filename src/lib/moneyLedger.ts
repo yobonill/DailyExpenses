@@ -1,4 +1,5 @@
 import type { BankAccountType, Currency, FinancialData, MoneyAccount, MoneyAccountId, MoneyTransaction } from "../models/finance";
+import { getFundBalance } from "./financialCalculations";
 
 /** Stable IDs retained for upgrade compatibility. */
 export const LEGACY_BANK_ACCOUNT_ID: MoneyAccountId = "bank";
@@ -52,6 +53,31 @@ export const getTotalMoneyAvailable = (data: FinancialData, currency: Currency =
   Object.values(data.moneyAccounts)
     .filter((account) => account.currency === currency && !account.archivedAt)
     .reduce((total, account) => total + getMoneyAccountBalance(data, account.id), 0);
+
+export const getAccountReservedSavings = (data: FinancialData, accountId: MoneyAccountId): number =>
+  Object.values(data.savingsFunds)
+    .filter((fund) => !fund.archivedAt && fund.moneyAccountId === accountId)
+    .reduce((total, fund) => total + getFundBalance(data, fund.id), 0);
+
+export const getAccountAvailableUnreserved = (data: FinancialData, accountId: MoneyAccountId): number =>
+  getMoneyAccountBalance(data, accountId) - getAccountReservedSavings(data, accountId);
+
+export const getTotalReservedInAccounts = (data: FinancialData, currency: Currency = "DOP"): number =>
+  Object.values(data.moneyAccounts)
+    .filter((account) => account.currency === currency && !account.archivedAt)
+    .reduce((total, account) => total + getAccountReservedSavings(data, account.id), 0);
+
+export const getTotalAvailableUnreserved = (data: FinancialData, currency: Currency = "DOP"): number =>
+  getTotalMoneyAvailable(data, currency) - getTotalReservedInAccounts(data, currency);
+
+export const hasUnifiedSavingsAccounts = (data: FinancialData): boolean =>
+  Object.values(data.savingsAccountReconciliations).some((item) => item.status === "completed");
+
+/** Before the one-time reconciliation, retain the legacy spending behavior. */
+export const getMoneyAccountSpendableBalance = (data: FinancialData, accountId: MoneyAccountId): number =>
+  hasUnifiedSavingsAccounts(data)
+    ? getAccountAvailableUnreserved(data, accountId)
+    : getMoneyAccountBalance(data, accountId);
 
 export const hasInitializedMoneyAccounts = (data: FinancialData): boolean =>
   Object.keys(data.moneyAccounts).length > 0;

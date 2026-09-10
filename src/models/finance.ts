@@ -384,6 +384,25 @@ export interface AppSettings {
   updatedBy: string;
 }
 
+export interface SavingsAccountReconciliationEntry {
+  accountId: MoneyAccountId;
+  currency: Currency;
+  balanceBeforeMinor: number;
+  actualBalanceMinor: number;
+  reservedSavingsMinor: number;
+  availableUnreservedMinor: number;
+  adjustmentMinor: number;
+  moneyTransactionId?: string;
+}
+
+export interface SavingsAccountReconciliation extends RecordMetadata {
+  id: string;
+  status: "completed";
+  transactionDate: string;
+  baselineBackupAt?: string;
+  accounts: Record<MoneyAccountId, SavingsAccountReconciliationEntry>;
+}
+
 export interface FinancialData {
   schemaVersion: 1;
   monthlyTemplates: Record<string, MonthlyExpenseTemplate>;
@@ -406,6 +425,7 @@ export interface FinancialData {
   moneyTransactions: Record<string, MoneyTransaction>;
   loans: Record<string, Loan>;
   loanTransactions: Record<string, LoanTransaction>;
+  savingsAccountReconciliations: Record<string, SavingsAccountReconciliation>;
   settings: AppSettings;
   lastBackupAt?: string;
 }

@@ -1,16 +1,17 @@
-# Lista de publicación · Daily Expenses 1.9.0
+# Lista de publicación · Daily Expenses 2.0.0
 
 ## Antes de actualizar
 
-1. En la versión actual abre **Más → Configuración → Descargar respaldo JSON**.
-2. Confirma que **Gastos diarios** y **Presupuesto y finanzas** muestran cero cambios pendientes.
-3. Conserva una copia de las reglas actuales de Realtime Database.
+1. No registres movimientos nuevos hasta terminar esta actualización.
+2. Conserva el respaldo JSON más reciente incluido en `backups/`.
+3. Confirma en la app actual que ambos canales de sincronización tengan cero cambios pendientes.
+4. Guarda una copia de las reglas actuales de Realtime Database.
 
 ## Publicación
 
-1. Extrae el ZIP sobre la raíz del repositorio de Daily Expenses y reemplaza únicamente los archivos incluidos.
-2. Conserva `.git`. No subas `node_modules` ni `dist`.
-3. Publica primero el archivo completo `firebase-database-rules.json` en **Firebase Console → Realtime Database → Rules**.
+1. Extrae el ZIP incremental sobre la raíz del repositorio de Daily Expenses y reemplaza los archivos incluidos.
+2. Conserva `.git`. No copies `node_modules`, `dist` ni la carpeta `backups` del paquete de trabajo.
+3. Publica primero `firebase-database-rules.json` completo en **Firebase Console → Realtime Database → Rules**.
 4. Ejecuta:
 
    ```bash
@@ -18,29 +19,39 @@
    npm run build
    ```
 
-   No necesitas `npm install`: esta versión no agrega dependencias. En una copia limpia puedes usar `npm ci`.
+   No se agregaron dependencias. En una copia limpia puedes ejecutar `npm ci` antes de validar.
 
-5. Sube los cambios:
+5. Confirma y sube:
 
    ```bash
    git add .
-   git commit -m "fix: support USD accounts and savings locations"
+   git commit -m "feat: unify account balances and savings"
    git push origin master
    ```
 
-6. Espera a que GitHub Actions termine. Luego abre la URL habitual y realiza una recarga completa. No borres datos del sitio ni desinstales la PWA.
+6. Espera a que GitHub Actions finalice.
+7. En el primer dispositivo abre la URL habitual, realiza una recarga completa y confirma **Más → Configuración → Versión 2.0.0**.
 
-## Validación inicial
+## Reconciliación única
 
-- La app debe indicar versión `1.9.0` en **Más → Configuración**.
-- El saldo bancario general anterior debe aparecer intacto como **Saldo bancario por distribuir**.
-- Un ingreso debe aumentar solamente la cuenta elegida.
-- Un pago por transferencia o débito debe disminuir solamente la cuenta elegida.
-- Una comisión debe disminuir esa misma cuenta como movimiento separado.
-- Un pago con tarjeta debe aumentar deuda y no disminuir una cuenta bancaria hasta registrar el pago de la tarjeta.
-- El total de todos los bancos más efectivo debe coincidir con tu dinero real dentro de cada moneda.
-- Una cuenta USD debe mostrar su balance en USD, sin sumarlo al total DOP.
-- Al editar un fondo USD deben aparecer solamente las cuentas USD activas.
-- Una factura pendiente debe permitir **Postergar**, salir del período original y aparecer solamente en el período de su nueva fecha.
-- La plantilla de esa factura y el vencimiento recurrente siguiente deben conservar su calendario normal.
-- En el Dashboard, la línea **Fin del período seleccionado** debe separar las obligaciones del período de los avisos externos.
+1. Mantén cerrado o sin actualizar el segundo dispositivo.
+2. En el primer dispositivo confirma que el estado superior diga **Todos los datos están sincronizados**.
+3. Abre **Más → Cuentas y productos → Resumen**.
+4. Pulsa **Reconciliar saldos**.
+5. Para cada cuenta, escribe el saldo total real mostrado por el banco. No escribas únicamente la parte libre ni vuelvas a sumar los fondos.
+6. Revisa la vista previa. El saldo total nunca puede ser menor que el ahorro apartado en esa cuenta.
+7. Marca la confirmación y pulsa **Confirmar unificación** una sola vez.
+8. Espera nuevamente a que la app muestre cero cambios pendientes.
+9. Verifica por cuenta: **Saldo total = Apartado en ahorros + Disponible sin apartar**.
+10. Descarga un nuevo respaldo JSON posterior a la reconciliación.
+11. Ahora abre o actualiza la aplicación en el segundo dispositivo y confirma que muestra los mismos totales.
+
+No hay scripts ni migraciones manuales de Firebase. La aplicación crea ajustes auditables únicamente por la diferencia entre el saldo registrado y el saldo total real confirmado.
+
+## Valores que deben conservarse
+
+- Los fondos y sus historiales no se recrean ni se duplican.
+- Los balances iniciales y movimientos de la tarjeta permanecen intactos.
+- El préstamo y su historial permanecen intactos.
+- Los ingresos solo entran a una cuenta cuando se marcan como recibidos.
+- Una compra con tarjeta aumenta la deuda; el banco disminuye solamente al pagar la tarjeta.

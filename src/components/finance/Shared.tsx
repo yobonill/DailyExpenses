@@ -3,7 +3,7 @@ import { formatMonthTitle, formatShortDate, getMonthKey, toLocalDateKey } from "
 import { addDaysToDateKey } from "../../lib/financeDates";
 import { formatCurrency, minorToInput, parseMoneyToCents } from "../../lib/money";
 import { estimateLoanInterestMinor, getLoanBalance } from "../../lib/loanLedger";
-import { CASH_ACCOUNT_ID, calculateTransferFeeMinor, getActiveBankAccounts, getMoneyAccountBalance, isSelectableMoneyAccount, moneyAccountLabel } from "../../lib/moneyLedger";
+import { CASH_ACCOUNT_ID, calculateTransferFeeMinor, getActiveBankAccounts, getMoneyAccountSpendableBalance, isSelectableMoneyAccount, moneyAccountLabel } from "../../lib/moneyLedger";
 import type { CreditCard, Currency, FinancialData, MoneyAccountId, PaymentMethod } from "../../models/finance";
 
 export function PageHeading({ eyebrow, title, action }: { eyebrow: string; title: string; action?: ReactNode }) {
@@ -81,9 +81,9 @@ export function MoneyAccountField({ data, method, value, onChange, label = "Cuen
   const bankAccounts = getActiveBankAccounts(data);
   if (method === "cash") {
     const cash = data.moneyAccounts[CASH_ACCOUNT_ID];
-    return <div className="form-summary"><span>{label}</span><strong>{cash ? `Efectivo · ${formatCurrency(getMoneyAccountBalance(data, CASH_ACCOUNT_ID), "DOP")}` : "Efectivo sin configurar"}</strong></div>;
+    return <div className="form-summary"><span>{label}</span><strong>{cash ? `Efectivo · disponible ${formatCurrency(getMoneyAccountSpendableBalance(data, CASH_ACCOUNT_ID), "DOP")}` : "Efectivo sin configurar"}</strong></div>;
   }
-  return <label className="field"><span>{label}</span><select value={value} onChange={(event) => onChange(event.target.value)}><option value="">Seleccionar banco y cuenta</option>{bankAccounts.map((account) => <option key={account.id} value={account.id}>{moneyAccountLabel(account.id, data)} · {formatCurrency(getMoneyAccountBalance(data, account.id), "DOP")}</option>)}</select><small className="field-help">Se descontará exactamente de esta cuenta.</small></label>;
+  return <label className="field"><span>{label}</span><select value={value} onChange={(event) => onChange(event.target.value)}><option value="">Seleccionar banco y cuenta</option>{bankAccounts.map((account) => <option key={account.id} value={account.id}>{moneyAccountLabel(account.id, data)} · Disponible {formatCurrency(getMoneyAccountSpendableBalance(data, account.id), "DOP")}</option>)}</select><small className="field-help">Se descontará del disponible sin apartar de esta cuenta.</small></label>;
 }
 
 export function EmptyPanel({ title, text }: { title: string; text: string }) {
@@ -208,14 +208,14 @@ export function PayModal({ title, expectedMinor, currency, canPayWithCard, cards
   const effectiveMoneyAccountId: MoneyAccountId | undefined = method === "cash" ? CASH_ACCOUNT_ID : method === "bankTransfer" || method === "debitCard" ? moneyAccountId : undefined;
   const accountDebitMinor = currency === "USD" ? parseMoneyToCents(settlementDop) || 0 : amountMinor;
   const accountReady = method === "creditCard" || (effectiveMoneyAccountId ? isSelectableMoneyAccount(data, effectiveMoneyAccountId, method as "cash" | "bankTransfer" | "debitCard") : false);
-  const accountBalance = effectiveMoneyAccountId ? getMoneyAccountBalance(data, effectiveMoneyAccountId) : 0;
+  const accountBalance = effectiveMoneyAccountId ? getMoneyAccountSpendableBalance(data, effectiveMoneyAccountId) : 0;
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     if (!amountMinor) return setError("Escribe un monto válido.");
     if (method === "creditCard" && !cardId) return setError("Selecciona una tarjeta activa.");
     if (method !== "creditCard" && !accountReady) return setError(method === "cash" ? "Configura primero tu saldo en Efectivo." : "Selecciona una cuenta bancaria activa.");
     if (effectiveMoneyAccountId && currency === "USD" && accountDebitMinor <= 0) return setError("Indica cuánto salió realmente en pesos.");
-    if (effectiveMoneyAccountId && accountDebitMinor + feeMinor > accountBalance) return setError(`No hay suficiente dinero en ${moneyAccountLabel(effectiveMoneyAccountId, data)}.`);
+    if (effectiveMoneyAccountId && accountDebitMinor + feeMinor > accountBalance && !(allowSavings && consumeSavings)) return setError(`No hay suficiente dinero disponible sin apartar en ${moneyAccountLabel(effectiveMoneyAccountId, data)}.`);
     if (linkedLoan && interestMinor + chargesMinor > amountMinor) return setError("Intereses y cargos no pueden exceder el pago total.");
     if (linkedLoan && principalMinor > getLoanBalance(data, linkedLoan.id)) return setError("El capital calculado excede el balance del préstamo.");
     setSaving(true); setError("");

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 import { clearDraft, readDraft, storeDraft } from "../lib/localState";
 import { formatMoney, parseMoneyToCents } from "../lib/money";
-import { CASH_ACCOUNT_ID, calculateTransferFeeMinor, getActiveBankAccounts, getMoneyAccountBalance, isSelectableMoneyAccount, moneyAccountLabel } from "../lib/moneyLedger";
+import { CASH_ACCOUNT_ID, calculateTransferFeeMinor, getActiveBankAccounts, getMoneyAccountSpendableBalance, isSelectableMoneyAccount, moneyAccountLabel } from "../lib/moneyLedger";
 import { EXPENSE_CATEGORIES } from "../config/financeCategories";
 import type { NewExpenseInput } from "../hooks/useExpenses";
 import type { ExpenseCurrency, ExpensePaymentMethod } from "../models/expense";
@@ -201,7 +201,7 @@ export function CaptureView({ onCreate, onSaved, data, activeCardName, transferF
                 </select>
               </label>
 
-              {(paymentMethod === "debit" || paymentMethod === "transfer") && <label className="capture-field"><span>Banco y cuenta</span><select value={moneyAccountId} onChange={(event) => setMoneyAccountId(event.target.value)}><option value="">Seleccionar cuenta</option>{bankAccounts.map((account) => <option value={account.id} key={account.id}>{moneyAccountLabel(account.id, data)} · {formatMoney(getMoneyAccountBalance(data, account.id))}</option>)}</select>{!bankAccounts.length && <small className="form-error">Agrega una cuenta en Más → Cuentas y productos.</small>}</label>}
+              {(paymentMethod === "debit" || paymentMethod === "transfer") && <label className="capture-field"><span>Banco y cuenta</span><select value={moneyAccountId} onChange={(event) => setMoneyAccountId(event.target.value)}><option value="">Seleccionar cuenta</option>{bankAccounts.map((account) => <option value={account.id} key={account.id}>{moneyAccountLabel(account.id, data)} · Disponible {formatMoney(getMoneyAccountSpendableBalance(data, account.id))}</option>)}</select>{!bankAccounts.length && <small className="form-error">Agrega una cuenta en Más → Cuentas y productos.</small>}</label>}
 
               {paymentMethod === "creditCard" && (
                 <>
@@ -242,7 +242,7 @@ export function CaptureView({ onCreate, onSaved, data, activeCardName, transferF
                 <strong>{currency === "USD" && paymentMethod === "creditCard" ? `US$${(totalCents / 100).toLocaleString("es-DO", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : formatMoney(totalCents + (transferFeeCents || 0))}</strong>
               </div>
 
-              {paymentMethod === "cash" && <p className="capture-card-note">Se descontará de Efectivo{data.moneyAccounts[CASH_ACCOUNT_ID] ? ` · Disponible ${formatMoney(getMoneyAccountBalance(data, CASH_ACCOUNT_ID))}` : ". Configúralo primero en Cuentas y productos."}</p>}
+              {paymentMethod === "cash" && <p className="capture-card-note">Se descontará de Efectivo{data.moneyAccounts[CASH_ACCOUNT_ID] ? ` · Disponible ${formatMoney(getMoneyAccountSpendableBalance(data, CASH_ACCOUNT_ID))}` : ". Configúralo primero en Cuentas y productos."}</p>}
               {(paymentMethod === "debit" || paymentMethod === "transfer") && moneyAccountId && <p className="capture-card-note">Se descontará de {moneyAccountLabel(moneyAccountId, data)}.</p>}
 
               <button className="button button-primary capture-submit" type="submit" disabled={!canSave}>

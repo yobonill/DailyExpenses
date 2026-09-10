@@ -1,7 +1,7 @@
 import type { FinancialData, RecordMetadata } from "../models/finance";
 import { getCardCurrentDebt, getFundAllocated, getFundBalance, getPurchaseGoalReserved } from "./financialCalculations";
 import { getLoanBalance } from "./loanLedger";
-import { CASH_ACCOUNT_ID, LEGACY_BANK_ACCOUNT_ID, getMoneyAccountBalance } from "./moneyLedger";
+import { CASH_ACCOUNT_ID, LEGACY_BANK_ACCOUNT_ID, getAccountReservedSavings, getMoneyAccountBalance, hasUnifiedSavingsAccounts } from "./moneyLedger";
 
 const getAtPath = (target: unknown, path: string): unknown => {
   let cursor = target;
@@ -27,6 +27,11 @@ export const reconcileVersionedUpdates = (
     const incomingVersion = recordVersion(value);
     const currentVersion = recordVersion(getAtPath(current, path));
     if (incomingVersion !== undefined && currentVersion !== undefined) {
+      if (path.startsWith("savingsAccountReconciliations/")) {
+        // The reconciliation marker guards its complete multi-path operation.
+        // If another device already created it, none of this queued operation may run.
+        return { updates: {}, conflict: true };
+      }
       if (incomingVersion === 1 && currentVersion >= 1) continue;
       if (incomingVersion !== currentVersion + 1) return { updates: {}, conflict: true };
     }
@@ -69,6 +74,9 @@ export const isFinanciallyConsistent = (candidate: FinancialData): boolean => {
       || ((isCash || isLegacy) && account.currency !== "DOP")
       || account.openingBalanceMinor < 0
       || getMoneyAccountBalance(candidate, account.id) < 0) return false;
+    if (hasUnifiedSavingsAccounts(candidate)
+      && account.id !== LEGACY_BANK_ACCOUNT_ID
+      && getAccountReservedSavings(candidate, account.id) > getMoneyAccountBalance(candidate, account.id)) return false;
   }
   for (const transaction of Object.values(candidate.moneyTransactions)) {
     const account = candidate.moneyAccounts[transaction.accountId];
@@ -101,6 +109,21 @@ export const isFinanciallyConsistent = (candidate: FinancialData): boolean => {
     if (fund.moneyAccountId && (!account || account.currency !== fund.currency)) return false;
     const balance = getFundBalance(candidate, fundId);
     if (balance < 0 || getFundAllocated(candidate, fundId) > balance) return false;
+  }
+  for (const [reconciliationId, reconciliation] of Object.entries(candidate.savingsAccountReconciliations)) {
+    if (reconciliation.id !== reconciliationId
+      || reconciliation.status !== "completed"
+      || !reconciliation.transactionDate
+      || !reconciliation.createdAt) return false;
+    for (const [accountId, entry] of Object.entries(reconciliation.accounts)) {
+      if (entry.accountId !== accountId
+        || !candidate.moneyAccounts[accountId]
+        || entry.actualBalanceMinor < 0
+        || entry.reservedSavingsMinor < 0
+        || entry.availableUnreservedMinor !== entry.actualBalanceMinor - entry.reservedSavingsMinor
+        || entry.availableUnreservedMinor < 0
+        || entry.adjustmentMinor !== entry.actualBalanceMinor - entry.balanceBeforeMinor) return false;
+    }
   }
   for (const transaction of Object.values(candidate.cardTransactions)) {
     if (transaction.affectsCurrentBalance !== undefined

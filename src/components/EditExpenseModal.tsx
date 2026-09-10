@@ -2,7 +2,7 @@ import { useMemo, useState, type FormEvent } from "react";
 import { EXPENSE_CATEGORIES, isPredefinedExpenseCategory } from "../config/financeCategories";
 import type { Expense, ExpenseCurrency, ExpenseEditableFields, ExpensePaymentMethod } from "../models/expense";
 import { parseMoneyToCents } from "../lib/money";
-import { CASH_ACCOUNT_ID, calculateTransferFeeMinor, getActiveBankAccounts, getMoneyAccountBalance, isSelectableMoneyAccount, moneyAccountLabel } from "../lib/moneyLedger";
+import { CASH_ACCOUNT_ID, calculateTransferFeeMinor, getActiveBankAccounts, getMoneyAccountSpendableBalance, isSelectableMoneyAccount, moneyAccountLabel } from "../lib/moneyLedger";
 import { formatMoney } from "../lib/money";
 import type { FinancialData } from "../models/finance";
 
@@ -126,7 +126,7 @@ export function EditExpenseModal({ expense, data, onClose, onSave, activeCardNam
               <option value="creditCard">Tarjeta de crédito</option>
             </select>
           </label>
-          {(paymentMethod === "debit" || paymentMethod === "transfer") && <label className="field"><span>Banco y cuenta</span><select value={moneyAccountId} onChange={(event) => setMoneyAccountId(event.target.value)}><option value="">Seleccionar cuenta</option>{bankAccounts.map((account) => <option value={account.id} key={account.id}>{moneyAccountLabel(account.id, data)} · {formatMoney(getMoneyAccountBalance(data, account.id))}</option>)}</select>{!bankAccounts.length && <small className="form-error">Agrega una cuenta en Más → Cuentas y productos.</small>}</label>}
+          {(paymentMethod === "debit" || paymentMethod === "transfer") && <label className="field"><span>Banco y cuenta</span><select value={moneyAccountId} onChange={(event) => setMoneyAccountId(event.target.value)}><option value="">Seleccionar cuenta</option>{bankAccounts.map((account) => <option value={account.id} key={account.id}>{moneyAccountLabel(account.id, data)} · Disponible {formatMoney(getMoneyAccountSpendableBalance(data, account.id))}</option>)}</select>{!bankAccounts.length && <small className="form-error">Agrega una cuenta en Más → Cuentas y productos.</small>}</label>}
           {paymentMethod === "creditCard" && <>
             <label className="field"><span>Moneda del cargo</span><select value={currency} onChange={(event) => setCurrency(event.target.value as ExpenseCurrency)}><option value="DOP">Pesos dominicanos (DOP)</option><option value="USD">Dólares estadounidenses (USD)</option></select></label>
             {activeCardName ? <p className="privacy-note">El cargo vinculado se actualizará en {activeCardName}.</p> : <p className="form-error">Configura una tarjeta activa para usar esta forma de pago.</p>}

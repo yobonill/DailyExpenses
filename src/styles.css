@@ -519,6 +519,21 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px s
 .reconciliation-list .money-input-wrap input { width: 100%; min-height: 40px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); }
 .reconciliation-list .money-input-wrap input:disabled { opacity: .55; }
 .reconciliation-confirm { padding: 12px; border: 1px solid #e4c778; border-radius: 13px; background: #fff8e7; }
+.savings-reconciliation-list { max-height: 390px; }
+.savings-reconciliation-list article > span { display: grid; gap: 4px; min-width: 0; }
+.savings-reconciliation-list article > span strong { overflow-wrap: anywhere; font-size: .84rem; }
+.savings-reconciliation-list article > span small { color: var(--muted); font-size: .71rem; line-height: 1.4; }
+.savings-reconciliation-list .field { margin: 0; }
+.savings-reconciliation-list .field > span { font-size: .69rem; }
+.reconciliation-preview-list { display: grid; gap: 10px; max-height: 390px; overflow-y: auto; }
+.reconciliation-preview-list article { overflow: hidden; border: 1px solid var(--border); border-radius: 15px; background: var(--surface); }
+.reconciliation-preview-list header { display: flex; justify-content: space-between; gap: 12px; padding: 11px 13px; background: var(--surface-soft); }
+.reconciliation-preview-list header span { color: var(--muted); font-size: .72rem; font-weight: 800; }
+.reconciliation-preview-list dl { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); margin: 0; }
+.reconciliation-preview-list dl div { display: grid; gap: 3px; padding: 10px 13px; border-top: 1px solid var(--border); }
+.reconciliation-preview-list dt { color: var(--muted); font-size: .69rem; }
+.reconciliation-preview-list dd { margin: 0; font-size: .82rem; font-weight: 800; }
+.unification-status { margin: 12px 0 0; padding: 10px 13px; border: 1px solid #bad6c2; border-radius: 13px; background: #edf7f0; color: var(--brand-dark); font-size: .76rem; font-weight: 750; }
 .finance-list { display: grid; gap: 10px; }
 .finance-row-card { border: 1px solid var(--border); border-radius: 18px; background: var(--surface); overflow: hidden; }
 .finance-row-main { display: flex; justify-content: space-between; align-items: flex-start; gap: 15px; padding: 14px; }
@@ -737,6 +752,8 @@ tbody tr:last-child td { border-bottom: 0; }
   .reconciliation-heading { align-items: flex-start; flex-direction: column; }
   .reconciliation-list article { grid-template-columns: 1fr; }
   .reconciliation-list .money-input-wrap { margin-left: 27px; }
+  .savings-reconciliation-list .money-input-wrap { margin-left: 0; }
+  .reconciliation-preview-list dl { grid-template-columns: 1fr; }
   .legacy-bank-panel { align-items: stretch; flex-direction: column; }
   .legacy-bank-panel .button { width: 100%; }
   .financial-hub-tabs { grid-template-columns: repeat(2, 1fr); }

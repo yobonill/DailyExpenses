@@ -15,6 +15,7 @@ import {
   getCardMinimumPaymentProgress,
   getCardCurrentDebt,
   getCardSavingsCoverage,
+  getFundBalance,
   getStatementRemaining,
   getUsdPaymentEffectiveRate,
   latestStatements,
@@ -22,7 +23,7 @@ import {
   statusLabel,
 } from "../../lib/financialCalculations";
 import { formatCurrency, minorToInput, parseMoneyToCents } from "../../lib/money";
-import { CASH_ACCOUNT_ID, calculateTransferFeeMinor, getActiveBankAccounts, getMoneyAccountBalance, isSelectableMoneyAccount, moneyAccountLabel } from "../../lib/moneyLedger";
+import { CASH_ACCOUNT_ID, calculateTransferFeeMinor, getActiveBankAccounts, getMoneyAccountSpendableBalance, isSelectableMoneyAccount, moneyAccountLabel } from "../../lib/moneyLedger";
 import {
   CheckboxField,
   CurrencyField,
@@ -268,8 +269,10 @@ function CardTransactionModal({
       setError(paymentMethod === "cash" ? "Configura primero tu saldo en Efectivo." : "Selecciona una cuenta bancaria activa.");
       return;
     }
-    if (type === "payment" && !includedInCurrentBalance && cashAmountMinor + feeMinor > getMoneyAccountBalance(data, effectiveMoneyAccountId)) {
-      setError(`No hay suficiente dinero en ${moneyAccountLabel(effectiveMoneyAccountId, data)}.`);
+    const selectedFund = savingsFundId ? data.savingsFunds[savingsFundId] : undefined;
+    const releasableSavings = selectedFund?.moneyAccountId === effectiveMoneyAccountId ? getFundBalance(data, selectedFund.id) : 0;
+    if (type === "payment" && !includedInCurrentBalance && cashAmountMinor + feeMinor > getMoneyAccountSpendableBalance(data, effectiveMoneyAccountId) + releasableSavings) {
+      setError(`No hay suficiente dinero disponible sin apartar en ${moneyAccountLabel(effectiveMoneyAccountId, data)}.`);
       return;
     }
     const signed = type === "adjustment" && adjustmentDirection === "decrease"
