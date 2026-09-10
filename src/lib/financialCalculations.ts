@@ -253,6 +253,7 @@ export interface CardPaymentProjection {
   estimatedMinimumTopUpUsdDopMinor: number;
   unconfiguredMinimumCount: number;
   totalCashCommitmentDopMinor: number;
+  remainingCashCommitmentDopMinor: number;
 }
 
 /**
@@ -318,6 +319,10 @@ export const calculateCardPaymentProjection = (
   const estimatedMinimumTopUpUsdDopMinor = estimatedUsdToDopRate > 0
     ? Math.round(minimumTopUpUsdMinor * estimatedUsdToDopRate)
     : 0;
+  const remainingCashCommitmentDopMinor = remainingPlannedDopMinor
+    + minimumTopUpDopMinor
+    + estimatedRemainingUsdDopMinor
+    + estimatedMinimumTopUpUsdDopMinor;
   return {
     plannedDopMinor,
     plannedUsdMinor,
@@ -336,10 +341,8 @@ export const calculateCardPaymentProjection = (
     estimatedMinimumTopUpUsdDopMinor,
     unconfiguredMinimumCount: minimumProgress.filter(({ progress }) => !progress.configured).length,
     totalCashCommitmentDopMinor: actualCashOutflowDopMinor
-      + remainingPlannedDopMinor
-      + minimumTopUpDopMinor
-      + estimatedRemainingUsdDopMinor
-      + estimatedMinimumTopUpUsdDopMinor,
+      + remainingCashCommitmentDopMinor,
+    remainingCashCommitmentDopMinor,
   };
 };
 
@@ -388,6 +391,7 @@ export interface CurrencyReportTotals {
   monthlyPending: number;
   nonMonthlyPaid: number;
   nonMonthlyPending: number;
+  nonMonthlyUnfunded: number;
   cardPayments: number;
   savingsDeposits: number;
   savingsWithdrawals: number;
@@ -504,6 +508,7 @@ export const calculateReportTotals = (
     monthlyPending,
     nonMonthlyPaid,
     nonMonthlyPending,
+    nonMonthlyUnfunded,
     cardPayments: cardPaymentTotal,
     savingsDeposits,
     savingsWithdrawals,

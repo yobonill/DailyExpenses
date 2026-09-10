@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createEmptyFinancialData } from "./financialState";
-import { calculateTransferFeeMinor, getActiveBankAccounts, getMoneyAccountBalance, getTotalBankBalance, getTotalMoneyAvailable, isSelectableMoneyAccount, moneyAccountLabel } from "./moneyLedger";
+import { calculateTransferFeeMinor, getActiveBankAccounts, getDashboardAvailableBalance, getDashboardSelectedAccountIds, getMoneyAccountBalance, getTotalBankBalance, getTotalMoneyAvailable, isSelectableMoneyAccount, moneyAccountLabel } from "./moneyLedger";
 import { estimateLoanInterestMinor, getLoanBalance } from "./loanLedger";
 
 const meta = { createdAt: "2026-09-01T00:00:00.000Z", createdBy: "u", updatedAt: "2026-09-01T00:00:00.000Z", updatedBy: "u", version: 1 };
@@ -52,6 +52,21 @@ describe("money and loan ledgers", () => {
     expect(getActiveBankAccounts(data, "USD").map((account) => account.id)).toEqual(["usd"]);
     expect(isSelectableMoneyAccount(data, "usd", "bankTransfer", "USD")).toBe(true);
     expect(isSelectableMoneyAccount(data, "usd", "bankTransfer", "DOP")).toBe(false);
+  });
+
+  it("uses only explicitly selected DOP accounts and excludes linked savings from the Dashboard", () => {
+    const data = createEmptyFinancialData();
+    data.banks.bank = { id: "bank", name: "Banco", active: true, ...meta };
+    data.moneyAccounts.payroll = { id: "payroll", kind: "bank", bankId: "bank", accountType: "payroll", name: "Nómina", currency: "DOP", openingBalanceMinor: 80_000, openingDate: "2026-09-01", active: true, ...meta };
+    data.moneyAccounts.reserve = { id: "reserve", kind: "bank", bankId: "bank", accountType: "savings", name: "Reserva", currency: "DOP", openingBalanceMinor: 50_000, openingDate: "2026-09-01", active: true, ...meta };
+    data.moneyAccounts.cash = { id: "cash", kind: "cash", name: "Efectivo", currency: "DOP", openingBalanceMinor: 5_000, openingDate: "2026-09-01", active: true, ...meta };
+    data.savingsFunds.fund = { id: "fund", name: "Emergencias", currency: "DOP", active: true, moneyAccountId: "reserve", ...meta };
+    data.savingsTransactions.deposit = { id: "deposit", fundId: "fund", type: "deposit", amountMinor: 45_000, currency: "DOP", transactionDate: "2026-09-01", ...meta };
+    data.savingsAccountReconciliations.done = { id: "done", status: "completed", transactionDate: "2026-09-01", accounts: {}, ...meta };
+    data.settings.dashboardMoneyAccountIds = ["cash", "payroll", "reserve", "missing"];
+
+    expect(getDashboardSelectedAccountIds(data)).toEqual(["cash", "payroll", "reserve"]);
+    expect(getDashboardAvailableBalance(data)).toBe(90_000);
   });
 
   it("reduces loans only by principal and supports exact bank adjustments", () => {

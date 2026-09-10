@@ -1,6 +1,6 @@
 import { useMemo, useState, type FormEvent } from "react";
 import type { Expense } from "../../models/expense";
-import type { CreditCard, FinancialData, MonthlyExpenseOccurrence, NonMonthlyOccurrence } from "../../models/finance";
+import type { CreditCard, FinancialData, MoneyAccountId, MonthlyExpenseOccurrence, NonMonthlyOccurrence } from "../../models/finance";
 import { formatBudgetCycleRange, formatMonthTitle, formatQuincenaRange, formatShortDate, getMonthKey } from "../../lib/date";
 import { getCurrentFinancialPeriod } from "../../lib/financeDates";
 import {
@@ -20,10 +20,9 @@ import {
   statusLabel,
 } from "../../lib/financialCalculations";
 import { formatCurrency, minorToInput, parseMoneyToCents } from "../../lib/money";
-import { getTotalLoanDebt } from "../../lib/loanLedger";
-import { CASH_ACCOUNT_ID, getMoneyAccountBalance, getTotalAvailableUnreserved, getTotalBankBalance, getTotalMoneyAvailable, hasInitializedMoneyAccounts, hasUnifiedSavingsAccounts } from "../../lib/moneyLedger";
+import { getAccountReservedSavings, getDashboardAvailableBalance, getDashboardEligibleAccounts, getDashboardSelectedAccountIds, getMoneyAccountSpendableBalance, moneyAccountLabel } from "../../lib/moneyLedger";
 import { wasOriginallyInSelectedPeriod } from "../../lib/obligationPostponement";
-import { Modal, MoneyField, PageHeading, PayModal, PeriodSelector, PostponeModal, StatusChip, type PayModalValue } from "./Shared";
+import { CheckboxField, Modal, MoneyField, PageHeading, PayModal, PeriodSelector, PostponeModal, StatusChip, type PayModalValue } from "./Shared";
 
 type Payable = { type: "monthly"; item: MonthlyExpenseOccurrence } | { type: "nonMonthly"; item: NonMonthlyOccurrence };
 
@@ -33,6 +32,7 @@ interface DashboardViewProps {
   onPay: (value: PayModalValue & { sourceType: "monthly" | "nonMonthly"; sourceId: string; currency: "DOP" | "USD" }) => Promise<void>;
   onPostpone: (sourceType: "monthly" | "nonMonthly", sourceId: string, newDueDate: string) => Promise<void>;
   onSaveCardPaymentPlan: (financialMonth: string, quincena: 1 | 2, plannedDopMinor: number, plannedUsdMinor: number) => Promise<void>;
+  onUpdateDashboardAccounts: (accountIds: MoneyAccountId[]) => Promise<void>;
   onNavigate: (view: "budget" | "future" | "income" | "cards" | "money" | "loans") => void;
 }
 
@@ -95,13 +95,54 @@ function CardPaymentPlanModal({ data, monthKey, quincena, onSave, onClose }: {
   return <Modal title="Pago previsto de tarjeta" onClose={onClose}><form className="form-grid" onSubmit={submit}><p className="privacy-note">Indica el total que planeas pagar en cada quincena. Si ya registraste parte del pago, el Dashboard descontará solamente lo que todavía falta.</p>{visibleQuincenas.map((item) => <fieldset className="card-plan-fieldset" key={item}><legend>Quincena {item} · {formatMonthTitle(monthKey)}</legend><MoneyField label="Pago previsto de deuda DOP" value={draft[item].dop} onChange={(value) => updateDraft(item, "dop", value)} currency="DOP" required={false} /><MoneyField label="Deuda USD que planeas cancelar" value={draft[item].usd} onChange={(value) => updateDraft(item, "usd", value)} currency="USD" required={false} /></fieldset>)}{data.settings.estimatedUsdToDopRate <= 0 && visibleQuincenas.some((item) => Boolean(parseMoneyToCents(draft[item].usd))) && <p className="validation-warning">El pago USD se guardará, pero no podrá calcularse su equivalente en pesos hasta configurar la tasa estimada.</p>}{error && <p className="form-error">{error}</p>}<div className="modal-actions"><button type="button" className="button button-secondary" onClick={onClose}>Cancelar</button><button className="button button-primary" disabled={saving}>{saving ? "Guardando…" : "Guardar pago previsto"}</button></div></form></Modal>;
 }
 
-export function DashboardView({ data, expenses, onPay, onPostpone, onSaveCardPaymentPlan, onNavigate }: DashboardViewProps) {
+function DashboardAccountsModal({ data, onSave, onClose }: {
+  data: FinancialData;
+  onSave: (accountIds: MoneyAccountId[]) => Promise<void>;
+  onClose: () => void;
+}) {
+  const accounts = getDashboardEligibleAccounts(data);
+  const [selected, setSelected] = useState<MoneyAccountId[]>(getDashboardSelectedAccountIds(data));
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const toggle = (accountId: MoneyAccountId, checked: boolean) => {
+    setSelected((current) => checked
+      ? [...new Set([...current, accountId])]
+      : current.filter((id) => id !== accountId));
+  };
+  const submit = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!selected.length) return setError("Selecciona al menos una cuenta para el Dashboard.");
+    setSaving(true);
+    setError("");
+    try {
+      await onSave(selected);
+      onClose();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "No se pudo guardar la selección.");
+    } finally {
+      setSaving(false);
+    }
+  };
+  return <Modal title="Dinero real del Dashboard" onClose={onClose}><form className="form-grid" onSubmit={submit}>
+    <p className="privacy-note">Marca el efectivo y las cuentas de débito que usas para los gastos diarios. De cada cuenta se toma únicamente el saldo disponible sin ahorros apartados.</p>
+    {accounts.length ? <div className="dashboard-account-options">{accounts.map((account) => {
+      const available = getMoneyAccountSpendableBalance(data, account.id);
+      const reserved = getAccountReservedSavings(data, account.id);
+      return <CheckboxField key={account.id} checked={selected.includes(account.id)} onChange={(checked) => toggle(account.id, checked)} label={moneyAccountLabel(account.id, data)} help={`Disponible ${formatCurrency(available, "DOP")}${reserved > 0 ? ` · Ahorros excluidos ${formatCurrency(reserved, "DOP")}` : ""}`} />;
+    })}</div> : <p className="muted-panel">No hay cuentas activas en DOP para seleccionar.</p>}
+    {error && <p className="form-error">{error}</p>}
+    <div className="modal-actions"><button type="button" className="button button-secondary" onClick={onClose}>Cancelar</button><button className="button button-primary" disabled={saving || !accounts.length}>{saving ? "Guardando…" : "Guardar selección"}</button></div>
+  </form></Modal>;
+}
+
+export function DashboardView({ data, expenses, onPay, onPostpone, onSaveCardPaymentPlan, onUpdateDashboardAccounts, onNavigate }: DashboardViewProps) {
   const current = getCurrentFinancialPeriod();
   const [monthKey, setMonthKey] = useState(current.financialMonth);
   const [quincena, setQuincena] = useState<"all" | 1 | 2>(current.quincena);
   const [payable, setPayable] = useState<Payable | null>(null);
   const [postponing, setPostponing] = useState<Payable | null>(null);
   const [planningCardPayment, setPlanningCardPayment] = useState(false);
+  const [selectingDashboardAccounts, setSelectingDashboardAccounts] = useState(false);
   const [initialPayMethod, setInitialPayMethod] = useState<"cash" | "bankTransfer" | "creditCard">("bankTransfer");
   const monthSet = useMemo(() => new Set([monthKey]), [monthKey]);
   const activeCards = useMemo(() => Object.values(data.creditCards).filter((card) => card.active && !card.archivedAt), [data.creditCards]);
@@ -148,23 +189,28 @@ export function DashboardView({ data, expenses, onPay, onPostpone, onSaveCardPay
   const estimatedUsdRate = data.settings.estimatedUsdToDopRate;
   const card = activeCards[0];
   const cardProjection = calculateCardPaymentProjection(data, [monthKey], quincena, estimatedUsdRate);
-  const netAvailableDop = dop.planning - cardProjection.totalCashCommitmentDopMinor;
+  const dashboardAccountIds = getDashboardSelectedAccountIds(data);
+  const dashboardAccountsConfigured = dashboardAccountIds.length > 0;
+  const dashboardAvailableDop = getDashboardAvailableBalance(data);
+  const dashboardSelectedAccounts = dashboardAccountIds.map((id) => data.moneyAccounts[id]).filter(Boolean);
+  const dashboardCashDop = dashboardSelectedAccounts
+    .filter((account) => account.kind === "cash")
+    .reduce((total, account) => total + getMoneyAccountSpendableBalance(data, account.id), 0);
+  const dashboardDebitDop = dashboardSelectedAccounts
+    .filter((account) => account.kind === "bank")
+    .reduce((total, account) => total + getMoneyAccountSpendableBalance(data, account.id), 0);
+  const pendingBillsToCoverDop = dop.monthlyPending + dop.nonMonthlyUnfunded;
+  const pendingCardPaymentDop = cardProjection.remainingCashCommitmentDopMinor;
+  const netAvailableDop = dashboardAvailableDop - pendingBillsToCoverDop - pendingCardPaymentDop;
   const availableForDailySpendingDop = Math.max(0, netAvailableDop);
   const projectedShortfallDop = Math.max(0, -netAvailableDop);
   const hasPlannedCardPayment = cardProjection.plannedDopMinor > 0 || cardProjection.plannedUsdMinor > 0;
   const hasMinimumDue = cardProjection.minimumDueDopMinor > 0 || cardProjection.minimumDueUsdMinor > 0;
   const hasMinimumGap = cardProjection.minimumTopUpDopMinor > 0 || cardProjection.minimumTopUpUsdMinor > 0;
   const hasUnconvertedUsdPayment = (cardProjection.remainingPlannedUsdMinor > 0 || cardProjection.minimumTopUpUsdMinor > 0) && estimatedUsdRate <= 0;
-  const bankBalance = getTotalBankBalance(data);
-  const cashBalance = getMoneyAccountBalance(data, CASH_ACCOUNT_ID);
-  const moneyReady = hasInitializedMoneyAccounts(data);
-  const savingsUnified = hasUnifiedSavingsAccounts(data);
   const cardDebtDop = card ? getCardCurrentDebt(data, card.id, "DOP") : 0;
   const cardDebtUsd = card ? getCardCurrentDebt(data, card.id, "USD") : 0;
-  const loanDebtDop = getTotalLoanDebt(data, "DOP");
-  const loanDebtUsd = getTotalLoanDebt(data, "USD");
   const pendingBillsDop = dop.monthlyPending + dop.nonMonthlyPending;
-  const totalDebtDop = pendingBillsDop + cardDebtDop + loanDebtDop + (estimatedUsdRate > 0 ? Math.round((cardDebtUsd + loanDebtUsd) * estimatedUsdRate) : 0);
   const selectedPeriodRange = quincena === "all"
     ? formatBudgetCycleRange(monthKey)
     : formatQuincenaRange(monthKey, quincena);
@@ -193,31 +239,30 @@ export function DashboardView({ data, expenses, onPay, onPostpone, onSaveCardPay
     <section className="finance-page">
       <PageHeading eyebrow="Visión general" title="Dashboard" />
       <PeriodSelector monthKey={monthKey} onMonthChange={setMonthKey} quincena={quincena} onQuincenaChange={setQuincena} />
-      <p className="period-caption">{formatBudgetCycleRange(monthKey)} · Los valores son una proyección, no un balance bancario.</p>
+      <p className="period-caption">{formatBudgetCycleRange(monthKey)} · La proyección parte del dinero real seleccionado y solo descuenta pagos todavía pendientes.</p>
       {data.settings.trackingStartDate && getMonthKey(data.settings.trackingStartDate) === monthKey && <p className="transition-period-note"><strong>Período de transición.</strong> Los movimientos anteriores al {formatShortDate(data.settings.trackingStartDate)} pueden estar resumidos mediante la reconciliación inicial.</p>}
 
       <div className="summary-strip dashboard-balance-strip">
-        <button type="button" onClick={() => onNavigate("money")}><span>{savingsUnified ? "Disponible sin apartar" : "Dinero disponible hoy"}</span><strong>{moneyReady ? formatCurrency(savingsUnified ? getTotalAvailableUnreserved(data) : getTotalMoneyAvailable(data), "DOP") : "Configurar"}</strong><small>Saldo total: bancos {formatCurrency(bankBalance, "DOP")} · efectivo {formatCurrency(cashBalance, "DOP")}</small></button>
+        <button type="button" onClick={() => setSelectingDashboardAccounts(true)}><span>Disponible real seleccionado</span><strong>{dashboardAccountsConfigured ? formatCurrency(dashboardAvailableDop, "DOP") : "Configurar cuentas"}</strong><small>{dashboardAccountsConfigured ? `Débito ${formatCurrency(dashboardDebitDop, "DOP")} · efectivo ${formatCurrency(dashboardCashDop, "DOP")} · cambiar selección` : "Marca el efectivo y las cuentas que usas para gastos diarios"}</small></button>
         <button type="button" onClick={() => onNavigate("budget")}><span>Facturas pendientes del período</span><strong>{formatCurrency(pendingBillsDop, "DOP")}</strong><small>No incluye pagos ya registrados</small></button>
-        <button type="button" onClick={() => onNavigate("loans")}><span>Deuda total registrada</span><strong>{formatCurrency(totalDebtDop, "DOP")}</strong><small>Facturas + tarjeta + préstamos{cardDebtUsd + loanDebtUsd > 0 ? estimatedUsdRate > 0 ? " · USD estimado en DOP" : " · falta convertir USD" : ""}</small></button>
+        <button className={dashboardAccountsConfigured && netAvailableDop < 0 ? "negative" : ""} type="button" onClick={() => setSelectingDashboardAccounts(true)}><span>Dinero restante esperado</span><strong>{dashboardAccountsConfigured ? formatCurrency(netAvailableDop, "DOP") : "Configurar cuentas"}</strong><small>Dinero real − facturas por cubrir − pago pendiente de tarjeta</small></button>
       </div>
 
       <div className="projection-grid dashboard-projection-grid">
-        <article className={`projection-card projection-card-featured ${projectedShortfallDop > 0 ? "negative" : "positive"}`}>
-          <span>Disponible para gastos diarios</span><strong>{formatCurrency(availableForDailySpendingDop, "DOP")}</strong>
+        <article className={`projection-card projection-card-featured ${dashboardAccountsConfigured ? projectedShortfallDop > 0 ? "negative" : "positive" : ""}`}>
+          <span>Disponible para gastos diarios</span><strong>{dashboardAccountsConfigured ? formatCurrency(availableForDailySpendingDop, "DOP") : "—"}</strong>
           <dl className="projection-breakdown">
-            <div><dt>Ingresos proyectados</dt><dd>{formatCurrency(dop.planningIncome, "DOP")}</dd></div>
-            <div><dt>Compromisos del período (sin deuda total de tarjeta)</dt><dd>− {formatCurrency(dop.planningCommitments, "DOP")}</dd></div>
-            <div><dt>Gastos extras pagados sin crédito</dt><dd>− {formatCurrency(dop.dailyCashSpending, "DOP")}</dd></div>
-            <div><dt>Compras extras con tarjeta (no descontadas aquí)</dt><dd>{formatCurrency(dop.dailyCardSpending, "DOP")}</dd></div>
-            <div><dt>Pago de tarjeta registrado, previsto o mínimo</dt><dd>− {formatCurrency(cardProjection.totalCashCommitmentDopMinor, "DOP")}</dd></div>
+            <div><dt>Dinero real seleccionado</dt><dd>{formatCurrency(dashboardAvailableDop, "DOP")}</dd></div>
+            <div><dt>Facturas pendientes por cubrir</dt><dd>− {formatCurrency(pendingBillsToCoverDop, "DOP")}</dd></div>
+            <div><dt>Pago de tarjeta todavía pendiente</dt><dd>− {formatCurrency(pendingCardPaymentDop, "DOP")}</dd></div>
+            <div className="projection-shortfall"><dt>Resultado esperado</dt><dd>{formatCurrency(netAvailableDop, "DOP")}</dd></div>
             <div className="projection-shortfall"><dt>Faltante previsto</dt><dd>{formatCurrency(projectedShortfallDop, "DOP")}</dd></div>
           </dl>
-          <small>Las compras con tarjeta aumentan su deuda. Se descuenta el pago registrado o previsto y, cuando corresponde, al menos el pago mínimo pendiente; nunca se asume el saldo completo.</small>
+          <small>No suma ingresos futuros ni vuelve a descontar pagos ya registrados. Los gastos no mensuales cubiertos con ahorros apartados tampoco se cobran otra vez de este disponible.</small>
         </article>
         <article className="projection-card card-payment-projection">
           <span>Tarjeta de crédito</span><strong>{card?.name || "Sin tarjeta configurada"}</strong>
-          {card ? <><dl className="projection-breakdown"><div><dt>Deuda registrada DOP</dt><dd>{formatCurrency(getCardCurrentDebt(data, card.id, "DOP"), "DOP")}</dd></div><div><dt>Deuda registrada USD</dt><dd>{formatCurrency(getCardCurrentDebt(data, card.id, "USD"), "USD")}</dd></div><div><dt>Pago previsto DOP</dt><dd>{formatCurrency(cardProjection.plannedDopMinor, "DOP")}</dd></div><div><dt>Deuda USD prevista para pagar</dt><dd>{formatCurrency(cardProjection.plannedUsdMinor, "USD")}</dd></div>{cardProjection.minimumDueDopMinor > 0 && <div><dt>Pago mínimo DOP del período</dt><dd>{formatCurrency(cardProjection.minimumDueDopMinor, "DOP")}</dd></div>}{cardProjection.minimumDueUsdMinor > 0 && <div><dt>Pago mínimo USD del período</dt><dd>{formatCurrency(cardProjection.minimumDueUsdMinor, "USD")}</dd></div>}{cardProjection.actualCashOutflowDopMinor > 0 && <div><dt>Ya pagado en el período</dt><dd>{formatCurrency(cardProjection.actualCashOutflowDopMinor, "DOP")}</dd></div>}{cardProjection.estimatedRemainingUsdDopMinor > 0 && <div><dt>Pago USD pendiente estimado</dt><dd>{formatCurrency(cardProjection.estimatedRemainingUsdDopMinor, "DOP")}</dd></div>}{hasMinimumGap && <div><dt>Adicional para cubrir el mínimo</dt><dd>{formatCurrency(cardProjection.minimumTopUpDopMinor + cardProjection.estimatedMinimumTopUpUsdDopMinor, "DOP")}</dd></div>}</dl>{!hasPlannedCardPayment && !hasMinimumDue && cardProjection.actualCashOutflowDopMinor <= 0 && <p className="card-plan-warning">La deuda de tarjeta no está incluida en la proyección porque no has definido un pago y todavía no hay un pago mínimo registrado para este período.</p>}{hasMinimumDue && <p className="minimum-payment-note">La proyección garantiza como piso el pago mínimo pendiente, pero no asume que pagarás el estado completo.</p>}{cardProjection.unconfiguredMinimumCount > 0 && <p className="card-plan-warning">Hay un estado de cuenta que vence en este período sin pago mínimo registrado.</p>}{hasUnconvertedUsdPayment && <p className="card-plan-warning">El pago USD pendiente todavía no está incluido en DOP porque falta configurar la tasa estimada.</p>}<div className="row-actions"><button className="button button-secondary" type="button" onClick={() => setPlanningCardPayment(true)}>{hasPlannedCardPayment ? "Editar pago previsto" : "Definir pago previsto"}</button><button className="button button-quiet" type="button" onClick={() => onNavigate("cards")}>Revisar pago mínimo</button></div></> : <><small>Configura tu tarjeta para registrar la deuda y planificar sus pagos.</small><button className="button button-secondary" type="button" onClick={() => onNavigate("cards")}>Configurar tarjeta</button></>}
+          {card ? <><dl className="projection-breakdown"><div><dt>Límite de tarjeta DOP</dt><dd>{typeof card.creditLimitDopMinor === "number" ? formatCurrency(card.creditLimitDopMinor, "DOP") : "No definido"}</dd></div><div><dt>Deuda registrada DOP</dt><dd>{formatCurrency(cardDebtDop, "DOP")}</dd></div><div><dt>Límite de tarjeta USD</dt><dd>{typeof card.creditLimitUsdMinor === "number" ? formatCurrency(card.creditLimitUsdMinor, "USD") : "No definido"}</dd></div><div><dt>Deuda registrada USD</dt><dd>{formatCurrency(cardDebtUsd, "USD")}</dd></div>{cardProjection.minimumDueDopMinor > 0 && <div><dt>Pago mínimo DOP del período</dt><dd>{formatCurrency(cardProjection.minimumDueDopMinor, "DOP")}</dd></div>}{cardProjection.minimumDueUsdMinor > 0 && <div><dt>Pago mínimo USD del período</dt><dd>{formatCurrency(cardProjection.minimumDueUsdMinor, "USD")}</dd></div>}{cardProjection.actualCashOutflowDopMinor > 0 && <div><dt>Ya pagado en el período</dt><dd>{formatCurrency(cardProjection.actualCashOutflowDopMinor, "DOP")}</dd></div>}{cardProjection.estimatedRemainingUsdDopMinor > 0 && <div><dt>Pago USD pendiente estimado</dt><dd>{formatCurrency(cardProjection.estimatedRemainingUsdDopMinor, "DOP")}</dd></div>}{hasMinimumGap && <div><dt>Adicional para cubrir el mínimo</dt><dd>{formatCurrency(cardProjection.minimumTopUpDopMinor + cardProjection.estimatedMinimumTopUpUsdDopMinor, "DOP")}</dd></div>}</dl>{!hasPlannedCardPayment && !hasMinimumDue && cardProjection.actualCashOutflowDopMinor <= 0 && <p className="card-plan-warning">La deuda de tarjeta no está incluida en la proyección porque no has definido un pago y todavía no hay un pago mínimo registrado para este período.</p>}{hasMinimumDue && <p className="minimum-payment-note">La proyección garantiza como piso el pago mínimo pendiente, pero no asume que pagarás el estado completo.</p>}{cardProjection.unconfiguredMinimumCount > 0 && <p className="card-plan-warning">Hay un estado de cuenta que vence en este período sin pago mínimo registrado.</p>}{hasUnconvertedUsdPayment && <p className="card-plan-warning">El pago USD pendiente todavía no está incluido en DOP porque falta configurar la tasa estimada.</p>}<div className="row-actions"><button className="button button-secondary" type="button" onClick={() => setPlanningCardPayment(true)}>{hasPlannedCardPayment ? "Editar pago previsto" : "Definir pago previsto"}</button><button className="button button-quiet" type="button" onClick={() => onNavigate("cards")}>Revisar pago mínimo</button></div></> : <><small>Configura tu tarjeta para registrar la deuda y planificar sus pagos.</small><button className="button button-secondary" type="button" onClick={() => onNavigate("cards")}>Configurar tarjeta</button></>}
         </article>
       </div>
 
@@ -253,6 +298,7 @@ export function DashboardView({ data, expenses, onPay, onPostpone, onSaveCardPay
       {payable && <PayModal title={payable.item.name} expectedMinor={payable.item.expectedAmountMinor} currency={payable.item.currency} canPayWithCard={payable.item.canPayWithCard} cards={activeCards as CreditCard[]} data={data} loanId={payable.item.loanId} allowSavings={payable.type === "nonMonthly"} initialMethod={initialPayMethod} onClose={() => setPayable(null)} onConfirm={(value) => onPay({ ...value, sourceType: payable.type, sourceId: payable.item.id, currency: payable.item.currency })} />}
       {postponing && <PostponeModal title={postponing.item.name} currentDueDate={postponing.item.dueDate} onClose={() => setPostponing(null)} onConfirm={(newDueDate) => onPostpone(postponing.type, postponing.item.id, newDueDate)} />}
       {planningCardPayment && <CardPaymentPlanModal data={data} monthKey={monthKey} quincena={quincena} onSave={onSaveCardPaymentPlan} onClose={() => setPlanningCardPayment(false)} />}
+      {selectingDashboardAccounts && <DashboardAccountsModal data={data} onSave={onUpdateDashboardAccounts} onClose={() => setSelectingDashboardAccounts(false)} />}
     </section>
   );
 }

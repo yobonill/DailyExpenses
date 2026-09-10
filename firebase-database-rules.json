@@ -125,7 +125,12 @@
           }
         },
         "settings": {
-          ".validate": "newData.hasChildren(['dueSoonDaysMonthly','dueSoonDaysCards','nonMonthlyWarningMonths','updatedAt','updatedBy']) && newData.child('dueSoonDaysMonthly').isNumber() && newData.child('dueSoonDaysMonthly').val() >= 0 && newData.child('dueSoonDaysCards').isNumber() && newData.child('dueSoonDaysCards').val() >= 0 && newData.child('nonMonthlyWarningMonths').isNumber() && newData.child('nonMonthlyWarningMonths').val() >= 0 && (!newData.hasChild('estimatedUsdToDopRate') || (newData.child('estimatedUsdToDopRate').isNumber() && newData.child('estimatedUsdToDopRate').val() >= 0)) && (!newData.hasChild('transferFeeRatePercent') || (newData.child('transferFeeRatePercent').isNumber() && newData.child('transferFeeRatePercent').val() >= 0))"
+          ".validate": "newData.hasChildren(['dueSoonDaysMonthly','dueSoonDaysCards','nonMonthlyWarningMonths','updatedAt','updatedBy']) && newData.child('dueSoonDaysMonthly').isNumber() && newData.child('dueSoonDaysMonthly').val() >= 0 && newData.child('dueSoonDaysCards').isNumber() && newData.child('dueSoonDaysCards').val() >= 0 && newData.child('nonMonthlyWarningMonths').isNumber() && newData.child('nonMonthlyWarningMonths').val() >= 0 && (!newData.hasChild('estimatedUsdToDopRate') || (newData.child('estimatedUsdToDopRate').isNumber() && newData.child('estimatedUsdToDopRate').val() >= 0)) && (!newData.hasChild('transferFeeRatePercent') || (newData.child('transferFeeRatePercent').isNumber() && newData.child('transferFeeRatePercent').val() >= 0))",
+          "dashboardMoneyAccountIds": {
+            "$index": {
+              ".validate": "newData.isString()"
+            }
+          }
         }
       }
     }

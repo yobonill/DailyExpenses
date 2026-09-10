@@ -228,6 +228,7 @@ describe("financial calculations", () => {
     expect(card.remainingPlannedUsdMinor).toBe(6000);
     expect(card.estimatedRemainingUsdDopMinor).toBe(360000);
     expect(card.totalCashCommitmentDopMinor).toBe(660000);
+    expect(card.remainingCashCommitmentDopMinor).toBe(390000);
   });
 
   it("tracks the exact statement minimum and uses it as the projection floor", () => {
@@ -259,6 +260,7 @@ describe("financial calculations", () => {
     expect(projection.minimumDueDopMinor).toBe(12000);
     expect(projection.minimumTopUpDopMinor).toBe(7000);
     expect(projection.totalCashCommitmentDopMinor).toBe(12000);
+    expect(projection.remainingCashCommitmentDopMinor).toBe(7000);
 
     data.cardTransactions.completed = {
       id: "completed", cardId: "card", currency: "DOP", type: "payment", amountMinor: 7000,

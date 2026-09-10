@@ -474,6 +474,8 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px s
 .account-center-summary .text-button { justify-self: start; align-self: end; }
 .loan-panel .privacy-note { margin: 12px; }
 .dashboard-balance-strip { margin-top: 13px; }
+.dashboard-balance-strip button.negative strong { color: var(--danger); }
+.dashboard-account-options { display: grid; gap: 2px; padding: 4px 12px; border: 1px solid var(--border); border-radius: 16px; background: var(--surface-soft); }
 .projection-card.positive { border-color: #bad6c2; }
 .projection-card.negative { border-color: #e6bbb6; background: linear-gradient(145deg, #fff, #f9ecea); }
 .projection-card.negative strong { color: var(--danger); }

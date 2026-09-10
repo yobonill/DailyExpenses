@@ -1,8 +1,8 @@
-# Publicación de reglas de Firebase · 2.0.0
+# Publicación de reglas de Firebase · 2.0.1
 
-La versión 2.0.0 conserva el proyecto `app-daily-expenses-budget`, la ruta `/expenses` y el esquema `/dailyExpensesBudget/v1`.
+La versión 2.0.1 conserva el proyecto `app-daily-expenses-budget`, `/expenses` y `/dailyExpensesBudget/v1`.
 
-La única ampliación es el nodo `/dailyExpensesBudget/v1/savingsAccountReconciliations`, utilizado para guardar el resumen auditable de la reconciliación y evitar que se ejecute dos veces. No se modifican los nodos ni los balances de tarjetas o préstamos.
+La regla de `settings` ahora valida los elementos opcionales de `dashboardMoneyAccountIds`, donde se guarda la selección de efectivo y cuentas bancarias mostradas por el Dashboard. No se agregan ramas financieras ni se modifican balances.
 
 ## Publicar antes de desplegar la app
 
@@ -12,11 +12,4 @@ La única ampliación es el nodo `/dailyExpensesBudget/v1/savingsAccountReconcil
 4. Sustituye el documento completo por `firebase-database-rules.json` incluido en el parche.
 5. Pulsa **Publish**.
 
-Los UID autorizados no cambian:
-
-```text
-Yorki · hmJi0g20svTPkfOF9ZzZwRi9Bdw2
-Yisel · YHtQh4N0RaViD8rXqDNE4xZTcN12
-```
-
-No publiques estas reglas en TaskFollower. No crees manualmente el nodo de reconciliación ni edites saldos desde Firebase Console.
+Los UID autorizados no cambian. No publiques estas reglas en TaskFollower y no edites balances desde Firebase Console.

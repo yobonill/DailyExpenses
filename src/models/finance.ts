@@ -377,6 +377,8 @@ export interface AppSettings {
   estimatedUsdToDopRate: number;
   /** Default optional bank-transfer commission percentage. */
   transferFeeRatePercent: number;
+  /** DOP cash/bank accounts whose unreserved balance is shown on the Dashboard. */
+  dashboardMoneyAccountIds?: MoneyAccountId[];
   /** First date from which normal movements are expected to affect live balances. */
   trackingStartDate?: string;
   reconciliationCompletedAt?: string;

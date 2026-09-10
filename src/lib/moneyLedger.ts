@@ -70,6 +70,26 @@ export const getTotalReservedInAccounts = (data: FinancialData, currency: Curren
 export const getTotalAvailableUnreserved = (data: FinancialData, currency: Currency = "DOP"): number =>
   getTotalMoneyAvailable(data, currency) - getTotalReservedInAccounts(data, currency);
 
+export const getDashboardEligibleAccounts = (data: FinancialData): MoneyAccount[] =>
+  Object.values(data.moneyAccounts)
+    .filter((account) => account.currency === "DOP"
+      && account.active
+      && !account.archivedAt
+      && (account.kind === "cash" || Boolean(account.bankId && data.banks[account.bankId]?.active)))
+    .sort((a, b) => {
+      if (a.kind !== b.kind) return a.kind === "cash" ? -1 : 1;
+      return moneyAccountLabel(a.id, data).localeCompare(moneyAccountLabel(b.id, data), "es");
+    });
+
+export const getDashboardSelectedAccountIds = (data: FinancialData): MoneyAccountId[] => {
+  const eligible = new Set(getDashboardEligibleAccounts(data).map((account) => account.id));
+  return (data.settings.dashboardMoneyAccountIds || []).filter((id) => eligible.has(id));
+};
+
+export const getDashboardAvailableBalance = (data: FinancialData): number =>
+  getDashboardSelectedAccountIds(data)
+    .reduce((total, accountId) => total + getMoneyAccountSpendableBalance(data, accountId), 0);
+
 export const hasUnifiedSavingsAccounts = (data: FinancialData): boolean =>
   Object.values(data.savingsAccountReconciliations).some((item) => item.status === "completed");
 
