@@ -144,4 +144,23 @@ describe("shared financial integrity", () => {
     data.moneyAccounts.account.bankId = "missing";
     expect(isFinanciallyConsistent(data)).toBe(false);
   });
+
+  it("allows USD savings in a USD bank account and rejects currency mismatches", () => {
+    const data = createEmptyFinancialData();
+    data.banks.bank = { id: "bank", name: "Banco de prueba", active: true, ...metadata };
+    data.moneyAccounts.usd = { id: "usd", kind: "bank", bankId: "bank", accountType: "savings", name: "Cuenta USD", currency: "USD", openingBalanceMinor: 51_000, openingDate: "2026-09-03", active: true, ...metadata };
+    data.moneyTransactions.deposit = { id: "deposit", accountId: "usd", direction: "in", type: "income", amountMinor: 10_000, currency: "USD", transactionDate: "2026-09-03", description: "Ingreso USD", ...metadata };
+    data.savingsFunds.fund = { id: "fund", name: "Juegos", currency: "USD", moneyAccountId: "usd", active: true, ...metadata };
+    data.incomeOccurrences.income = { id: "income", name: "Freelance", incomeType: "oneTime", expectedAmountMinor: 10_000, actualAmountMinor: 10_000, currency: "USD", expectedDate: "2026-09-03", receivedDate: "2026-09-03", financialMonth: "2026-08", quincena: 2, status: "received", oneTime: true, moneyAccountId: "usd", moneyTransactionId: "deposit", exportExpectedWhenPending: true, ...metadata };
+
+    expect(isFinanciallyConsistent(data)).toBe(true);
+    data.savingsFunds.fund.currency = "DOP";
+    expect(isFinanciallyConsistent(data)).toBe(false);
+  });
+
+  it("keeps the system cash account in DOP", () => {
+    const data = createEmptyFinancialData();
+    data.moneyAccounts.cash = { id: "cash", kind: "cash", name: "Efectivo", currency: "USD", openingBalanceMinor: 100, openingDate: "2026-09-03", active: true, ...metadata };
+    expect(isFinanciallyConsistent(data)).toBe(false);
+  });
 });

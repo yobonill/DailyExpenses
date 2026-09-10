@@ -8,6 +8,7 @@ import { buildStartingPointReconciliationUpdates, type StartingPointReconciliati
 import { createId } from "../lib/id";
 import { BANK_ACCOUNT_ID, CASH_ACCOUNT_ID, LEGACY_BANK_ACCOUNT_ID, getLegacyBankBalance, getMoneyAccountBalance, hasInitializedMoneyAccounts, isSelectableMoneyAccount } from "../lib/moneyLedger";
 import { getLoanBalance } from "../lib/loanLedger";
+import { buildPostponedMonthlyOccurrence, buildPostponedNonMonthlyOccurrence } from "../lib/obligationPostponement";
 import type { Expense } from "../models/expense";
 import type {
   AppSettings,
@@ -177,6 +178,7 @@ export interface MoneyAccountInput {
   bankId: string;
   name: string;
   accountType: BankAccountType;
+  currency: Currency;
   lastFour?: string;
   openingBalanceMinor: number;
   openingDate: string;
@@ -238,7 +240,9 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
     Object.values(data.monthlyOccurrences)
       .filter((occurrence) => occurrence.templateId === templateId && occurrence.status === "upcoming")
       .forEach((occurrence) => {
-        const dueDate = dateFromFinancialMonthRule(occurrence.financialMonth, template.dueRule);
+        const dueDate = occurrence.postponedAt
+          ? occurrence.dueDate
+          : dateFromFinancialMonthRule(occurrence.financialMonth, template.dueRule);
         updates[`monthlyOccurrences/${occurrence.id}`] = {
           ...occurrence,
           name: template.name,
@@ -246,7 +250,8 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
           expectedAmountMinor: template.estimatedAmountMinor,
           currency: template.currency,
           dueDate,
-          quincena: template.plannedQuincena ?? getQuincena(dueDate),
+          financialMonth: occurrence.postponedAt ? occurrence.financialMonth : getMonthKey(dueDate),
+          quincena: occurrence.postponedAt ? occurrence.quincena : template.plannedQuincena ?? getQuincena(dueDate),
           canPayWithCard: template.canPayWithCard,
           notes: template.notes,
           excelRowLabel: template.excelRowLabel,
@@ -337,6 +342,22 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
       },
     });
   }, [commitUpdates, data.monthlyOccurrences, meta]);
+
+  const postponeObligation = useCallback(async (
+    sourceType: "monthly" | "nonMonthly",
+    sourceId: string,
+    newDueDate: string,
+  ) => {
+    const existing = sourceType === "monthly"
+      ? data.monthlyOccurrences[sourceId]
+      : data.nonMonthlyOccurrences[sourceId];
+    if (!existing) throw new Error("La obligación ya no está disponible.");
+    const updated = sourceType === "monthly"
+      ? buildPostponedMonthlyOccurrence(existing as MonthlyExpenseOccurrence, newDueDate, meta(existing))
+      : buildPostponedNonMonthlyOccurrence(existing as NonMonthlyOccurrence, newDueDate, meta(existing));
+    const path = sourceType === "monthly" ? "monthlyOccurrences" : "nonMonthlyOccurrences";
+    await commitUpdates({ [`${path}/${sourceId}`]: updated });
+  }, [commitUpdates, data.monthlyOccurrences, data.nonMonthlyOccurrences, meta]);
 
   const payObligation = useCallback(async (input: PayObligationInput) => {
     const occurrence = input.sourceType === "monthly"
@@ -682,15 +703,15 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
   const receiveIncome = useCallback(async (id: string, amountMinor: number, receivedDate: string, moneyAccountId?: MoneyAccountId) => {
     const occurrence = data.incomeOccurrences[id];
     if (!occurrence) return;
-    if (occurrence.currency === "DOP" && !moneyAccountId) throw new Error("Selecciona dónde recibiste el ingreso.");
-    if (occurrence.currency === "DOP" && moneyAccountId) {
+    if (!moneyAccountId) throw new Error("Selecciona dónde recibiste el ingreso.");
+    if (moneyAccountId) {
       const account = data.moneyAccounts[moneyAccountId];
       const valid = account?.kind === "cash"
-        ? isSelectableMoneyAccount(data, moneyAccountId, "cash")
-        : isSelectableMoneyAccount(data, moneyAccountId, "bankTransfer");
-      if (!valid) throw new Error("Selecciona una cuenta activa para recibir el ingreso.");
+        ? isSelectableMoneyAccount(data, moneyAccountId, "cash", occurrence.currency)
+        : isSelectableMoneyAccount(data, moneyAccountId, "bankTransfer", occurrence.currency);
+      if (!valid) throw new Error(`Selecciona una cuenta activa en ${occurrence.currency} para recibir el ingreso.`);
     }
-    const transactionId = occurrence.currency === "DOP" && moneyAccountId ? createId() : undefined;
+    const transactionId = createId();
     const updates: Record<string, unknown> = {
       [`incomeOccurrences/${id}`]: {
         ...occurrence,
@@ -702,14 +723,14 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
         ...meta(occurrence),
       },
     };
-    if (transactionId && moneyAccountId) {
+    if (moneyAccountId) {
       updates[`moneyTransactions/${transactionId}`] = {
         id: transactionId,
         accountId: moneyAccountId,
         direction: "in",
         type: "income",
         amountMinor,
-        currency: "DOP",
+        currency: occurrence.currency,
         transactionDate: receivedDate,
         description: occurrence.name,
         linkedIncomeOccurrenceId: occurrence.id,
@@ -770,7 +791,7 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
       .filter((occurrence) => occurrence.planId === planId && occurrence.status === "upcoming")
       .sort((a, b) => a.dueDate.localeCompare(b.dueDate))[0];
     if (pending) {
-      const occurrenceId = `${planId}_${input.nextDueDate}`;
+      const occurrenceId = pending.postponedAt ? pending.id : `${planId}_${input.nextDueDate}`;
       const updatedOccurrence: NonMonthlyOccurrence = {
         ...pending,
         id: occurrenceId,
@@ -778,7 +799,7 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
         category: plan.category,
         expectedAmountMinor: plan.estimatedAmountMinor,
         currency: plan.currency,
-        dueDate: plan.nextDueDate,
+        dueDate: pending.postponedAt ? pending.dueDate : plan.nextDueDate,
         canPayWithCard: plan.canPayWithCard,
         notes: plan.notes,
         loanId: plan.loanId,
@@ -800,8 +821,8 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
     const existing = data.savingsFunds[fundId];
     if (input.moneyAccountId) {
       const account = data.moneyAccounts[input.moneyAccountId];
-      if (input.currency !== "DOP" || !account || account.archivedAt) {
-        throw new Error("Selecciona una cuenta DOP disponible para indicar dónde está guardado el ahorro.");
+      if (!account || account.archivedAt || account.currency !== input.currency) {
+        throw new Error(`Selecciona una cuenta ${input.currency} disponible para indicar dónde está guardado el ahorro.`);
       }
     }
     if (existing && existing.currency !== input.currency) {
@@ -1621,10 +1642,14 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
     if (accountId === CASH_ACCOUNT_ID || accountId === LEGACY_BANK_ACCOUNT_ID) throw new Error("Esta cuenta está reservada por el sistema.");
     const existing = data.moneyAccounts[accountId];
     const hasHistory = Boolean(existing && Object.values(data.moneyTransactions).some((item) => item.accountId === accountId));
-    if (existing && hasHistory && (existing.bankId !== input.bankId || existing.openingBalanceMinor !== input.openingBalanceMinor || existing.openingDate !== input.openingDate)) {
-      throw new Error("Una cuenta con historial no puede cambiar de banco ni de saldo inicial. Usa Ajustar balance.");
+    const hasLinkedSavings = Boolean(existing && Object.values(data.savingsFunds).some((fund) => fund.moneyAccountId === accountId));
+    if (existing && existing.currency !== input.currency && hasLinkedSavings) {
+      throw new Error("Desvincula primero los fondos de ahorro antes de cambiar la moneda de esta cuenta.");
     }
-    if (!existing && input.openingBalanceMinor > 0 && getLegacyBankBalance(data) > 0) {
+    if (existing && hasHistory && (existing.bankId !== input.bankId || existing.currency !== input.currency || existing.openingBalanceMinor !== input.openingBalanceMinor || existing.openingDate !== input.openingDate)) {
+      throw new Error("Una cuenta con historial no puede cambiar de banco, moneda ni saldo inicial. Usa Ajustar balance.");
+    }
+    if (!existing && input.currency === "DOP" && input.openingBalanceMinor > 0 && getLegacyBankBalance(data) > 0) {
       throw new Error("Crea la cuenta con balance cero y distribuye primero el saldo bancario anterior.");
     }
     const account: MoneyAccount = {
@@ -1634,7 +1659,7 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
       accountType: input.accountType,
       name: input.name.trim(),
       lastFour: cleanOptional(input.lastFour)?.slice(-4),
-      currency: "DOP",
+      currency: input.currency,
       openingBalanceMinor: Math.round(input.openingBalanceMinor),
       openingDate: input.openingDate,
       active: input.active,
@@ -1708,7 +1733,7 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
       direction: difference > 0 ? "in" : "out",
       type: "adjustment",
       amountMinor: Math.abs(difference),
-      currency: "DOP",
+      currency: account.currency,
       transactionDate,
       description: `Ajuste de balance · ${account.name}`,
       notes: cleanOptional(notes),
@@ -1729,6 +1754,7 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
     const fromAccount = data.moneyAccounts[fromAccountId];
     const toAccount = data.moneyAccounts[toAccountId];
     if (!fromAccount || !toAccount || fromAccount.archivedAt || toAccount.archivedAt) throw new Error("Selecciona cuentas disponibles.");
+    if (fromAccount.currency !== toAccount.currency) throw new Error("Solo puedes mover dinero entre cuentas de la misma moneda.");
     if (toAccount.id === LEGACY_BANK_ACCOUNT_ID) throw new Error("El saldo bancario anterior solo puede usarse como origen.");
     const amount = Math.round(amountMinor);
     const fee = fromAccount.kind === "bank" ? Math.max(0, Math.round(feeMinor)) : 0;
@@ -1742,18 +1768,18 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
     const updates: Record<string, unknown> = {
       [`moneyTransactions/${outId}`]: {
         id: outId, accountId: fromAccountId, direction: "out", type: "transfer", amountMinor: amount,
-        currency: "DOP", transactionDate, description: `${fromName} → ${toName}`, transferId, notes: cleanOptional(notes), ...meta(),
+        currency: fromAccount.currency, transactionDate, description: `${fromName} → ${toName}`, transferId, notes: cleanOptional(notes), ...meta(),
       } satisfies MoneyTransaction,
       [`moneyTransactions/${inId}`]: {
         id: inId, accountId: toAccountId, direction: "in", type: "transfer", amountMinor: amount,
-        currency: "DOP", transactionDate, description: `${fromName} → ${toName}`, transferId, notes: cleanOptional(notes), ...meta(),
+        currency: fromAccount.currency, transactionDate, description: `${fromName} → ${toName}`, transferId, notes: cleanOptional(notes), ...meta(),
       } satisfies MoneyTransaction,
     };
     if (fee > 0) {
       const feeId = createId();
       updates[`moneyTransactions/${feeId}`] = {
         id: feeId, accountId: fromAccountId, direction: "out", type: "fee", amountMinor: fee,
-        currency: "DOP", transactionDate, description: `Comisión · ${fromName} → ${toName}`, transferId, notes: cleanOptional(notes), ...meta(),
+        currency: fromAccount.currency, transactionDate, description: `Comisión · ${fromName} → ${toName}`, transferId, notes: cleanOptional(notes), ...meta(),
       } satisfies MoneyTransaction;
     }
     if (fromAccountId === LEGACY_BANK_ACCOUNT_ID && amount + fee === getMoneyAccountBalance(data, fromAccountId)) {
@@ -1837,6 +1863,7 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
     createOneTimeMonthly,
     updateOneTimeMonthly,
     cancelMonthlyOccurrence,
+    postponeObligation,
     payObligation,
     reopenObligation,
     saveIncomeTemplate,

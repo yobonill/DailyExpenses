@@ -62,6 +62,11 @@ export interface MonthlyExpenseOccurrence extends RecordMetadata {
   cancelledReason?: string;
   reconciledAt?: string;
   loanId?: string;
+  /** Original schedule retained when only this occurrence is postponed. */
+  originalDueDate?: string;
+  originalFinancialMonth?: string;
+  originalQuincena?: 1 | 2;
+  postponedAt?: string;
 }
 
 export interface Payment extends RecordMetadata {
@@ -165,13 +170,16 @@ export interface NonMonthlyOccurrence extends RecordMetadata {
   sourcePurchaseGoalId?: string;
   completedAt?: string;
   loanId?: string;
+  /** Original date retained when only this occurrence is postponed. */
+  originalDueDate?: string;
+  postponedAt?: string;
 }
 
 export interface MoneyAccount extends RecordMetadata {
   id: MoneyAccountId;
   kind: "bank" | "cash";
   name: string;
-  currency: "DOP";
+  currency: Currency;
   bankId?: string;
   accountType?: BankAccountType;
   lastFour?: string;
@@ -187,7 +195,7 @@ export interface MoneyTransaction extends RecordMetadata {
   direction: MoneyMovementDirection;
   type: "income" | "payment" | "expense" | "cardPayment" | "loanPayment" | "transfer" | "fee" | "adjustment";
   amountMinor: number;
-  currency: "DOP";
+  currency: Currency;
   transactionDate: string;
   description: string;
   linkedIncomeOccurrenceId?: string;

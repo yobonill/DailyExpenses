@@ -149,6 +149,20 @@ describe("financial calculations", () => {
     expect(calculateReportTotals(data, [], ["2026-08"], 2, "DOP").monthlyPending).toBe(0);
   });
 
+  it("counts a postponed bill only in its destination period", () => {
+    const data = createEmptyFinancialData();
+    data.monthlyOccurrences.internet = {
+      id: "internet_2026-08", templateId: "internet", name: "Internet",
+      expectedAmountMinor: 150000, currency: "DOP", dueDate: "2026-09-20",
+      financialMonth: "2026-09", quincena: 1, status: "upcoming", canPayWithCard: true,
+      oneTime: false, originalDueDate: "2026-09-05", originalFinancialMonth: "2026-08",
+      originalQuincena: 2, postponedAt: "2026-09-04T12:00:00.000Z", ...metadata,
+    };
+
+    expect(calculateReportTotals(data, [], ["2026-08"], "all", "DOP").monthlyPending).toBe(0);
+    expect(calculateReportTotals(data, [], ["2026-09"], 1, "DOP").monthlyPending).toBe(150000);
+  });
+
   it("keeps cash-paid fixed bills in the period projection", () => {
     const data = createEmptyFinancialData();
     data.incomeOccurrences.salary = {

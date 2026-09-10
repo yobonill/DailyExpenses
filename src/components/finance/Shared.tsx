@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import { formatMonthTitle, formatShortDate, getMonthKey, toLocalDateKey } from "../../lib/date";
+import { addDaysToDateKey } from "../../lib/financeDates";
 import { formatCurrency, minorToInput, parseMoneyToCents } from "../../lib/money";
 import { estimateLoanInterestMinor, getLoanBalance } from "../../lib/loanLedger";
 import { CASH_ACCOUNT_ID, calculateTransferFeeMinor, getActiveBankAccounts, getMoneyAccountBalance, isSelectableMoneyAccount, moneyAccountLabel } from "../../lib/moneyLedger";
@@ -118,6 +119,42 @@ export const statusClass = (status: string): string => {
 
 export function StatusChip({ status, label }: { status: string; label: string }) {
   return <span className={`status-chip ${statusClass(status)}`}>{label}</span>;
+}
+
+export function PostponeModal({ title, currentDueDate, onConfirm, onClose }: {
+  title: string;
+  currentDueDate: string;
+  onConfirm: (newDueDate: string) => Promise<void>;
+  onClose: () => void;
+}) {
+  const earliestDate = addDaysToDateKey(currentDueDate, 1);
+  const [newDueDate, setNewDueDate] = useState(earliestDate);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const submit = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!newDueDate || newDueDate <= currentDueDate) {
+      setError("Selecciona una fecha posterior al vencimiento actual.");
+      return;
+    }
+    setSaving(true);
+    setError("");
+    try {
+      await onConfirm(newDueDate);
+      onClose();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "No se pudo postergar la obligación.");
+    } finally {
+      setSaving(false);
+    }
+  };
+  return <Modal title={`Postergar · ${title}`} onClose={onClose} confirmClose><form className="form-grid" onSubmit={submit}>
+    <div className="form-summary"><span>Vencimiento actual</span><strong>{formatShortDate(currentDueDate)}</strong></div>
+    <label className="field"><span>Nueva fecha de vencimiento</span><input type="date" min={earliestDate} value={newDueDate} onChange={(event) => setNewDueDate(event.target.value)} required /></label>
+    <p className="privacy-note">Solo se moverá esta factura. La plantilla recurrente y los próximos vencimientos no cambiarán.</p>
+    {error && <p className="form-error" role="alert">{error}</p>}
+    <div className="modal-actions"><button type="button" className="button button-secondary" onClick={onClose}>Cancelar</button><button type="submit" className="button button-primary" disabled={saving}>{saving ? "Postergando…" : "Postergar factura"}</button></div>
+  </form></Modal>;
 }
 
 export interface PayModalValue {

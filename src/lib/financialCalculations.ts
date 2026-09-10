@@ -434,9 +434,12 @@ export const calculateReportTotals = (
   const savingsTransactions = Object.values(data.savingsTransactions).filter((item) =>
     item.currency === currency && !item.reversedAt && isInSelectedPeriod(item.transactionDate, selected, quincena),
   );
-  const bankFees = currency === "DOP" ? Object.values(data.moneyTransactions)
-    .filter((item) => item.type === "fee" && !item.reversedAt && isInSelectedPeriod(item.transactionDate, selected, quincena))
-    .reduce((total, item) => total + item.amountMinor, 0) : 0;
+  const bankFees = Object.values(data.moneyTransactions)
+    .filter((item) => item.currency === currency
+      && item.type === "fee"
+      && !item.reversedAt
+      && isInSelectedPeriod(item.transactionDate, selected, quincena))
+    .reduce((total, item) => total + item.amountMinor, 0);
   const dailyExpenses = expenses.filter((expense) => !expense.deletedAt
     && (expense.currency === "USD" ? "USD" : "DOP") === currency
     && isInSelectedPeriod(expense.occurredDate, selected, quincena));

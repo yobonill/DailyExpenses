@@ -172,6 +172,6 @@ export const buildPausedMonthlyOccurrenceUpdates = (
   Object.values(data.monthlyOccurrences)
     .filter((occurrence) => occurrence.templateId === templateId
       && occurrence.status === "upcoming"
-      && occurrence.financialMonth > currentFinancialMonth)
+      && (occurrence.originalFinancialMonth || occurrence.financialMonth) > currentFinancialMonth)
     .map((occurrence) => [`monthlyOccurrences/${occurrence.id}`, null]),
 );

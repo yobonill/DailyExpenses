@@ -1,4 +1,4 @@
-# Lista de publicación · Daily Expenses 1.7.0
+# Lista de publicación · Daily Expenses 1.9.0
 
 ## Antes de actualizar
 
@@ -24,7 +24,7 @@
 
    ```bash
    git add .
-   git commit -m "feat: add multiple banks and account-level balances"
+   git commit -m "fix: support USD accounts and savings locations"
    git push origin master
    ```
 
@@ -32,11 +32,15 @@
 
 ## Validación inicial
 
-- La app debe indicar versión `1.7.0` en **Más → Configuración**.
+- La app debe indicar versión `1.9.0` en **Más → Configuración**.
 - El saldo bancario general anterior debe aparecer intacto como **Saldo bancario por distribuir**.
 - Un ingreso debe aumentar solamente la cuenta elegida.
 - Un pago por transferencia o débito debe disminuir solamente la cuenta elegida.
 - Una comisión debe disminuir esa misma cuenta como movimiento separado.
 - Un pago con tarjeta debe aumentar deuda y no disminuir una cuenta bancaria hasta registrar el pago de la tarjeta.
-- El total de todos los bancos más efectivo debe coincidir con tu dinero real.
-
+- El total de todos los bancos más efectivo debe coincidir con tu dinero real dentro de cada moneda.
+- Una cuenta USD debe mostrar su balance en USD, sin sumarlo al total DOP.
+- Al editar un fondo USD deben aparecer solamente las cuentas USD activas.
+- Una factura pendiente debe permitir **Postergar**, salir del período original y aparecer solamente en el período de su nueva fecha.
+- La plantilla de esa factura y el vencimiento recurrente siguiente deben conservar su calendario normal.
+- En el Dashboard, la línea **Fin del período seleccionado** debe separar las obligaciones del período de los avisos externos.

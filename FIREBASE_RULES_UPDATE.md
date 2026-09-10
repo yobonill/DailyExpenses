@@ -1,8 +1,8 @@
-# Publicación de reglas de Firebase · 1.7.0
+# Publicación de reglas de Firebase · 1.9.0
 
-La versión 1.7.0 sigue usando exclusivamente el proyecto `app-daily-expenses-budget` y conserva las rutas `/expenses` y `/dailyExpensesBudget/v1`.
+La versión 1.9.0 sigue usando exclusivamente el proyecto `app-daily-expenses-budget` y conserva las rutas `/expenses` y `/dailyExpensesBudget/v1`.
 
-Esta actualización de reglas es obligatoria: agrega bancos, permite múltiples cuentas bancarias, valida su estructura y permite que los movimientos de dinero señalen cualquier cuenta registrada. Las reglas anteriores solo aceptaban los identificadores generales `bank` y `cash`.
+Esta publicación única reemplaza la actualización 1.8.1: incluye cuentas bancarias y movimientos en DOP o USD, fondos vinculados a cuentas de su misma moneda y los campos de auditoría requeridos al postergar obligaciones. Efectivo y el saldo bancario heredado permanecen exclusivamente en DOP.
 
 ## Publicar
 
@@ -20,4 +20,3 @@ Yisel · YHtQh4N0RaViD8rXqDNE4xZTcN12
 ```
 
 No publiques estas reglas en TaskFollower y no crees nodos manualmente. La aplicación crea bancos, cuentas y movimientos después del acceso autenticado.
-

@@ -22,7 +22,11 @@ function FundForm({ data, fund, onSave, onClose }: {
   const [moneyAccountId, setMoneyAccountId] = useState(fund?.moneyAccountId || "");
   const [notes, setNotes] = useState(fund?.notes || "");
   const [error, setError] = useState("");
-  const physicalAccounts = [...getActiveBankAccounts(data), ...(data.moneyAccounts[CASH_ACCOUNT_ID]?.active ? [data.moneyAccounts[CASH_ACCOUNT_ID]] : [])];
+  const cash = data.moneyAccounts[CASH_ACCOUNT_ID];
+  const physicalAccounts = [
+    ...getActiveBankAccounts(data, currency),
+    ...(currency === "DOP" && cash?.active ? [cash] : []),
+  ];
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
@@ -40,7 +44,7 @@ function FundForm({ data, fund, onSave, onClose }: {
         targetAmountMinor,
         targetDate: targetAmountMinor ? targetDate || undefined : undefined,
         active: fund ? active : true,
-        moneyAccountId: currency === "DOP" ? moneyAccountId || undefined : undefined,
+        moneyAccountId: moneyAccountId || undefined,
         notes,
       }, fund?.id);
       onClose();
@@ -50,9 +54,9 @@ function FundForm({ data, fund, onSave, onClose }: {
   return <Modal title={fund ? "Editar fondo" : "Nuevo fondo"} onClose={onClose}>
     <form className="form-grid" onSubmit={submit}>
       <label className="field"><span>Nombre</span><input value={name} onChange={(event) => setName(event.target.value)} placeholder="Ej. Emergencias" /></label>
-      <CurrencyField value={currency} onChange={(value) => { setCurrency(value); if (value !== "DOP") setMoneyAccountId(""); }} />
+      <CurrencyField value={currency} onChange={(value) => { setCurrency(value); const account = data.moneyAccounts[moneyAccountId]; if (account?.currency !== value) setMoneyAccountId(""); }} />
       {!fund && <MoneyField label="Monto que ya tienes ahorrado" value={initialBalance} onChange={setInitialBalance} currency={currency} required={false} />}
-      {currency === "DOP" && <label className="field"><span>¿Dónde está guardado? (opcional)</span><select value={moneyAccountId} onChange={(event) => setMoneyAccountId(event.target.value)}><option value="">Sin especificar</option>{physicalAccounts.map((account) => <option value={account.id} key={account.id}>{moneyAccountLabel(account.id, data)}</option>)}</select><small className="field-help">Esto solo identifica la ubicación física; no suma el ahorro otra vez al dinero disponible.</small></label>}
+      <label className="field"><span>¿Dónde está guardado? (opcional)</span><select value={moneyAccountId} onChange={(event) => setMoneyAccountId(event.target.value)}><option value="">Sin especificar</option>{physicalAccounts.map((account) => <option value={account.id} key={account.id}>{moneyAccountLabel(account.id, data)}</option>)}</select><small className="field-help">Solo aparecen cuentas en {currency}. Esto identifica la ubicación física y no suma el ahorro otra vez al dinero disponible.</small></label>
       <MoneyField label="Cantidad que quieres alcanzar (opcional)" value={target} onChange={setTarget} currency={currency} required={false} />
       {Boolean(target) && <label className="field"><span>Fecha objetivo (opcional)</span><input type="date" value={targetDate} onChange={(event) => setTargetDate(event.target.value)} /></label>}
       {fund && <><CheckboxField checked={active} onChange={setActive} label="Fondo disponible para usar" /><p className="privacy-note">Si lo desactivas, conservará su balance e historial, pero no podrá recibir nuevas asignaciones.</p></>}

@@ -56,6 +56,13 @@ describe("recurring generation", () => {
       currency: "DOP", dueDate: "2026-10-10", financialMonth: "2026-09", quincena: 1,
       status: "upcoming", canPayWithCard: false, oneTime: false, ...metadata,
     };
+    data.monthlyOccurrences.postponedCurrent = {
+      id: "postponedCurrent", templateId: "internet", name: "Internet", expectedAmountMinor: 150000,
+      currency: "DOP", dueDate: "2026-10-05", financialMonth: "2026-09", quincena: 1,
+      originalDueDate: "2026-09-05", originalFinancialMonth: "2026-08", originalQuincena: 1,
+      postponedAt: "2026-09-02T12:00:00.000Z", status: "upcoming", canPayWithCard: true,
+      oneTime: false, ...metadata,
+    };
 
     expect(buildPausedMonthlyOccurrenceUpdates(data, "internet", "2026-08")).toEqual({
       "monthlyOccurrences/future": null,
@@ -72,6 +79,28 @@ describe("recurring generation", () => {
     const updates = buildGenerationUpdates(data, "user-a", new Date("2026-09-02T12:00:00.000Z"));
     expect(updates["nonMonthlyOccurrences/insurance_2026-12-15"]).toMatchObject({ name: "Seguro" });
     expect(buildGenerationUpdates(applyFinancialUpdates(data, updates), "user-a", new Date("2026-09-02T12:00:00.000Z"))).toEqual({});
+  });
+
+  it("does not recreate a postponed source occurrence and still creates the normal destination cycle", () => {
+    const data = createEmptyFinancialData();
+    data.monthlyTemplates.internet = {
+      id: "internet", name: "Internet", estimatedAmountMinor: 150000, currency: "DOP",
+      dueRule: { kind: "day", day: 5 }, variableAmount: false, canPayWithCard: true,
+      plannedQuincena: 2, active: true, ...metadata,
+    };
+    data.monthlyOccurrences["internet_2026-08"] = {
+      id: "internet_2026-08", templateId: "internet", name: "Internet",
+      expectedAmountMinor: 150000, currency: "DOP", dueDate: "2026-09-20",
+      financialMonth: "2026-09", quincena: 1, status: "upcoming", canPayWithCard: true,
+      oneTime: false, originalDueDate: "2026-09-05", originalFinancialMonth: "2026-08",
+      originalQuincena: 2, postponedAt: "2026-09-04T12:00:00.000Z", ...metadata,
+    };
+
+    const updates = buildGenerationUpdates(data, "user-a", new Date("2026-09-04T12:00:00.000Z"));
+    expect(updates["monthlyOccurrences/internet_2026-08"]).toBeUndefined();
+    expect(updates["monthlyOccurrences/internet_2026-09"]).toMatchObject({
+      id: "internet_2026-09", financialMonth: "2026-09", dueDate: "2026-10-05",
+    });
   });
 
   it("closes card statements by cut date and preserves separate opening ledgers", () => {

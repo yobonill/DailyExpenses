@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createEmptyFinancialData } from "./financialState";
-import { calculateTransferFeeMinor, getActiveBankAccounts, getMoneyAccountBalance, getTotalBankBalance, getTotalMoneyAvailable, moneyAccountLabel } from "./moneyLedger";
+import { calculateTransferFeeMinor, getActiveBankAccounts, getMoneyAccountBalance, getTotalBankBalance, getTotalMoneyAvailable, isSelectableMoneyAccount, moneyAccountLabel } from "./moneyLedger";
 import { estimateLoanInterestMinor, getLoanBalance } from "./loanLedger";
 
 const meta = { createdAt: "2026-09-01T00:00:00.000Z", createdBy: "u", updatedAt: "2026-09-01T00:00:00.000Z", updatedBy: "u", version: 1 };
@@ -35,6 +35,23 @@ describe("money and loan ledgers", () => {
     expect(getTotalMoneyAvailable(data)).toBe(110_000);
     expect(getActiveBankAccounts(data).map((account) => account.id)).toEqual(["payroll", "cardPayments"]);
     expect(moneyAccountLabel("cardPayments", data)).toBe("Scotiabank · Pago de tarjeta");
+  });
+
+  it("keeps DOP and USD bank balances separate", () => {
+    const data = createEmptyFinancialData();
+    data.banks.bank = { id: "bank", name: "Banco de prueba", active: true, ...meta };
+    data.moneyAccounts.dop = { id: "dop", kind: "bank", bankId: "bank", accountType: "savings", name: "Pesos", currency: "DOP", openingBalanceMinor: 50_000, openingDate: "2026-09-01", active: true, ...meta };
+    data.moneyAccounts.usd = { id: "usd", kind: "bank", bankId: "bank", accountType: "savings", name: "Dólares", currency: "USD", openingBalanceMinor: 51_000, openingDate: "2026-09-01", active: true, ...meta };
+    data.moneyTransactions.usdDeposit = { id: "usdDeposit", accountId: "usd", direction: "in", type: "income", amountMinor: 9_000, currency: "USD", transactionDate: "2026-09-02", description: "Ingreso USD", ...meta };
+
+    expect(getTotalBankBalance(data, "DOP")).toBe(50_000);
+    expect(getTotalBankBalance(data, "USD")).toBe(60_000);
+    expect(getTotalMoneyAvailable(data, "DOP")).toBe(50_000);
+    expect(getTotalMoneyAvailable(data, "USD")).toBe(60_000);
+    expect(getActiveBankAccounts(data, "DOP").map((account) => account.id)).toEqual(["dop"]);
+    expect(getActiveBankAccounts(data, "USD").map((account) => account.id)).toEqual(["usd"]);
+    expect(isSelectableMoneyAccount(data, "usd", "bankTransfer", "USD")).toBe(true);
+    expect(isSelectableMoneyAccount(data, "usd", "bankTransfer", "DOP")).toBe(false);
   });
 
   it("reduces loans only by principal and supports exact bank adjustments", () => {

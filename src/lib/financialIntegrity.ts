@@ -65,13 +65,15 @@ export const isFinanciallyConsistent = (candidate: FinancialData): boolean => {
       || (isCash ? account.kind !== "cash" : account.kind !== "bank")
       || (!isCash && !isLegacy && (!bank || !account.accountType))
       || (isCash && Boolean(account.bankId))
-      || account.currency !== "DOP"
+      || !["DOP", "USD"].includes(account.currency)
+      || ((isCash || isLegacy) && account.currency !== "DOP")
       || account.openingBalanceMinor < 0
       || getMoneyAccountBalance(candidate, account.id) < 0) return false;
   }
   for (const transaction of Object.values(candidate.moneyTransactions)) {
-    if (!candidate.moneyAccounts[transaction.accountId]
-      || transaction.currency !== "DOP"
+    const account = candidate.moneyAccounts[transaction.accountId];
+    if (!account
+      || transaction.currency !== account.currency
       || transaction.amountMinor <= 0
       || !["in", "out"].includes(transaction.direction)) return false;
   }
@@ -95,7 +97,8 @@ export const isFinanciallyConsistent = (candidate: FinancialData): boolean => {
   }
   for (const fundId of Object.keys(candidate.savingsFunds)) {
     const fund = candidate.savingsFunds[fundId];
-    if (fund.moneyAccountId && (!candidate.moneyAccounts[fund.moneyAccountId] || fund.currency !== "DOP")) return false;
+    const account = fund.moneyAccountId ? candidate.moneyAccounts[fund.moneyAccountId] : undefined;
+    if (fund.moneyAccountId && (!account || account.currency !== fund.currency)) return false;
     const balance = getFundBalance(candidate, fundId);
     if (balance < 0 || getFundAllocated(candidate, fundId) > balance) return false;
   }
@@ -119,7 +122,8 @@ export const isFinanciallyConsistent = (candidate: FinancialData): boolean => {
       || getCardCurrentDebt(candidate, cardId, "USD") < 0) return false;
   }
   for (const income of Object.values(candidate.incomeOccurrences)) {
-    if (income.moneyAccountId && !candidate.moneyAccounts[income.moneyAccountId]) return false;
+    const account = income.moneyAccountId ? candidate.moneyAccounts[income.moneyAccountId] : undefined;
+    if (income.moneyAccountId && (!account || account.currency !== income.currency)) return false;
   }
   for (const statement of Object.values(candidate.cardStatements)) {
     if (statement.minimumPaymentMinor !== undefined && statement.minimumPaymentMinor <= 0) return false;

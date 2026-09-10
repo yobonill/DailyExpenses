@@ -1,4 +1,4 @@
-import type { BankAccountType, FinancialData, MoneyAccount, MoneyAccountId, MoneyTransaction } from "../models/finance";
+import type { BankAccountType, Currency, FinancialData, MoneyAccount, MoneyAccountId, MoneyTransaction } from "../models/finance";
 
 /** Stable IDs retained for upgrade compatibility. */
 export const LEGACY_BANK_ACCOUNT_ID: MoneyAccountId = "bank";
@@ -35,36 +35,39 @@ export const getBankAccounts = (data: FinancialData, includeLegacy = false): Mon
       return bankA.localeCompare(bankB, "es") || a.name.localeCompare(b.name, "es");
     });
 
-export const getActiveBankAccounts = (data: FinancialData): MoneyAccount[] =>
-  getBankAccounts(data).filter((account) => account.active && Boolean(account.bankId && data.banks[account.bankId]?.active));
+export const getActiveBankAccounts = (data: FinancialData, currency: Currency = "DOP"): MoneyAccount[] =>
+  getBankAccounts(data).filter((account) => account.currency === currency
+    && account.active
+    && Boolean(account.bankId && data.banks[account.bankId]?.active));
 
 export const getCashAccount = (data: FinancialData): MoneyAccount | undefined =>
   data.moneyAccounts[CASH_ACCOUNT_ID];
 
-export const getTotalBankBalance = (data: FinancialData): number =>
+export const getTotalBankBalance = (data: FinancialData, currency: Currency = "DOP"): number =>
   Object.values(data.moneyAccounts)
-    .filter((account) => account.kind === "bank" && !account.archivedAt)
+    .filter((account) => account.kind === "bank" && account.currency === currency && !account.archivedAt)
     .reduce((total, account) => total + getMoneyAccountBalance(data, account.id), 0);
 
-export const getTotalMoneyAvailable = (data: FinancialData): number =>
+export const getTotalMoneyAvailable = (data: FinancialData, currency: Currency = "DOP"): number =>
   Object.values(data.moneyAccounts)
-    .filter((account) => !account.archivedAt)
+    .filter((account) => account.currency === currency && !account.archivedAt)
     .reduce((total, account) => total + getMoneyAccountBalance(data, account.id), 0);
 
 export const hasInitializedMoneyAccounts = (data: FinancialData): boolean =>
   Object.keys(data.moneyAccounts).length > 0;
 
-export const hasSelectableBankAccounts = (data: FinancialData): boolean =>
-  getActiveBankAccounts(data).length > 0;
+export const hasSelectableBankAccounts = (data: FinancialData, currency: Currency = "DOP"): boolean =>
+  getActiveBankAccounts(data, currency).length > 0;
 
 export const isSelectableMoneyAccount = (
   data: FinancialData,
   accountId: MoneyAccountId | undefined,
   method: "cash" | "bankTransfer" | "debitCard",
+  currency: Currency = "DOP",
 ): boolean => {
   if (!accountId) return false;
   const account = data.moneyAccounts[accountId];
-  if (!account || !account.active || account.archivedAt) return false;
+  if (!account || account.currency !== currency || !account.active || account.archivedAt) return false;
   if (method === "cash") return account.id === CASH_ACCOUNT_ID && account.kind === "cash";
   return account.kind === "bank"
     && account.id !== LEGACY_BANK_ACCOUNT_ID

@@ -1,7 +1,7 @@
 import { useMemo, useState, type FormEvent } from "react";
 import type { Expense } from "../../models/expense";
 import type { CreditCard, FinancialData, MonthlyExpenseOccurrence, NonMonthlyOccurrence } from "../../models/finance";
-import { formatBudgetCycleRange, formatMonthTitle, formatShortDate, getMonthKey } from "../../lib/date";
+import { formatBudgetCycleRange, formatMonthTitle, formatQuincenaRange, formatShortDate, getMonthKey } from "../../lib/date";
 import { getCurrentFinancialPeriod } from "../../lib/financeDates";
 import {
   calculateReportTotals,
@@ -22,7 +22,8 @@ import {
 import { formatCurrency, minorToInput, parseMoneyToCents } from "../../lib/money";
 import { getTotalLoanDebt } from "../../lib/loanLedger";
 import { CASH_ACCOUNT_ID, getMoneyAccountBalance, getTotalBankBalance, getTotalMoneyAvailable, hasInitializedMoneyAccounts } from "../../lib/moneyLedger";
-import { Modal, MoneyField, PageHeading, PayModal, PeriodSelector, StatusChip, type PayModalValue } from "./Shared";
+import { wasOriginallyInSelectedPeriod } from "../../lib/obligationPostponement";
+import { Modal, MoneyField, PageHeading, PayModal, PeriodSelector, PostponeModal, StatusChip, type PayModalValue } from "./Shared";
 
 type Payable = { type: "monthly"; item: MonthlyExpenseOccurrence } | { type: "nonMonthly"; item: NonMonthlyOccurrence };
 
@@ -30,6 +31,7 @@ interface DashboardViewProps {
   data: FinancialData;
   expenses: Expense[];
   onPay: (value: PayModalValue & { sourceType: "monthly" | "nonMonthly"; sourceId: string; currency: "DOP" | "USD" }) => Promise<void>;
+  onPostpone: (sourceType: "monthly" | "nonMonthly", sourceId: string, newDueDate: string) => Promise<void>;
   onSaveCardPaymentPlan: (financialMonth: string, quincena: 1 | 2, plannedDopMinor: number, plannedUsdMinor: number) => Promise<void>;
   onNavigate: (view: "budget" | "future" | "income" | "cards" | "money" | "loans") => void;
 }
@@ -93,30 +95,43 @@ function CardPaymentPlanModal({ data, monthKey, quincena, onSave, onClose }: {
   return <Modal title="Pago previsto de tarjeta" onClose={onClose}><form className="form-grid" onSubmit={submit}><p className="privacy-note">Indica el total que planeas pagar en cada quincena. Si ya registraste parte del pago, el Dashboard descontará solamente lo que todavía falta.</p>{visibleQuincenas.map((item) => <fieldset className="card-plan-fieldset" key={item}><legend>Quincena {item} · {formatMonthTitle(monthKey)}</legend><MoneyField label="Pago previsto de deuda DOP" value={draft[item].dop} onChange={(value) => updateDraft(item, "dop", value)} currency="DOP" required={false} /><MoneyField label="Deuda USD que planeas cancelar" value={draft[item].usd} onChange={(value) => updateDraft(item, "usd", value)} currency="USD" required={false} /></fieldset>)}{data.settings.estimatedUsdToDopRate <= 0 && visibleQuincenas.some((item) => Boolean(parseMoneyToCents(draft[item].usd))) && <p className="validation-warning">El pago USD se guardará, pero no podrá calcularse su equivalente en pesos hasta configurar la tasa estimada.</p>}{error && <p className="form-error">{error}</p>}<div className="modal-actions"><button type="button" className="button button-secondary" onClick={onClose}>Cancelar</button><button className="button button-primary" disabled={saving}>{saving ? "Guardando…" : "Guardar pago previsto"}</button></div></form></Modal>;
 }
 
-export function DashboardView({ data, expenses, onPay, onSaveCardPaymentPlan, onNavigate }: DashboardViewProps) {
+export function DashboardView({ data, expenses, onPay, onPostpone, onSaveCardPaymentPlan, onNavigate }: DashboardViewProps) {
   const current = getCurrentFinancialPeriod();
   const [monthKey, setMonthKey] = useState(current.financialMonth);
   const [quincena, setQuincena] = useState<"all" | 1 | 2>(current.quincena);
   const [payable, setPayable] = useState<Payable | null>(null);
+  const [postponing, setPostponing] = useState<Payable | null>(null);
   const [planningCardPayment, setPlanningCardPayment] = useState(false);
   const [initialPayMethod, setInitialPayMethod] = useState<"cash" | "bankTransfer" | "creditCard">("bankTransfer");
   const monthSet = useMemo(() => new Set([monthKey]), [monthKey]);
   const activeCards = useMemo(() => Object.values(data.creditCards).filter((card) => card.active && !card.archivedAt), [data.creditCards]);
 
-  const obligations = useMemo(() => {
+  const cycleObligations = useMemo(() => {
     const monthly: Payable[] = Object.values(data.monthlyOccurrences)
       .filter((item) => item.status === "upcoming" && isPlannedOccurrenceInSelectedPeriod(item, monthSet, quincena))
       .map((item) => ({ type: "monthly", item }));
     const irregular: Payable[] = Object.values(data.nonMonthlyOccurrences)
+      .filter((item) => item.status === "upcoming" && isInSelectedPeriod(item.dueDate, monthSet, quincena))
+      .map((item) => ({ type: "nonMonthly", item }));
+    return [...monthly, ...irregular].sort((a, b) => a.item.dueDate.localeCompare(b.item.dueDate));
+  }, [data.monthlyOccurrences, data.nonMonthlyOccurrences, monthSet, quincena]);
+
+  const laterObligations = useMemo(() => {
+    const postponedMonthly: Payable[] = Object.values(data.monthlyOccurrences)
+      .filter((item) => item.status === "upcoming"
+        && Boolean(item.postponedAt)
+        && wasOriginallyInSelectedPeriod(item, monthSet, quincena)
+        && !isPlannedOccurrenceInSelectedPeriod(item, monthSet, quincena))
+      .map((item) => ({ type: "monthly", item }));
+    const irregularWarnings: Payable[] = Object.values(data.nonMonthlyOccurrences)
       .filter((item) => {
-        if (item.status !== "upcoming") return false;
-        if (isInSelectedPeriod(item.dueDate, monthSet, quincena)) return true;
+        if (item.status !== "upcoming" || isInSelectedPeriod(item.dueDate, monthSet, quincena)) return false;
         const plan = data.nonMonthlyExpenses[item.planId];
         const warningMonths = plan?.warningMonths ?? data.settings.nonMonthlyWarningMonths;
         return monthKey === current.financialMonth && isNonMonthlyWarningActive(item, current.dateKey, warningMonths);
       })
       .map((item) => ({ type: "nonMonthly", item }));
-    return [...monthly, ...irregular].sort((a, b) => a.item.dueDate.localeCompare(b.item.dueDate));
+    return [...postponedMonthly, ...irregularWarnings].sort((a, b) => a.item.dueDate.localeCompare(b.item.dueDate));
   }, [current.dateKey, current.financialMonth, data.monthlyOccurrences, data.nonMonthlyExpenses, data.nonMonthlyOccurrences, data.settings.nonMonthlyWarningMonths, monthKey, monthSet, quincena]);
 
   const income = useMemo(() => Object.values(data.incomeOccurrences)
@@ -149,6 +164,29 @@ export function DashboardView({ data, expenses, onPay, onSaveCardPaymentPlan, on
   const loanDebtUsd = getTotalLoanDebt(data, "USD");
   const pendingBillsDop = dop.monthlyPending + dop.nonMonthlyPending;
   const totalDebtDop = pendingBillsDop + cardDebtDop + loanDebtDop + (estimatedUsdRate > 0 ? Math.round((cardDebtUsd + loanDebtUsd) * estimatedUsdRate) : 0);
+  const selectedPeriodRange = quincena === "all"
+    ? formatBudgetCycleRange(monthKey)
+    : formatQuincenaRange(monthKey, quincena);
+
+  const renderObligations = (items: Payable[]) => <div className="finance-list">
+    {items.map((payableItem) => {
+      const item = payableItem.item;
+      const immediateStatus = deriveDatedStatus(item, current.dateKey, payableItem.type === "monthly" ? data.settings.dueSoonDaysMonthly : 0);
+      const plan = payableItem.type === "nonMonthly" ? data.nonMonthlyExpenses[(item as NonMonthlyOccurrence).planId] : undefined;
+      const status = payableItem.type === "nonMonthly" && immediateStatus === "upcoming"
+        && isNonMonthlyWarningActive(item as NonMonthlyOccurrence, current.dateKey, plan?.warningMonths ?? data.settings.nonMonthlyWarningMonths)
+        ? "dueSoon"
+        : immediateStatus;
+      const funding = payableItem.type === "nonMonthly" ? getFutureOccurrenceFunding(data, item as NonMonthlyOccurrence) : null;
+      return <article className="finance-row-card" key={`${payableItem.type}-${item.id}`}>
+        <div className="finance-row-main">
+          <div><div className="row-title-line"><h3>{item.name}</h3><StatusChip status={status} label={payableItem.type === "nonMonthly" && status === "dueSoon" ? "Planificar" : statusLabel(status)} />{item.postponedAt && <StatusChip status="partial" label="Postergada" />}</div><p>Vence {formatShortDate(item.dueDate)}{funding ? ` · Reservado ${formatCurrency(funding.reservedMinor, item.currency)} · Falta ${formatCurrency(funding.missingMinor, item.currency)}` : ""}</p>{item.originalDueDate && <small className="postponed-note">Fecha original: {formatShortDate(item.originalDueDate)}</small>}</div>
+          <strong>{formatCurrency(item.expectedAmountMinor, item.currency)}</strong>
+        </div>
+        <div className="row-actions"><button type="button" className="button button-primary" onClick={() => { setInitialPayMethod("bankTransfer"); setPayable(payableItem); }}>Pagar</button>{item.canPayWithCard && <button type="button" className="button button-secondary" onClick={() => { setInitialPayMethod("creditCard"); setPayable(payableItem); }}>Pagar con tarjeta</button>}<button type="button" className="button button-secondary" onClick={() => setPostponing(payableItem)}>Postergar</button><button type="button" className="button button-quiet" onClick={() => onNavigate(payableItem.type === "monthly" ? "budget" : "future")}>Detalles</button></div>
+      </article>;
+    })}
+  </div>;
 
   return (
     <section className="finance-page">
@@ -189,30 +227,13 @@ export function DashboardView({ data, expenses, onPay, onSaveCardPaymentPlan, on
       </div>
 
       <section className="dashboard-section">
-        <div className="section-title-row"><div><span className="eyebrow">Prioridad</span><h2>Pagos próximos</h2></div><button className="text-button" type="button" onClick={() => onNavigate("budget")}>Ver presupuesto</button></div>
-        {!obligations.length ? <div className="success-panel">No hay obligaciones pendientes en este período.</div> : (
-          <div className="finance-list">
-            {obligations.map((payableItem) => {
-              const item = payableItem.item;
-              const immediateStatus = deriveDatedStatus(item, current.dateKey, payableItem.type === "monthly" ? data.settings.dueSoonDaysMonthly : 0);
-              const plan = payableItem.type === "nonMonthly" ? data.nonMonthlyExpenses[(item as NonMonthlyOccurrence).planId] : undefined;
-              const status = payableItem.type === "nonMonthly" && immediateStatus === "upcoming"
-                && isNonMonthlyWarningActive(item as NonMonthlyOccurrence, current.dateKey, plan?.warningMonths ?? data.settings.nonMonthlyWarningMonths)
-                ? "dueSoon"
-                : immediateStatus;
-              const funding = payableItem.type === "nonMonthly" ? getFutureOccurrenceFunding(data, item as NonMonthlyOccurrence) : null;
-              return (
-                <article className="finance-row-card" key={item.id}>
-                  <div className="finance-row-main">
-                    <div><div className="row-title-line"><h3>{item.name}</h3><StatusChip status={status} label={payableItem.type === "nonMonthly" && status === "dueSoon" ? "Planificar" : statusLabel(status)} /></div><p>Vence {formatShortDate(item.dueDate)}{funding ? ` · Reservado ${formatCurrency(funding.reservedMinor, item.currency)} · Falta ${formatCurrency(funding.missingMinor, item.currency)}` : ""}</p></div>
-                    <strong>{formatCurrency(item.expectedAmountMinor, item.currency)}</strong>
-                  </div>
-                  <div className="row-actions"><button type="button" className="button button-primary" onClick={() => { setInitialPayMethod("bankTransfer"); setPayable(payableItem); }}>Pagar</button>{item.canPayWithCard && <button type="button" className="button button-secondary" onClick={() => { setInitialPayMethod("creditCard"); setPayable(payableItem); }}>Pagar con tarjeta</button>}<button type="button" className="button button-quiet" onClick={() => onNavigate(payableItem.type === "monthly" ? "budget" : "future")}>Detalles</button></div>
-                </article>
-              );
-            })}
-          </div>
-        )}
+        <div className="section-title-row"><div><span className="eyebrow">Dentro del período</span><h2>Pagos del período seleccionado</h2></div><button className="text-button" type="button" onClick={() => onNavigate("budget")}>Ver presupuesto</button></div>
+        {!cycleObligations.length ? <div className="success-panel">No hay obligaciones pendientes dentro de este período.</div> : renderObligations(cycleObligations)}
+        {laterObligations.length > 0 && <>
+          <div className="cycle-boundary" role="separator" aria-label={`Fin del período seleccionado: ${selectedPeriodRange}`}><span>Fin del período seleccionado</span><strong>{selectedPeriodRange}</strong></div>
+          <div className="section-title-row after-cycle-heading"><div><span className="eyebrow">Fuera del período</span><h2>Otras obligaciones y próximos avisos</h2></div></div>
+          {renderObligations(laterObligations)}
+        </>}
       </section>
 
       <section className="dashboard-section">
@@ -229,6 +250,7 @@ export function DashboardView({ data, expenses, onPay, onSaveCardPaymentPlan, on
       </section>
 
       {payable && <PayModal title={payable.item.name} expectedMinor={payable.item.expectedAmountMinor} currency={payable.item.currency} canPayWithCard={payable.item.canPayWithCard} cards={activeCards as CreditCard[]} data={data} loanId={payable.item.loanId} allowSavings={payable.type === "nonMonthly"} initialMethod={initialPayMethod} onClose={() => setPayable(null)} onConfirm={(value) => onPay({ ...value, sourceType: payable.type, sourceId: payable.item.id, currency: payable.item.currency })} />}
+      {postponing && <PostponeModal title={postponing.item.name} currentDueDate={postponing.item.dueDate} onClose={() => setPostponing(null)} onConfirm={(newDueDate) => onPostpone(postponing.type, postponing.item.id, newDueDate)} />}
       {planningCardPayment && <CardPaymentPlanModal data={data} monthKey={monthKey} quincena={quincena} onSave={onSaveCardPaymentPlan} onClose={() => setPlanningCardPayment(false)} />}
     </section>
   );

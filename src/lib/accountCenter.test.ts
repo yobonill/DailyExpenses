@@ -15,8 +15,10 @@ describe("buildAccountCenterGroups", () => {
     const data = createEmptyFinancialData();
     data.banks.scotia = { id: "scotia", name: "Scotiabank", active: true, ...metadata };
     data.moneyAccounts.payments = { id: "payments", kind: "bank", bankId: "scotia", accountType: "savings", name: "Pagos", currency: "DOP", openingBalanceMinor: 10_000, openingDate: "2026-09-09", active: true, ...metadata };
+    data.moneyAccounts.dollars = { id: "dollars", kind: "bank", bankId: "scotia", accountType: "savings", name: "Dólares", currency: "USD", openingBalanceMinor: 51_000, openingDate: "2026-09-09", active: true, ...metadata };
     data.moneyAccounts.cash = { id: "cash", kind: "cash", name: "Efectivo", currency: "DOP", openingBalanceMinor: 2_000, openingDate: "2026-09-09", active: true, ...metadata };
     data.savingsFunds.emergency = { id: "emergency", name: "Emergencia", currency: "DOP", moneyAccountId: "payments", active: true, ...metadata };
+    data.savingsFunds.games = { id: "games", name: "Juegos", currency: "USD", moneyAccountId: "dollars", active: true, ...metadata };
     data.savingsFunds.wallet = { id: "wallet", name: "Sobre", currency: "DOP", moneyAccountId: "cash", active: true, ...metadata };
     data.savingsFunds.unassigned = { id: "unassigned", name: "Vacaciones", currency: "DOP", active: true, ...metadata };
     data.creditCards.bravo = { id: "bravo", name: "Visa Bravo", bankId: "scotia", cutDay: 15, dueDay: 10, active: true, openingCurrentDebtDopMinor: 0, openingCurrentDebtUsdMinor: 0, openingStatementDopMinor: 0, openingStatementUsdMinor: 0, openingDate: "2026-09-09", ...metadata };
@@ -24,8 +26,8 @@ describe("buildAccountCenterGroups", () => {
 
     const result = buildAccountCenterGroups(data);
 
-    expect(result.banks[0].accounts.map((item) => item.id)).toEqual(["payments"]);
-    expect(result.banks[0].savingsFunds.map((item) => item.id)).toEqual(["emergency"]);
+    expect(result.banks[0].accounts.map((item) => item.id)).toEqual(["dollars", "payments"]);
+    expect(result.banks[0].savingsFunds.map((item) => item.id)).toEqual(["emergency", "games"]);
     expect(result.banks[0].cards.map((item) => item.id)).toEqual(["bravo"]);
     expect(result.banks[0].loans.map((item) => item.id)).toEqual(["personal"]);
     expect(result.cashSavingsFunds.map((item) => item.id)).toEqual(["wallet"]);

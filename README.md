@@ -19,14 +19,14 @@ Los gastos diarios viven en `/expenses`. Los módulos de presupuesto viven en el
 ## Áreas funcionales
 
 - **Registrar / Historial:** un solo flujo para gastos extras realizados. Se elige la forma de pago al registrar y el gasto queda contabilizado inmediatamente.
-- **Dashboard:** obligaciones próximas, vencidas, estados de tarjeta, ingresos y proyección por moneda.
-- **Presupuesto:** gastos recurrentes y puntuales asignados explícitamente a Q1 o Q2, pago normal o con tarjeta, esperado/real y variación.
-- **Ingresos:** salario, otros ingresos recurrentes y puntuales; esperado frente a recibido.
+- **Dashboard:** obligaciones próximas, vencidas, estados de tarjeta, ingresos y proyección por moneda; separa claramente el período seleccionado de los avisos que quedan fuera de él.
+- **Presupuesto:** gastos recurrentes y puntuales asignados explícitamente a Q1 o Q2, pago normal o con tarjeta, postergación individual, esperado/real y variación.
+- **Ingresos:** salario, otros ingresos recurrentes y puntuales; esperado frente a recibido y cuenta DOP/USD donde entró.
 - **Tarjeta:** una tarjeta, deuda DOP/USD independiente, cortes, vencimientos, cargos, pagos y ajustes.
-- **Cuentas y productos:** un centro para bancos, cuentas, efectivo, ahorros, la tarjeta y préstamos, con agrupación por banco y datos pendientes de organizar.
+- **Cuentas y productos:** un centro para bancos, cuentas DOP/USD, efectivo DOP, ahorros, la tarjeta y préstamos, con agrupación por banco y datos pendientes de organizar.
 - **Préstamos:** capital pendiente, tasa anual, historial de pagos y ajuste exacto contra el banco, administrados desde Cuentas y productos.
-- **Gastos no mensuales:** una vez, cada N meses o cada N años, horizonte de 12 meses y alertas internas.
-- **Ahorros:** fondos por propósito, depósitos, retiros, correcciones, transferencias y asignaciones, administrados desde Cuentas y productos.
+- **Gastos no mensuales:** una vez, cada N meses o cada N años, horizonte de 12 meses, alertas internas y postergación de un vencimiento sin mover el calendario recurrente.
+- **Ahorros:** fondos por propósito, depósitos, retiros, correcciones, transferencias y asignaciones; cada fondo puede indicar la cuenta física de su misma moneda donde está guardado.
 - **Reportes:** gastos, flujo de caja, planificación, filtros de quincena/múltiples meses/año, desglose anual y resumen por categorías predefinidas.
 - **Configuración:** umbrales del Dashboard, respaldo JSON, validación, restauración e instalación PWA.
 
@@ -51,6 +51,7 @@ La fecha de vencimiento controla los avisos, pero un gasto de presupuesto puede 
 - Un pago vinculado a un préstamo reduce su balance únicamente por la porción de capital; interés y cargos permanecen en el historial.
 - Los saldos iniciales por cuenta, Efectivo y préstamos forman un punto de partida: los movimientos anteriores no se vuelven a aplicar.
 - Los fondos de ahorro son activos reservados, no gastos.
+- Una cuenta bancaria y un fondo vinculado siempre usan la misma moneda. Sus importes DOP y USD se muestran por separado y nunca se suman entre sí.
 - Una asignación reserva saldo sin moverlo; consumirla genera el retiro correspondiente.
 - Los pagos vinculados, cargos de tarjeta, retiros y cambios de estado se guardan juntos.
 - Las transacciones financieras validan versiones, pagos duplicados y sobreasignación para uso simultáneo.
@@ -60,6 +61,8 @@ La fecha de vencimiento controla los avisos, pero un gasto de presupuesto puede 
 Las categorías son opcionales y se eligen de una lista predefinida. Agrupan gastos extras, obligaciones mensuales y gastos futuros en Reportes; no cambian fechas ni pagos.
 
 `Repetir automáticamente cada mes` controla si una plantilla genera nuevos meses. Al pausarla se conserva la obligación del período financiero actual y todo el historial pagado/cancelado, pero se eliminan sus proyecciones futuras todavía pendientes. Al reactivarla se vuelven a generar los períodos futuros sin duplicados.
+
+`Postergar` mueve solamente la obligación seleccionada a una fecha posterior. La app conserva su fecha original para auditoría, recalcula el mes financiero y la quincena de destino, y no cambia la plantilla ni los demás vencimientos. Si en el período de destino ya existe la factura recurrente normal, ambas obligaciones se muestran porque representan compromisos distintos.
 
 ## Firebase
 
