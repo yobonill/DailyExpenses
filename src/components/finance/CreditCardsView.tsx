@@ -1,4 +1,5 @@
 import { useMemo, useState, type FormEvent } from "react";
+import { EXPENSE_CATEGORIES } from "../../config/financeCategories";
 import type { CreditCardInput } from "../../hooks/useFinanceActions";
 import type {
   CardTransaction,
@@ -48,6 +49,7 @@ export type AddCardTransaction = (
   moneyAccountId?: MoneyAccountId,
   paymentMethod?: Exclude<PaymentMethod, "creditCard">,
   transferFeeMinor?: number,
+  category?: string,
 ) => Promise<void>;
 
 const formatExchangeRate = (rate: number): string => new Intl.NumberFormat("es-DO", {
@@ -213,6 +215,7 @@ function CardTransactionModal({
   const [settlementDop, setSettlementDop] = useState("");
   const [date, setDate] = useState(toLocalDateKey());
   const [description, setDescription] = useState(initialType === "payment" ? "Pago de tarjeta" : "");
+  const [category, setCategory] = useState("");
   const [savingsFundId, setSavingsFundId] = useState("");
   const [includedInCurrentBalance, setIncludedInCurrentBalance] = useState(false);
   const [adjustmentDirection, setAdjustmentDirection] = useState<"increase" | "decrease">("increase");
@@ -294,6 +297,7 @@ function CardTransactionModal({
         type === "payment" && !includedInCurrentBalance ? effectiveMoneyAccountId : undefined,
         type === "payment" && !includedInCurrentBalance ? paymentMethod : undefined,
         type === "payment" && !includedInCurrentBalance ? feeMinor : undefined,
+        type === "charge" ? category || undefined : undefined,
       );
       onClose();
     } catch (reason) {
@@ -339,6 +343,7 @@ function CardTransactionModal({
           }
         }} /></label>
         <label className="field"><span>Descripción</span><input value={description} onChange={(event) => setDescription(event.target.value)} /></label>
+        {type === "charge" && <label className="field"><span>Categoría (opcional)</span><select value={category} onChange={(event) => setCategory(event.target.value)}><option value="">Sin categoría</option>{EXPENSE_CATEGORIES.map((item) => <option value={item} key={item}>{item}</option>)}</select></label>}
         {type === "payment" && <CheckboxField checked={includedInCurrentBalance} onChange={(checked) => {
           setIncludedInCurrentBalance(checked);
           if (checked) setSavingsFundId("");

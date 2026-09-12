@@ -1468,6 +1468,7 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
     moneyAccountId?: MoneyAccountId,
     paymentMethod: Exclude<PaymentMethod, "creditCard"> = "bankTransfer",
     transferFeeMinor = 0,
+    category?: string,
   ) => {
     const card = data.creditCards[cardId];
     if (!card) throw new Error("Tarjeta no encontrada.");
@@ -1524,6 +1525,7 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
       affectsCurrentBalance: type === "payment" ? affectsCurrentBalance : undefined,
       transactionDate,
       description: description.trim(),
+      category: type === "charge" ? cleanOptional(category) : undefined,
       moneyAccountId: type === "payment" && affectsCurrentBalance ? moneyAccountId : undefined,
       paymentMethod: type === "payment" && affectsCurrentBalance ? paymentMethod : undefined,
       transferFeeMinor: normalizedFee || undefined,

@@ -18,7 +18,7 @@ Los gastos diarios viven en `/expenses`. Los módulos de presupuesto viven en el
 
 ## Áreas funcionales
 
-- **Registrar / Historial:** un solo flujo para gastos extras realizados. Se elige la forma de pago al registrar y el gasto queda contabilizado inmediatamente.
+- **Registrar / Historial:** registro rápido de extras y un historial unificado de gastos realizados. El Historial combina extras, facturas, gastos no mensuales, metas, cargos manuales y comisiones sin duplicar los movimientos financieros vinculados.
 - **Dashboard:** dinero real de efectivo y cuentas de débito elegidas por el usuario, facturas pendientes y resultado esperado después de cubrir lo todavía pendiente; separa claramente el período seleccionado de los avisos que quedan fuera de él.
 - **Presupuesto:** gastos recurrentes y puntuales asignados explícitamente a Q1 o Q2, pago normal o con tarjeta, postergación individual, esperado/real y variación.
 - **Ingresos:** salario, otros ingresos recurrentes y puntuales; esperado frente a recibido y cuenta DOP/USD donde entró.
@@ -108,4 +108,4 @@ El respaldo JSON incluye gastos diarios y todas las entidades financieras versio
 
 ## Verificación
 
-La suite automatizada cubre fechas y febrero bisiesto, generación idempotente, separación DOP/USD, gastos extras por forma de pago, no doble conteo de tarjeta, selección explícita del dinero del Dashboard, integridad multiusuario, ahorros y respaldo. Los pasos manuales de despliegue están en `DEPLOYMENT_CHECKLIST.md`.
+La suite automatizada cubre fechas y febrero bisiesto, generación idempotente, separación DOP/USD, historial unificado y comparativos, gastos extras por forma de pago, no doble conteo de tarjeta, selección explícita del dinero del Dashboard, integridad multiusuario, ahorros y respaldo. Los pasos manuales de despliegue están en `DEPLOYMENT_CHECKLIST.md`.

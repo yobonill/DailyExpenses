@@ -331,6 +331,7 @@ export interface CardTransaction extends RecordMetadata {
   settlementAmountDopMinor?: number;
   transactionDate: string;
   description: string;
+  category?: string;
   linkedPaymentId?: string;
   linkedExpenseId?: string;
   linkedDailyExpenseId?: string;
