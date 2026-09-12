@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Expense } from "../models/expense";
 import { createEmptyFinancialData } from "./financialState";
-import { buildSpendingHistory, getPreviousSpendingRange, getSpendingTotals } from "./spendingHistory";
+import { buildSpendingHistory, getPreviousSpendingRange, getReceivedIncomeTotals, getSpendingTotals, getSpendingTypeTotals } from "./spendingHistory";
 
 const meta = { createdAt: "2026-09-01T00:00:00.000Z", createdBy: "u", updatedAt: "2026-09-01T00:00:00.000Z", updatedBy: "u", version: 1 };
 
@@ -60,6 +60,9 @@ describe("spending history", () => {
     expect(totals.unclassified).toEqual({ DOP: 9_999, USD: 0 });
     expect(entries.at(-1)).toMatchObject({ id: "payment:historical", date: "2026-08-30", dateIsApproximate: true, method: "unclassified" });
     expect(entries[0].category).toBe("Otros");
+    const byType = getSpendingTypeTotals(entries);
+    expect(byType.monthly.DOP + byType.extra.DOP + byType.nonMonthly.DOP + byType.purchaseGoal.DOP).toBe(totals.total.DOP);
+    expect(byType.monthly.USD + byType.extra.USD + byType.nonMonthly.USD + byType.purchaseGoal.USD).toBe(totals.total.USD);
   });
 
   it("uses the actual DOP cash outflow for a USD obligation settled from a bank", () => {
@@ -78,7 +81,7 @@ describe("spending history", () => {
     expect(entry).toMatchObject({ currency: "DOP", amountMinor: 62_500, originalCurrency: "USD", originalAmountMinor: 1_000 });
   });
 
-  it("uses reporting-only historical methods and separates debt and savings from consumption", () => {
+  it("uses reporting-only historical methods, counts loan payments as spending, and keeps savings visible", () => {
     const data = createEmptyFinancialData();
     data.monthlyOccurrences.service = {
       id: "service", name: "Internet", category: "Servicios", expectedAmountMinor: 1_000,
@@ -112,11 +115,10 @@ describe("spending history", () => {
     const entries = buildSpendingHistory(data, []);
     const totals = getSpendingTotals(entries);
     expect(entries.find((entry) => entry.sourceId === "servicePayment")).toMatchObject({ method: "bank", date: "2026-08-15", dateIsApproximate: true });
-    expect(totals.total.DOP).toBe(1_000);
+    expect(totals.total.DOP).toBe(3_000);
     expect(totals.real.DOP).toBe(1_000);
-    expect(totals.debt.DOP).toBe(2_000);
+    expect(totals.unclassified.DOP).toBe(2_000);
     expect(totals.savings.DOP).toBe(3_000);
-    expect(totals.allocated.DOP).toBe(6_000);
   });
 
   it("includes new savings deposits as money destined without treating opening balances as current savings", () => {
@@ -137,12 +139,34 @@ describe("spending history", () => {
     expect(entries).toHaveLength(1);
     expect(entries[0]).toMatchObject({ source: "savingsTransaction", nature: "savings", amountMinor: 2_500, method: "unclassified" });
     const totals = getSpendingTotals(entries);
-    expect(totals.allocated.DOP).toBe(2_500);
     expect(totals.savings.DOP).toBe(2_500);
     expect(totals.total.DOP).toBe(0);
   });
 
-  it("counts only loan interest and charges as spending", () => {
+  it("shows a planned savings payment once when its fund deposit is linked", () => {
+    const data = createEmptyFinancialData();
+    data.monthlyOccurrences.savings = {
+      id: "savings", name: "Ahorrar", category: "Ahorros", expectedAmountMinor: 2_000,
+      actualAmountMinor: 2_000, currency: "DOP", dueDate: "2026-09-05", financialMonth: "2026-08",
+      quincena: 2, status: "paid", canPayWithCard: false, oneTime: false, paymentId: "savingsPayment", ...meta,
+    };
+    data.payments.savingsPayment = {
+      id: "savingsPayment", sourceType: "monthly", sourceId: "savings", amountMinor: 2_000,
+      currency: "DOP", paidDate: "2026-09-05", method: "bankTransfer", moneyAccountId: "bank",
+      savingsTransactionIds: ["savingsDeposit"], ...meta,
+    };
+    data.savingsTransactions.savingsDeposit = {
+      id: "savingsDeposit", fundId: "fund", type: "deposit", amountMinor: 2_000, currency: "DOP",
+      transactionDate: "2026-09-05", linkedPaymentId: "savingsPayment", ...meta,
+    };
+
+    const entries = buildSpendingHistory(data, []);
+    expect(entries).toHaveLength(1);
+    expect(entries[0]).toMatchObject({ id: "payment:savingsPayment", nature: "savings", amountMinor: 2_000 });
+    expect(getSpendingTotals(entries).savings.DOP).toBe(2_000);
+  });
+
+  it("counts the complete loan payment inside spending", () => {
     const data = createEmptyFinancialData();
     data.monthlyOccurrences.loan = {
       id: "loan", name: "Cuota préstamo", category: "Deudas y préstamos", expectedAmountMinor: 12_000,
@@ -161,13 +185,24 @@ describe("spending history", () => {
     };
 
     const entries = buildSpendingHistory(data, []);
-    expect(entries).toHaveLength(2);
-    expect(entries.find((entry) => entry.nature === "debt")?.amountMinor).toBe(9_000);
-    expect(entries.find((entry) => entry.nature === "expense")?.amountMinor).toBe(3_000);
+    expect(entries).toHaveLength(1);
+    expect(entries[0]).toMatchObject({ nature: "expense", amountMinor: 12_000, spendingType: "monthly" });
     const totals = getSpendingTotals(entries);
-    expect(totals.total.DOP).toBe(3_000);
-    expect(totals.debt.DOP).toBe(9_000);
-    expect(totals.allocated.DOP).toBe(12_000);
+    expect(totals.total.DOP).toBe(12_000);
+    expect(getSpendingTypeTotals(entries).monthly.DOP).toBe(12_000);
+  });
+
+  it("uses financial periods for cycle income and receipt dates for literal ranges", () => {
+    const data = createEmptyFinancialData();
+    data.incomeOccurrences.salary = {
+      id: "salary", name: "Nómina", incomeType: "salary", expectedAmountMinor: 30_000,
+      actualAmountMinor: 32_000, currency: "DOP", expectedDate: "2026-08-15", receivedDate: "2026-08-14",
+      financialMonth: "2026-08", quincena: 1, status: "received", oneTime: false, exportExpectedWhenPending: true, ...meta,
+    };
+    const q1 = { startDateKey: "2026-08-15", endDateKey: "2026-08-29" };
+    expect(getReceivedIncomeTotals(data, q1, true).DOP).toBe(32_000);
+    expect(getReceivedIncomeTotals(data, q1, false).DOP).toBe(0);
+    expect(getReceivedIncomeTotals(data, { startDateKey: "2026-08-14", endDateKey: "2026-08-14" }, false).DOP).toBe(32_000);
   });
 
   it("compares a financial quincena and custom range with the immediately preceding period", () => {

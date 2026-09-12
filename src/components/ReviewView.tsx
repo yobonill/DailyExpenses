@@ -18,11 +18,12 @@ import { moneyAccountLabel } from "../lib/moneyLedger";
 import {
   buildSpendingHistory,
   getPreviousSpendingRange,
+  getReceivedIncomeTotals,
   getSpendingTotals,
+  getSpendingTypeTotals,
   isEntryInRange,
   type SpendingEntry,
   type SpendingMethod,
-  type SpendingNature,
   type SpendingRange,
   type SpendingTotals,
   type SpendingType,
@@ -51,7 +52,6 @@ const TYPE_OPTIONS: Array<{ value: SpendingType; label: string }> = [
   { value: "monthly", label: "Facturas mensuales" },
   { value: "nonMonthly", label: "No mensuales" },
   { value: "purchaseGoal", label: "Metas y compras" },
-  { value: "bankFee", label: "Comisiones bancarias" },
   { value: "savings", label: "Movimientos de ahorro" },
 ];
 
@@ -62,15 +62,8 @@ const METHOD_OPTIONS: Array<{ value: SpendingMethod; label: string }> = [
   { value: "unclassified", label: "Por clasificar" },
 ];
 
-const NATURE_OPTIONS: Array<{ value: SpendingNature; label: string }> = [
-  { value: "expense", label: "Gastos" },
-  { value: "debt", label: "Pagos de deuda" },
-  { value: "savings", label: "Ahorros" },
-];
-
 const TYPE_LABELS = Object.fromEntries(TYPE_OPTIONS.map((option) => [option.value, option.label])) as Record<SpendingType, string>;
 const METHOD_LABELS: Record<SpendingMethod, string> = { card: "Tarjeta", bank: "Banco", cash: "Efectivo", unclassified: "Por clasificar" };
-const NATURE_LABELS: Record<SpendingNature, string> = { expense: "Gasto", debt: "Pago de deuda", savings: "Ahorro" };
 const DETAIL_LABELS: Record<string, string> = {
   cash: "Efectivo",
   debit: "Débito",
@@ -127,8 +120,27 @@ function SummaryCard({ title, current, previous, currency = "DOP", secondaryCurr
   return <article className="history-summary-card">
     <span>{title}</span>
     <strong>{formatCurrency(current, currency)}</strong>
-    <small className={current > previous ? "spending-up" : current < previous ? "spending-down" : ""}>{comparisonText(current, previous, currency)}</small>
+    <small>{comparisonText(current, previous, currency)}</small>
     {(secondaryCurrent || secondaryPrevious) ? <small>{formatCurrency(secondaryCurrent || 0, "USD")} · {comparisonText(secondaryCurrent || 0, secondaryPrevious || 0, "USD")}</small> : null}
+  </article>;
+}
+
+const remainingLabel = (value: number): string => value > 0 ? "Restante" : value < 0 ? "Faltante" : "Balance";
+const remainingState = (value: number): "positive" | "negative" | "neutral" => value > 0 ? "positive" : value < 0 ? "negative" : "neutral";
+
+function RemainingCard({ current, previous, secondaryCurrent, secondaryPrevious }: {
+  current: number;
+  previous: number;
+  secondaryCurrent: number;
+  secondaryPrevious: number;
+}) {
+  const state = current === 0 ? remainingState(secondaryCurrent) : remainingState(current);
+  return <article className={`history-summary-card history-remaining-card is-${state}`}>
+    <span>Restante del ciclo</span>
+    <strong className={`remaining-value is-${remainingState(current)}`}>{remainingLabel(current)} {formatCurrency(Math.abs(current), "DOP")}</strong>
+    <small>Ingresado − Gastado − Ahorrado</small>
+    <small>{comparisonText(current, previous, "DOP")}</small>
+    {(secondaryCurrent !== 0 || secondaryPrevious !== 0) && <small className={`remaining-secondary is-${remainingState(secondaryCurrent)}`}>USD: {remainingLabel(secondaryCurrent)} {formatCurrency(Math.abs(secondaryCurrent), "USD")}</small>}
   </article>;
 }
 
@@ -146,7 +158,6 @@ export function ReviewView({ expenses, data, activeCardName, onEdit, onDelete, o
   const [customEnd, setCustomEnd] = useState(currentCycle.endDateKey);
   const [selectedTypes, setSelectedTypes] = useState<Selection>(null);
   const [selectedMethods, setSelectedMethods] = useState<Selection>(null);
-  const [selectedNatures, setSelectedNatures] = useState<Selection>(null);
   const [selectedCategories, setSelectedCategories] = useState<Selection>(null);
   const [selectedAccounts, setSelectedAccounts] = useState<Selection>(null);
   const [search, setSearch] = useState("");
@@ -165,9 +176,10 @@ export function ReviewView({ expenses, data, activeCardName, onEdit, onDelete, o
   const previousRange = useMemo(() => getPreviousSpendingRange(currentRange, rangeMode), [currentRange, rangeMode]);
   const availableMonths = useMemo(() => {
     const months = new Set(entries.map((entry) => getMonthKey(entry.date)));
+    Object.values(data.incomeOccurrences).filter((income) => income.status === "received").forEach((income) => months.add(income.financialMonth));
     months.add(currentMonth);
     return [...months].sort((a, b) => b.localeCompare(a));
-  }, [currentMonth, entries]);
+  }, [currentMonth, data.incomeOccurrences, entries]);
   const categoryOptions = useMemo(() => [...new Set(entries.map((entry) => entry.category))]
     .sort((a, b) => a.localeCompare(b, "es"))
     .map((category) => ({ value: category, label: category })), [entries]);
@@ -187,7 +199,6 @@ export function ReviewView({ expenses, data, activeCardName, onEdit, onDelete, o
     return source.filter((entry) =>
       isSelected(selectedTypes, entry.spendingType)
       && isSelected(selectedMethods, entry.method)
-      && isSelected(selectedNatures, entry.nature)
       && isSelected(selectedCategories, entry.category)
       && (entry.method !== "bank" || isSelected(selectedAccounts, accountKey(entry)))
       && (!query || `${entry.name} ${entry.category}`.toLocaleLowerCase("es").includes(query)));
@@ -195,9 +206,9 @@ export function ReviewView({ expenses, data, activeCardName, onEdit, onDelete, o
 
   const periodEntries = useMemo(() => entries.filter((entry) => isEntryInRange(entry, currentRange)
     && (rangeMode === "cycle" || !entry.dateIsApproximate)), [currentRange, entries, rangeMode]);
-  const filteredCurrent = useMemo(() => applyFilters(periodEntries), [periodEntries, search, selectedAccounts, selectedCategories, selectedMethods, selectedNatures, selectedTypes]);
-  const filteredPrevious = useMemo(() => applyFilters(entries.filter((entry) => isEntryInRange(entry, previousRange)
-    && (rangeMode === "cycle" || !entry.dateIsApproximate))), [entries, previousRange, rangeMode, search, selectedAccounts, selectedCategories, selectedMethods, selectedNatures, selectedTypes]);
+  const previousPeriodEntries = useMemo(() => entries.filter((entry) => isEntryInRange(entry, previousRange)
+    && (rangeMode === "cycle" || !entry.dateIsApproximate)), [entries, previousRange, rangeMode]);
+  const filteredCurrent = useMemo(() => applyFilters(periodEntries), [periodEntries, search, selectedAccounts, selectedCategories, selectedMethods, selectedTypes]);
   const sortedCurrent = useMemo(() => [...filteredCurrent].sort((a, b) => {
     if (sort === "oldest") return a.date.localeCompare(b.date) || a.id.localeCompare(b.id);
     if (sort === "highest") return b.amountMinor - a.amountMinor || b.date.localeCompare(a.date);
@@ -205,15 +216,26 @@ export function ReviewView({ expenses, data, activeCardName, onEdit, onDelete, o
     return b.date.localeCompare(a.date) || b.id.localeCompare(a.id);
   }), [filteredCurrent, sort]);
   const currentTotals = useMemo(() => getSpendingTotals(filteredCurrent), [filteredCurrent]);
-  const previousTotals = useMemo(() => getSpendingTotals(filteredPrevious), [filteredPrevious]);
   const periodTotals = useMemo(() => getSpendingTotals(periodEntries), [periodEntries]);
+  const previousPeriodTotals = useMemo(() => getSpendingTotals(previousPeriodEntries), [previousPeriodEntries]);
+  const periodTypeTotals = useMemo(() => getSpendingTypeTotals(periodEntries), [periodEntries]);
+  const previousTypeTotals = useMemo(() => getSpendingTypeTotals(previousPeriodEntries), [previousPeriodEntries]);
+  const periodIncome = useMemo(() => getReceivedIncomeTotals(data, currentRange, rangeMode === "cycle"), [currentRange, data, rangeMode]);
+  const previousIncome = useMemo(() => getReceivedIncomeTotals(data, previousRange, rangeMode === "cycle"), [data, previousRange, rangeMode]);
+  const periodRemaining = useMemo(() => ({
+    DOP: periodIncome.DOP - periodTotals.total.DOP - periodTotals.savings.DOP,
+    USD: periodIncome.USD - periodTotals.total.USD - periodTotals.savings.USD,
+  }), [periodIncome, periodTotals]);
+  const previousRemaining = useMemo(() => ({
+    DOP: previousIncome.DOP - previousPeriodTotals.total.DOP - previousPeriodTotals.savings.DOP,
+    USD: previousIncome.USD - previousPeriodTotals.total.USD - previousPeriodTotals.savings.USD,
+  }), [previousIncome, previousPeriodTotals]);
 
-  const activeFilterCount = [selectedTypes, selectedMethods, selectedNatures, selectedCategories, selectedAccounts]
+  const activeFilterCount = [selectedTypes, selectedMethods, selectedCategories, selectedAccounts]
     .filter((selection) => selection !== null).length + (search.trim() ? 1 : 0);
   const resetFilters = () => {
     setSelectedTypes(null);
     setSelectedMethods(null);
-    setSelectedNatures(null);
     setSelectedCategories(null);
     setSelectedAccounts(null);
     setSearch("");
@@ -285,9 +307,8 @@ export function ReviewView({ expenses, data, activeCardName, onEdit, onDelete, o
 
   const currencyCaption = (values: Record<Currency, number>): string => `${formatCurrency(values.DOP, "DOP")}${values.USD > 0 ? ` · ${formatCurrency(values.USD, "USD")}` : ""}`;
   const totalCaption = (totals: SpendingTotals): string => {
-    const parts = [`Gasto ${currencyCaption(totals.total)}`];
-    if (totals.debt.DOP > 0 || totals.debt.USD > 0) parts.push(`Deuda ${currencyCaption(totals.debt)}`);
-    if (totals.savings.DOP > 0 || totals.savings.USD > 0) parts.push(`Ahorro ${currencyCaption(totals.savings)}`);
+    const parts = [`Gastado ${currencyCaption(totals.total)}`];
+    if (totals.savings.DOP > 0 || totals.savings.USD > 0) parts.push(`Ahorrado ${currencyCaption(totals.savings)}`);
     return parts.join(" · ");
   };
 
@@ -303,33 +324,48 @@ export function ReviewView({ expenses, data, activeCardName, onEdit, onDelete, o
 
     {pendingClassificationCount > 0 && <section className="history-classification-banner"><div><strong>{pendingClassificationCount} registro{pendingClassificationCount === 1 ? "" : "s"} pendiente{pendingClassificationCount === 1 ? "" : "s"} de clasificar</strong><span>{pendingHistoricalCount} pago{pendingHistoricalCount === 1 ? "" : "s"} histórico{pendingHistoricalCount === 1 ? "" : "s"} y {pendingExpenseCount} gasto{pendingExpenseCount === 1 ? "" : "s"} extra{pendingExpenseCount === 1 ? "" : "s"}. Los totales se conservan, pero la distribución por método estará incompleta.</span></div><button type="button" className="button button-primary" onClick={() => setClassifying(true)}>Completar clasificación</button></section>}
 
-    <section className="history-summary" aria-label="Resumen del dinero destinado">
-      <SummaryCard title="Total destinado" current={currentTotals.allocated.DOP} previous={previousTotals.allocated.DOP} secondaryCurrent={currentTotals.allocated.USD} secondaryPrevious={previousTotals.allocated.USD} />
-      <SummaryCard title="Gastado en consumo" current={currentTotals.total.DOP} previous={previousTotals.total.DOP} secondaryCurrent={currentTotals.total.USD} secondaryPrevious={previousTotals.total.USD} />
-      <SummaryCard title="Dinero real" current={currentTotals.real.DOP} previous={previousTotals.real.DOP} secondaryCurrent={currentTotals.real.USD} secondaryPrevious={previousTotals.real.USD} />
-      <SummaryCard title="Banco" current={currentTotals.bank.DOP} previous={previousTotals.bank.DOP} secondaryCurrent={currentTotals.bank.USD} secondaryPrevious={previousTotals.bank.USD} />
-      <SummaryCard title="Efectivo" current={currentTotals.cash.DOP} previous={previousTotals.cash.DOP} secondaryCurrent={currentTotals.cash.USD} secondaryPrevious={previousTotals.cash.USD} />
-      <SummaryCard title="Tarjeta DOP" current={currentTotals.card.DOP} previous={previousTotals.card.DOP} />
-      {(currentTotals.card.USD > 0 || previousTotals.card.USD > 0) && <SummaryCard title="Tarjeta USD" current={currentTotals.card.USD} previous={previousTotals.card.USD} currency="USD" />}
-      {(currentTotals.unclassified.DOP > 0 || previousTotals.unclassified.DOP > 0 || currentTotals.unclassified.USD > 0 || previousTotals.unclassified.USD > 0) && <SummaryCard title="Por clasificar" current={currentTotals.unclassified.DOP} previous={previousTotals.unclassified.DOP} secondaryCurrent={currentTotals.unclassified.USD} secondaryPrevious={previousTotals.unclassified.USD} />}
-      {(currentTotals.debt.DOP > 0 || previousTotals.debt.DOP > 0 || currentTotals.debt.USD > 0 || previousTotals.debt.USD > 0) && <SummaryCard title="Pagos de deuda (no consumo)" current={currentTotals.debt.DOP} previous={previousTotals.debt.DOP} secondaryCurrent={currentTotals.debt.USD} secondaryPrevious={previousTotals.debt.USD} />}
-      {(currentTotals.savings.DOP > 0 || previousTotals.savings.DOP > 0 || currentTotals.savings.USD > 0 || previousTotals.savings.USD > 0) && <SummaryCard title="Ahorro (no gasto)" current={currentTotals.savings.DOP} previous={previousTotals.savings.DOP} secondaryCurrent={currentTotals.savings.USD} secondaryPrevious={previousTotals.savings.USD} />}
+    <section className="history-overview-shell" aria-labelledby="cycle-summary-title">
+      <div className="history-section-heading"><span className="eyebrow">Resultado del período</span><h2 id="cycle-summary-title">Resumen del ciclo</h2></div>
+      <div className="history-summary history-primary-summary">
+        <SummaryCard title="Total ingresado" current={periodIncome.DOP} previous={previousIncome.DOP} secondaryCurrent={periodIncome.USD} secondaryPrevious={previousIncome.USD} />
+        <SummaryCard title="Total gastado" current={periodTotals.total.DOP} previous={previousPeriodTotals.total.DOP} secondaryCurrent={periodTotals.total.USD} secondaryPrevious={previousPeriodTotals.total.USD} />
+        <SummaryCard title="Total ahorrado" current={periodTotals.savings.DOP} previous={previousPeriodTotals.savings.DOP} secondaryCurrent={periodTotals.savings.USD} secondaryPrevious={previousPeriodTotals.savings.USD} />
+        <RemainingCard current={periodRemaining.DOP} previous={previousRemaining.DOP} secondaryCurrent={periodRemaining.USD} secondaryPrevious={previousRemaining.USD} />
+      </div>
+      <p className="history-comparison-caption">Comparado con {formatShortDate(previousRange.startDateKey)} – {formatShortDate(previousRange.endDateKey)}. Los filtros de detalle no cambian este resumen.</p>
     </section>
-    <p className="history-comparison-caption">Comparado con {formatShortDate(previousRange.startDateKey)} – {formatShortDate(previousRange.endDateKey)} usando los mismos filtros.</p>
+
+    <section className="history-breakdown-shell" aria-labelledby="spending-breakdown-title">
+      <div className="history-section-heading"><span className="eyebrow">De dónde salió el gasto</span><h2 id="spending-breakdown-title">Desglose de gastos</h2></div>
+      <div className="history-summary history-detail-summary">
+        <SummaryCard title="Presupuesto" current={periodTypeTotals.monthly.DOP} previous={previousTypeTotals.monthly.DOP} secondaryCurrent={periodTypeTotals.monthly.USD} secondaryPrevious={previousTypeTotals.monthly.USD} />
+        <SummaryCard title="Extras" current={periodTypeTotals.extra.DOP} previous={previousTypeTotals.extra.DOP} secondaryCurrent={periodTypeTotals.extra.USD} secondaryPrevious={previousTypeTotals.extra.USD} />
+        <SummaryCard title="No mensuales" current={periodTypeTotals.nonMonthly.DOP} previous={previousTypeTotals.nonMonthly.DOP} secondaryCurrent={periodTypeTotals.nonMonthly.USD} secondaryPrevious={previousTypeTotals.nonMonthly.USD} />
+        <SummaryCard title="Metas de compra" current={periodTypeTotals.purchaseGoal.DOP} previous={previousTypeTotals.purchaseGoal.DOP} secondaryCurrent={periodTypeTotals.purchaseGoal.USD} secondaryPrevious={previousTypeTotals.purchaseGoal.USD} />
+      </div>
+      <div className="history-section-divider" />
+      <div className="history-section-heading compact"><span className="eyebrow">Medio utilizado</span><h2>Cómo se pagó</h2></div>
+      <div className="history-summary history-detail-summary">
+        <SummaryCard title="Banco" current={periodTotals.bank.DOP} previous={previousPeriodTotals.bank.DOP} secondaryCurrent={periodTotals.bank.USD} secondaryPrevious={previousPeriodTotals.bank.USD} />
+        <SummaryCard title="Efectivo" current={periodTotals.cash.DOP} previous={previousPeriodTotals.cash.DOP} secondaryCurrent={periodTotals.cash.USD} secondaryPrevious={previousPeriodTotals.cash.USD} />
+        <SummaryCard title="Tarjeta DOP" current={periodTotals.card.DOP} previous={previousPeriodTotals.card.DOP} />
+        {(periodTotals.card.USD > 0 || previousPeriodTotals.card.USD > 0) && <SummaryCard title="Tarjeta USD" current={periodTotals.card.USD} previous={previousPeriodTotals.card.USD} currency="USD" />}
+        {(periodTotals.unclassified.DOP > 0 || previousPeriodTotals.unclassified.DOP > 0 || periodTotals.unclassified.USD > 0 || previousPeriodTotals.unclassified.USD > 0) && <SummaryCard title="Por clasificar" current={periodTotals.unclassified.DOP} previous={previousPeriodTotals.unclassified.DOP} secondaryCurrent={periodTotals.unclassified.USD} secondaryPrevious={previousPeriodTotals.unclassified.USD} />}
+      </div>
+    </section>
 
     <section className="history-filter-shell">
       <div className="history-filter-heading"><div><span>Filtros</span><small>{activeFilterCount ? `${activeFilterCount} grupo${activeFilterCount === 1 ? "" : "s"} modificado${activeFilterCount === 1 ? "" : "s"}` : "Mostrando todas las opciones"}</small></div><div><button type="button" className="button button-secondary" onClick={() => setFiltersOpen((open) => !open)}>{filtersOpen ? "Ocultar filtros" : "Filtrar"}{activeFilterCount ? ` (${activeFilterCount})` : ""}</button>{activeFilterCount > 0 && <button type="button" className="button button-quiet" onClick={resetFilters}>Limpiar</button>}</div></div>
       {filtersOpen && <div className="history-filter-body">
         <label className="field"><span>Buscar por nombre o categoría</span><input type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Ej. medicamentos o salud" /></label>
         <MultiSelectGroup title="Tipo" options={TYPE_OPTIONS} selection={selectedTypes} onChange={setSelectedTypes} />
-        <MultiSelectGroup title="Naturaleza" options={NATURE_OPTIONS} selection={selectedNatures} onChange={setSelectedNatures} />
         <MultiSelectGroup title="Forma de pago" options={METHOD_OPTIONS} selection={selectedMethods} onChange={setSelectedMethods} />
         {accountOptions.length > 0 && isSelected(selectedMethods, "bank") && <MultiSelectGroup title="Cuenta bancaria" options={accountOptions} selection={selectedAccounts} onChange={setSelectedAccounts} />}
         {categoryOptions.length > 0 && <MultiSelectGroup title="Categoría" options={categoryOptions} selection={selectedCategories} onChange={setSelectedCategories} />}
       </div>}
     </section>
 
-    <section className="review-total-sticky" aria-label="Total destinado filtrado del período"><div><span>Total destinado filtrado</span><small>{periodLabel} · mostrando {filteredCurrent.length} de {periodEntries.length} registros</small></div><div className="history-total-values"><strong>{formatCurrency(currentTotals.allocated.DOP, "DOP")}</strong>{currentTotals.allocated.USD > 0 && <strong>{formatCurrency(currentTotals.allocated.USD, "USD")}</strong>}</div></section>
+    <section className="review-total-sticky" aria-label="Resultados filtrados del período"><div><span>Resultados filtrados</span><small>{periodLabel} · mostrando {filteredCurrent.length} de {periodEntries.length} registros</small></div><div className="history-total-values"><strong>Gastado {formatCurrency(currentTotals.total.DOP, "DOP")}</strong>{currentTotals.savings.DOP > 0 && <strong>Ahorrado {formatCurrency(currentTotals.savings.DOP, "DOP")}</strong>}{currentTotals.total.USD > 0 && <strong>Gastado {formatCurrency(currentTotals.total.USD, "USD")}</strong>}{currentTotals.savings.USD > 0 && <strong>Ahorrado {formatCurrency(currentTotals.savings.USD, "USD")}</strong>}</div></section>
     {activeFilterCount > 0 && <p className="history-period-total">Total del período sin filtros: {totalCaption(periodTotals)}</p>}
 
     <section className="history-category-section">
@@ -344,8 +380,8 @@ export function ReviewView({ expenses, data, activeCardName, onEdit, onDelete, o
       const quincena = Number(quincenaRaw) as Quincena;
       const batchTotals = getSpendingTotals(batch);
       return <section className="quincena-group" key={key}><div className="quincena-header"><div><h3>{formatMonthTitle(monthKey)} · Quincena {quincena}</h3><span>{formatQuincenaRange(monthKey, quincena)} · {batch.length} registro{batch.length === 1 ? "" : "s"} · {totalCaption(batchTotals)}</span></div></div><div className="expense-list">{batch.map((entry) => {
-        const editableExpense = entry.source === "expense" && entry.spendingType !== "bankFee" ? expenses.find((expense) => expense.id === entry.sourceId) : undefined;
-        return <article className="expense-card" key={entry.id}><div className="expense-main"><div className="expense-title-row"><h4>{entry.name}</h4><strong>{formatCurrency(entry.amountMinor, entry.currency)}</strong></div><div className="expense-meta"><span>{entry.dateIsApproximate ? "Fecha exacta no registrada" : formatShortDate(entry.date)}</span><span className="history-entry-type">{TYPE_LABELS[entry.spendingType]}</span><span className={`history-entry-nature nature-${entry.nature}`}>{NATURE_LABELS[entry.nature]}</span><span>{entry.category}</span><span>{paymentDescription(entry)}</span>{entry.originalCurrency && entry.originalAmountMinor && <span>Importe original: {formatCurrency(entry.originalAmountMinor, entry.originalCurrency)}</span>}</div></div>{editableExpense && <div className="expense-actions history-expense-actions"><button type="button" onClick={() => setEditing(editableExpense)}>Editar</button><button type="button" className="action-danger" onClick={() => void remove(editableExpense)}>Eliminar</button></div>}</article>;
+        const editableExpense = entry.source === "expense" ? expenses.find((expense) => expense.id === entry.sourceId) : undefined;
+        return <article className="expense-card" key={entry.id}><div className="expense-main"><div className="expense-title-row"><h4>{entry.name}</h4><strong>{formatCurrency(entry.amountMinor, entry.currency)}</strong></div><div className="expense-meta"><span>{entry.dateIsApproximate ? "Fecha exacta no registrada" : formatShortDate(entry.date)}</span><span className="history-entry-type">{TYPE_LABELS[entry.spendingType]}</span>{entry.nature === "savings" && <span className="history-entry-nature nature-savings">Ahorrado</span>}<span>{entry.category}</span><span>{paymentDescription(entry)}</span>{entry.originalCurrency && entry.originalAmountMinor && <span>Importe original: {formatCurrency(entry.originalAmountMinor, entry.originalCurrency)}</span>}</div></div>{editableExpense && <div className="expense-actions history-expense-actions"><button type="button" onClick={() => setEditing(editableExpense)}>Editar</button><button type="button" className="action-danger" onClick={() => void remove(editableExpense)}>Eliminar</button></div>}</article>;
       })}</div></section>;
     })}</div>}
 

@@ -1,40 +1,43 @@
-# Lista de publicación · Daily Expenses 2.1.1
+# Lista de publicación · Daily Expenses 2.1.2
 
 ## Antes de actualizar
 
-1. Conserva el respaldo `daily-expenses-backup-2026-09-12-14-04-49.json` o descarga uno más reciente si todavía no has registrado nada nuevo.
-2. Pausa el registro de movimientos en ambos dispositivos.
-3. Confirma que Gastos diarios y Finanzas indiquen cero cambios pendientes.
-4. Conserva una copia de las reglas actuales de Realtime Database.
+1. Confirma cero cambios pendientes en ambos dispositivos.
+2. Descarga un respaldo JSON actualizado.
+3. Pausa el registro de movimientos hasta finalizar la actualización.
 
 ## Publicación
 
-1. Extrae el ZIP incremental sobre la raíz del repositorio y reemplaza los archivos incluidos.
-2. Publica primero `firebase-database-rules.json` en **Firebase Console → Realtime Database → Rules**.
+1. Extrae el ZIP incremental sobre la versión 2.1.1.
+2. No cambies las reglas de Firebase; 2.1.2 reutiliza las ya publicadas.
 3. Ejecuta:
 
    ```bash
    npm ci
    npm test
    npm run build
-   ```
-
-4. Revisa los cambios y crea el commit:
-
-   ```bash
    git status
    git diff --stat
+   ```
+
+4. Crea y publica el commit:
+
+   ```bash
    git add .
-   git commit -m "fix: require spending classification and restore historical reporting"
+   git commit -m "fix: clarify cycle summary and spending breakdown"
    git push origin master
    ```
 
-5. Espera a que GitHub Actions termine correctamente.
-6. En el primer dispositivo, recarga completamente la PWA y confirma **Más → Configuración → Versión 2.1.1**.
-7. Abre **Historial** y confirma que agosto Q1 muestre los pagos reconciliados.
-8. Usa **Completar clasificación**. Verifica el resumen antes y después: clasificar un pago histórico no debe cambiar cuentas, tarjeta ni préstamos.
-9. Registra un gasto de prueba y confirma que no pueda guardarse sin forma de pago ni categoría. Luego elimínalo si no deseas conservarlo.
-10. Comprueba que consumo, pagos de deuda y ahorros aparezcan separados.
-11. Cuando el primer dispositivo indique sincronización completa, actualiza y recarga el segundo.
+5. Espera a que GitHub Actions finalice.
+6. Actualiza el primer dispositivo y confirma la versión 2.1.2.
+7. Verifica:
+   - Ingresado − Gastado − Ahorrado = Restante.
+   - Restante positivo en verde, faltante en rojo y cero neutral.
+   - Presupuesto + Extras + No mensuales + Metas de compra = Total gastado.
+   - Banco + Efectivo + Tarjeta + Por clasificar = Total gastado.
+   - Un pago de préstamo aparece en Gastado, no en una sección independiente.
+   - Registrar siempre produce un Extra.
+8. Ejecuta la clasificación pendiente desde el primer dispositivo.
+9. Después de sincronizar, actualiza el segundo dispositivo.
 
-No vuelvas a ejecutar la reconciliación de cuentas y ahorros. Esta actualización no requiere migración ni ajuste manual de saldos.
+No ejecutes nuevamente la reconciliación de cuentas y ahorros.

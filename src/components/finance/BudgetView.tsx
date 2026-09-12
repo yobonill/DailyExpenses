@@ -160,7 +160,7 @@ export function BudgetView({ data, onSaveTemplate, onArchiveTemplate, onCreateOn
 
       {editingItem && <MonthlyFormModal data={data} template={editingItem.kind === "template" ? editingItem.template : undefined} occurrence={editingItem.kind === "oneTime" ? editingItem.occurrence : undefined} onSaveTemplate={onSaveTemplate} onCreateOneTime={onCreateOneTime} onUpdateOneTime={onUpdateOneTime} onClose={() => setEditingItem(null)} />}
       {reconciling && <StartingPointReconciliationModal data={data} monthKey={monthKey} quincena={quincena} onConfirm={onReconcileStartingPoint} onClose={() => setReconciling(false)} />}
-      {paying && <PayModal title={paying.name} expectedMinor={paying.expectedAmountMinor} currency={paying.currency} canPayWithCard={paying.canPayWithCard} cards={cards as CreditCard[]} data={data} loanId={paying.loanId} initialMethod={initialPayMethod} onClose={() => setPaying(null)} onConfirm={(value) => onPay({ ...value, sourceType: "monthly", sourceId: paying.id, currency: paying.currency })} />}
+      {paying && <PayModal title={paying.name} expectedMinor={paying.expectedAmountMinor} currency={paying.currency} canPayWithCard={paying.canPayWithCard} cards={cards as CreditCard[]} data={data} loanId={paying.loanId} savingsMode={paying.category === "Ahorros"} initialMethod={initialPayMethod} onClose={() => setPaying(null)} onConfirm={(value) => onPay({ ...value, sourceType: "monthly", sourceId: paying.id, currency: paying.currency })} />}
       {postponing && <PostponeModal title={postponing.name} currentDueDate={postponing.dueDate} onClose={() => setPostponing(null)} onConfirm={(newDueDate) => onPostpone("monthly", postponing.id, newDueDate)} />}
     </section>
   );

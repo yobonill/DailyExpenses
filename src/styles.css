@@ -238,6 +238,25 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px s
 .history-summary-card small { color: var(--muted); font-size: .68rem; line-height: 1.35; }
 .history-summary-card small.spending-up { color: var(--danger); }
 .history-summary-card small.spending-down { color: var(--brand); }
+.history-overview-shell { margin-bottom: 24px; padding: 17px; border: 1px solid #cfd8d1; border-radius: 22px; background: var(--surface); box-shadow: var(--shadow); }
+.history-section-heading { margin-bottom: 13px; }
+.history-section-heading h2 { margin: 3px 0 0; font-size: 1.2rem; }
+.history-section-heading.compact h2 { font-size: 1.05rem; }
+.history-overview-shell .history-comparison-caption { margin: -5px 2px 0; }
+.history-primary-summary { margin-bottom: 14px; }
+.history-remaining-card { border-width: 2px; }
+.history-remaining-card.is-positive { border-color: #75ad88; background: #edf7f0; }
+.history-remaining-card.is-positive > span { color: #27643d; }
+.history-remaining-card.is-negative { border-color: #d99a94; background: var(--danger-soft); }
+.history-remaining-card.is-negative > span { color: var(--danger); }
+.history-remaining-card.is-neutral { background: var(--surface-soft); }
+.history-remaining-card .remaining-secondary { font-weight: 800; }
+.history-remaining-card .remaining-value.is-positive, .history-remaining-card .remaining-secondary.is-positive { color: #27643d; }
+.history-remaining-card .remaining-value.is-negative, .history-remaining-card .remaining-secondary.is-negative { color: var(--danger); }
+.history-remaining-card .remaining-value.is-neutral, .history-remaining-card .remaining-secondary.is-neutral { color: var(--text); }
+.history-breakdown-shell { margin-bottom: 18px; padding-top: 21px; border-top: 4px solid var(--brand); }
+.history-detail-summary { margin-bottom: 18px; }
+.history-section-divider { height: 1px; margin: 4px 0 18px; background: var(--border); }
 .history-comparison-caption { margin: -7px 3px 14px; color: var(--muted); font-size: .7rem; text-align: right; }
 .history-classification-banner { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-bottom: 14px; padding: 1rem 1.1rem; border: 1px solid #dba944; border-radius: 18px; background: #fff8e8; }
 .history-classification-banner > div { display: grid; gap: .25rem; }
@@ -428,6 +447,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px s
   .expense-actions button { border-right: 0; border-bottom: 1px solid var(--border); }
   .expense-actions button:last-child { border-bottom: 0; }
   .history-summary { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .history-summary.history-primary-summary, .history-summary.history-detail-summary { grid-template-columns: repeat(4, minmax(0, 1fr)); }
   .modal-backdrop { align-items: center; padding: 24px; }
   .modal-sheet { border-radius: 24px; padding: 18px 22px 24px; }
 }

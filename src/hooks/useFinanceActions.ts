@@ -160,6 +160,7 @@ export interface PayObligationInput {
   loanInterestMinor?: number;
   loanChargesMinor?: number;
   consumeReservedSavings?: boolean;
+  savingsFundId?: string;
   notes?: string;
 }
 
@@ -371,24 +372,38 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
     if (!occurrence.category) throw new Error("Asigna una categoría a la obligación antes de registrar el pago.");
     if (occurrence.currency !== input.currency) throw new Error("La moneda no coincide con la obligación.");
     if (input.amountMinor <= 0) throw new Error("El monto debe ser mayor que cero.");
-    if (input.method === "creditCard") {
+    const isSavings = occurrence.category === "Ahorros";
+    const savingsFund = isSavings && input.savingsFundId ? data.savingsFunds[input.savingsFundId] : undefined;
+    if (isSavings && (!savingsFund || !savingsFund.active || savingsFund.currency !== input.currency)) {
+      throw new Error("Selecciona un fondo de ahorro activo en la misma moneda.");
+    }
+    const savingsAccount = savingsFund?.moneyAccountId ? data.moneyAccounts[savingsFund.moneyAccountId] : undefined;
+    if (isSavings && (!savingsAccount || !savingsAccount.active || savingsAccount.currency !== savingsFund?.currency)) {
+      throw new Error("El fondo debe estar vinculado a una cuenta activa de la misma moneda.");
+    }
+    const paymentMethod: PaymentMethod = isSavings
+      ? savingsAccount?.kind === "cash" ? "cash" : "bankTransfer"
+      : input.method;
+    if (!isSavings && paymentMethod === "creditCard") {
       const card = input.cardId ? data.creditCards[input.cardId] : undefined;
       if (!card?.active) throw new Error("Selecciona una tarjeta activa.");
       if (!occurrence.canPayWithCard) throw new Error("Esta obligación no admite pago con tarjeta.");
     }
 
-    const accountId: MoneyAccountId | undefined = input.method === "cash"
+    const accountId: MoneyAccountId | undefined = isSavings
+      ? savingsFund?.moneyAccountId
+      : paymentMethod === "cash"
       ? CASH_ACCOUNT_ID
-      : input.method === "bankTransfer" || input.method === "debitCard"
+      : paymentMethod === "bankTransfer" || paymentMethod === "debitCard"
         ? input.moneyAccountId
         : undefined;
-    const accountDebitMinor = input.currency === "DOP" ? input.amountMinor : input.settlementAmountDopMinor || 0;
-    const transferFeeMinor = input.method === "bankTransfer" ? Math.max(0, Math.round(input.transferFeeMinor || 0)) : 0;
+    const accountDebitMinor = isSavings || input.currency === "DOP" ? input.amountMinor : input.settlementAmountDopMinor || 0;
+    const transferFeeMinor = !isSavings && paymentMethod === "bankTransfer" ? Math.max(0, Math.round(input.transferFeeMinor || 0)) : 0;
     if (accountId) {
-      if (!isSelectableMoneyAccount(data, accountId, input.method as "cash" | "bankTransfer" | "debitCard")) {
-        throw new Error(input.method === "cash" ? "Configura primero tu saldo en Efectivo." : "Selecciona una cuenta bancaria activa.");
+      if (!isSelectableMoneyAccount(data, accountId, paymentMethod as "cash" | "bankTransfer" | "debitCard")) {
+        throw new Error(paymentMethod === "cash" ? "Configura primero tu saldo en Efectivo." : "Selecciona una cuenta bancaria activa.");
       }
-      if (input.currency === "USD" && accountDebitMinor <= 0) throw new Error("Indica cuánto salió realmente en pesos dominicanos.");
+      if (!isSavings && input.currency === "USD" && accountDebitMinor <= 0) throw new Error("Indica cuánto salió realmente en pesos dominicanos.");
       const releasableFromAccount = hasUnifiedSavingsAccounts(data)
         && input.sourceType === "nonMonthly"
         && input.currency === "DOP"
@@ -401,7 +416,7 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
       if (accountDebitMinor + transferFeeMinor > available) {
         throw new Error(`No hay suficiente dinero disponible en ${data.moneyAccounts[accountId]?.name || "la cuenta seleccionada"}.`);
       }
-    } else if (input.method !== "creditCard") {
+    } else if (paymentMethod !== "creditCard") {
       throw new Error("Selecciona la cuenta desde donde se realizó el pago.");
     }
 
@@ -421,10 +436,11 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
 
     const now = new Date().toISOString();
     const paymentId = createId();
-    const cardTransactionId = input.method === "creditCard" ? createId() : undefined;
-    const moneyTransactionId = accountId ? createId() : undefined;
-    const feeMoneyTransactionId = accountId && transferFeeMinor > 0 ? createId() : undefined;
+    const cardTransactionId = paymentMethod === "creditCard" ? createId() : undefined;
+    const moneyTransactionId = accountId && !isSavings ? createId() : undefined;
+    const feeMoneyTransactionId = accountId && !isSavings && transferFeeMinor > 0 ? createId() : undefined;
     const loanTransactionId = linkedLoan ? createId() : undefined;
+    const plannedSavingsTransactionId = savingsFund ? createId() : undefined;
     const payment: Payment = {
       id: paymentId,
       sourceType: input.sourceType,
@@ -432,7 +448,7 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
       amountMinor: input.amountMinor,
       currency: input.currency,
       paidDate: input.paidDate,
-      method: input.method,
+      method: paymentMethod,
       cardId: input.cardId,
       cardTransactionId,
       moneyAccountId: accountId,
@@ -442,10 +458,25 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
       settlementAmountDopMinor: input.currency === "USD" && accountId ? accountDebitMinor : undefined,
       loanId: linkedLoan?.id,
       loanTransactionId,
+      savingsTransactionIds: plannedSavingsTransactionId ? [plannedSavingsTransactionId] : undefined,
       notes: cleanOptional(input.notes),
       ...meta(),
     };
     const updates: Record<string, unknown> = { [`payments/${paymentId}`]: payment };
+
+    if (savingsFund && plannedSavingsTransactionId) {
+      updates[`savingsTransactions/${plannedSavingsTransactionId}`] = {
+        id: plannedSavingsTransactionId,
+        fundId: savingsFund.id,
+        type: "deposit",
+        amountMinor: input.amountMinor,
+        currency: input.currency,
+        transactionDate: input.paidDate,
+        linkedPaymentId: paymentId,
+        notes: `Ahorro planificado · ${occurrence.name}`,
+        ...meta(),
+      } satisfies SavingsTransaction;
+    }
 
     if (accountId && moneyTransactionId) {
       updates[`moneyTransactions/${moneyTransactionId}`] = {
@@ -499,7 +530,7 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
       }
     }
 
-    if (input.method === "creditCard" && cardTransactionId && input.cardId) {
+    if (paymentMethod === "creditCard" && cardTransactionId && input.cardId) {
       const transaction: CardTransaction = {
         id: cardTransactionId,
         cardId: input.cardId,
@@ -538,7 +569,7 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
           ...goal,
           status: "purchased",
           actualAmountMinor: input.amountMinor,
-          purchaseMethod: input.method,
+          purchaseMethod: paymentMethod,
           linkedCardTransactionId: cardTransactionId,
           purchasedAt: input.paidDate,
           ...meta(goal),
@@ -547,7 +578,7 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
     }
 
     const savingsTransactionIds: string[] = [];
-    if (input.sourceType === "nonMonthly" && input.method !== "creditCard" && input.consumeReservedSavings) {
+    if (input.sourceType === "nonMonthly" && paymentMethod !== "creditCard" && input.consumeReservedSavings) {
       let amountLeft = input.amountMinor;
       const allocations = getObligationAllocations(data, "nonMonthly", input.sourceId);
       for (const allocation of allocations) {

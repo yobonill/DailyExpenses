@@ -62,6 +62,10 @@ export const isFinanciallyConsistent = (candidate: FinancialData): boolean => {
       if (payment.reportingMethod && payment.reportingMethod !== "creditCard"
         && (!payment.reportingMoneyAccountId || !candidate.moneyAccounts[payment.reportingMoneyAccountId])) return false;
     } else if (payment.historicalSource || payment.reportingMethod || payment.reportingMoneyAccountId || payment.reportingCardId || payment.reportingClassifiedAt) return false;
+    for (const transactionId of payment.savingsTransactionIds || []) {
+      const transaction = candidate.savingsTransactions[transactionId];
+      if (!transaction || transaction.linkedPaymentId !== payment.id || transaction.reversedAt) return false;
+    }
     const key = `${payment.sourceType}:${payment.sourceId}`;
     if (activePaymentKeys.has(key)) return false;
     activePaymentKeys.add(key);

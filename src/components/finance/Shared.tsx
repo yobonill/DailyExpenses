@@ -169,9 +169,10 @@ export interface PayModalValue {
   loanPrincipalMinor?: number;
   loanInterestMinor?: number;
   loanChargesMinor?: number;
+  savingsFundId?: string;
 }
 
-export function PayModal({ title, expectedMinor, currency, canPayWithCard, cards, data, loanId, allowSavings, initialMethod = "", onConfirm, onClose }: {
+export function PayModal({ title, expectedMinor, currency, canPayWithCard, cards, data, loanId, allowSavings, savingsMode, initialMethod = "", onConfirm, onClose }: {
   title: string;
   expectedMinor: number;
   currency: Currency;
@@ -180,6 +181,7 @@ export function PayModal({ title, expectedMinor, currency, canPayWithCard, cards
   data: FinancialData;
   loanId?: string;
   allowSavings?: boolean;
+  savingsMode?: boolean;
   initialMethod?: PaymentMethod | "";
   onConfirm: (value: PayModalValue) => Promise<void>;
   onClose: () => void;
@@ -196,52 +198,65 @@ export function PayModal({ title, expectedMinor, currency, canPayWithCard, cards
   const [addTransferFee, setAddTransferFee] = useState(false);
   const [transferFee, setTransferFee] = useState("");
   const [settlementDop, setSettlementDop] = useState("");
+  const savingsFunds = Object.values(data.savingsFunds).filter((fund) => fund.active && fund.currency === currency && fund.moneyAccountId);
+  const [savingsFundId, setSavingsFundId] = useState(savingsFunds[0]?.id || "");
+  const selectedSavingsFund = savingsFundId ? data.savingsFunds[savingsFundId] : undefined;
+  const selectedSavingsAccount = selectedSavingsFund?.moneyAccountId ? data.moneyAccounts[selectedSavingsFund.moneyAccountId] : undefined;
+  const savingsMethod: PaymentMethod | "" = selectedSavingsAccount?.kind === "cash" ? "cash" : selectedSavingsAccount?.kind === "bank" ? "bankTransfer" : "";
   const linkedLoan = loanId ? data.loans[loanId] : undefined;
   const suggestedInterest = linkedLoan ? estimateLoanInterestMinor(data, linkedLoan.id, paidDate) : 0;
   const [loanInterest, setLoanInterest] = useState(linkedLoan ? minorToInput(suggestedInterest) : "");
   const [loanCharges, setLoanCharges] = useState(linkedLoan ? "0.00" : "");
   const amountMinor = parseMoneyToCents(amount) || 0;
-  const feeMinor = method === "bankTransfer" && addTransferFee ? parseMoneyToCents(transferFee) || 0 : 0;
+  const confirmedMethod = savingsMode ? savingsMethod : method;
+  const feeMinor = !savingsMode && confirmedMethod === "bankTransfer" && addTransferFee ? parseMoneyToCents(transferFee) || 0 : 0;
   const interestMinor = linkedLoan ? parseMoneyToCents(loanInterest) || 0 : 0;
   const chargesMinor = linkedLoan ? parseMoneyToCents(loanCharges) || 0 : 0;
   const principalMinor = linkedLoan ? Math.max(0, amountMinor - interestMinor - chargesMinor) : 0;
-  const effectiveMoneyAccountId: MoneyAccountId | undefined = method === "cash" ? CASH_ACCOUNT_ID : method === "bankTransfer" || method === "debitCard" ? moneyAccountId : undefined;
-  const accountDebitMinor = currency === "USD" ? parseMoneyToCents(settlementDop) || 0 : amountMinor;
-  const accountReady = method === "creditCard" || (effectiveMoneyAccountId ? isSelectableMoneyAccount(data, effectiveMoneyAccountId, method as "cash" | "bankTransfer" | "debitCard") : false);
+  const effectiveMoneyAccountId: MoneyAccountId | undefined = savingsMode
+    ? selectedSavingsFund?.moneyAccountId
+    : confirmedMethod === "cash" ? CASH_ACCOUNT_ID : confirmedMethod === "bankTransfer" || confirmedMethod === "debitCard" ? moneyAccountId : undefined;
+  const accountDebitMinor = savingsMode || currency === "DOP" ? amountMinor : parseMoneyToCents(settlementDop) || 0;
+  const accountReady = confirmedMethod === "creditCard" || (effectiveMoneyAccountId && confirmedMethod
+    ? isSelectableMoneyAccount(data, effectiveMoneyAccountId, confirmedMethod as "cash" | "bankTransfer" | "debitCard")
+    : false);
   const accountBalance = effectiveMoneyAccountId ? getMoneyAccountSpendableBalance(data, effectiveMoneyAccountId) : 0;
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     if (!amountMinor) return setError("Escribe un monto válido.");
-    if (!method) return setError("Selecciona cómo se pagó.");
-    if (method === "creditCard" && !cardId) return setError("Selecciona una tarjeta activa.");
-    if (method !== "creditCard" && !accountReady) return setError(method === "cash" ? "Configura primero tu saldo en Efectivo." : "Selecciona una cuenta bancaria activa.");
-    if (effectiveMoneyAccountId && currency === "USD" && accountDebitMinor <= 0) return setError("Indica cuánto salió realmente en pesos.");
+    if (savingsMode && !selectedSavingsFund) return setError("Selecciona el fondo donde guardarás este dinero.");
+    if (!confirmedMethod) return setError(savingsMode ? "El fondo debe estar vinculado a una cuenta activa." : "Selecciona cómo se pagó.");
+    if (confirmedMethod === "creditCard" && !cardId) return setError("Selecciona una tarjeta activa.");
+    if (confirmedMethod !== "creditCard" && !accountReady) return setError(confirmedMethod === "cash" ? "Configura primero tu saldo en Efectivo." : "Selecciona una cuenta bancaria activa.");
+    if (!savingsMode && effectiveMoneyAccountId && currency === "USD" && accountDebitMinor <= 0) return setError("Indica cuánto salió realmente en pesos.");
     if (effectiveMoneyAccountId && accountDebitMinor + feeMinor > accountBalance && !(allowSavings && consumeSavings)) return setError(`No hay suficiente dinero disponible sin apartar en ${moneyAccountLabel(effectiveMoneyAccountId, data)}.`);
     if (linkedLoan && interestMinor + chargesMinor > amountMinor) return setError("Intereses y cargos no pueden exceder el pago total.");
     if (linkedLoan && principalMinor > getLoanBalance(data, linkedLoan.id)) return setError("El capital calculado excede el balance del préstamo.");
     setSaving(true); setError("");
     try {
-      await onConfirm({ amountMinor, paidDate, method, cardId: method === "creditCard" ? cardId : undefined, consumeReservedSavings: consumeSavings, moneyAccountId: effectiveMoneyAccountId, transferFeeMinor: feeMinor || undefined, settlementAmountDopMinor: currency === "USD" && effectiveMoneyAccountId ? accountDebitMinor : undefined, loanPrincipalMinor: linkedLoan ? principalMinor : undefined, loanInterestMinor: linkedLoan ? interestMinor : undefined, loanChargesMinor: linkedLoan ? chargesMinor : undefined });
+      await onConfirm({ amountMinor, paidDate, method: confirmedMethod, cardId: confirmedMethod === "creditCard" ? cardId : undefined, consumeReservedSavings: savingsMode ? false : consumeSavings, moneyAccountId: effectiveMoneyAccountId, transferFeeMinor: feeMinor || undefined, settlementAmountDopMinor: !savingsMode && currency === "USD" && effectiveMoneyAccountId ? accountDebitMinor : undefined, loanPrincipalMinor: linkedLoan ? principalMinor : undefined, loanInterestMinor: linkedLoan ? interestMinor : undefined, loanChargesMinor: linkedLoan ? chargesMinor : undefined, savingsFundId: savingsMode ? savingsFundId : undefined });
       onClose();
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "No se pudo registrar el pago.");
     } finally { setSaving(false); }
   };
   return (
-    <Modal title={`Pagar · ${title}`} onClose={onClose} confirmClose>
+    <Modal title={`${savingsMode ? "Ahorrar" : "Pagar"} · ${title}`} onClose={onClose} confirmClose>
       <form className="form-grid" onSubmit={submit}>
         <div className="form-summary"><span>Monto esperado</span><strong>{formatCurrency(expectedMinor, currency)}</strong></div>
-        <MoneyField label="Monto pagado" value={amount} onChange={setAmount} currency={currency} />
-        <label className="field"><span>Fecha de pago</span><input type="date" value={paidDate} onChange={(event) => setPaidDate(event.target.value)} /></label>
-        <label className="field"><span>¿Cómo se pagó?</span><select value={method} onChange={(event) => { const next = event.target.value as PaymentMethod | ""; setMethod(next); if (next === "cash") setMoneyAccountId(CASH_ACCOUNT_ID); else if ((next === "bankTransfer" || next === "debitCard") && !isSelectableMoneyAccount(data, moneyAccountId, next)) setMoneyAccountId(firstBankAccountId); if (next !== "bankTransfer") { setAddTransferFee(false); setTransferFee(""); } }} required><option value="">Seleccionar forma de pago</option><option value="bankTransfer">Transferencia bancaria</option><option value="debitCard">Tarjeta de débito</option><option value="cash">Efectivo</option>{canPayWithCard && <option value="creditCard">Tarjeta de crédito</option>}</select></label>
-        {method === "creditCard" && <label className="field"><span>Tarjeta</span><select value={cardId} onChange={(event) => setCardId(event.target.value)}><option value="">Seleccionar</option>{cards.map((card) => <option key={card.id} value={card.id}>{card.name}{card.lastFour ? ` · ${card.lastFour}` : ""}</option>)}</select></label>}
-        {method !== "creditCard" && <MoneyAccountField data={data} method={method as "cash" | "bankTransfer" | "debitCard"} value={effectiveMoneyAccountId || ""} onChange={setMoneyAccountId} />}
-        {effectiveMoneyAccountId && currency === "USD" && <MoneyField label="Monto real que salió en pesos" value={settlementDop} onChange={setSettlementDop} currency="DOP" />}
-        {method === "bankTransfer" && <><CheckboxField checked={addTransferFee} onChange={(checked) => { setAddTransferFee(checked); setTransferFee(checked ? minorToInput(calculateTransferFeeMinor(accountDebitMinor, data.settings.transferFeeRatePercent)) : ""); }} label="Agregar comisión por transferencia" help={`Calcula ${data.settings.transferFeeRatePercent}% automáticamente; puedes editarla.`} />{addTransferFee && <MoneyField label="Comisión por transferencia" value={transferFee} onChange={setTransferFee} currency="DOP" />}</>}
+        <MoneyField label={savingsMode ? "Monto ahorrado" : "Monto pagado"} value={amount} onChange={setAmount} currency={currency} />
+        <label className="field"><span>{savingsMode ? "Fecha del ahorro" : "Fecha de pago"}</span><input type="date" value={paidDate} onChange={(event) => setPaidDate(event.target.value)} /></label>
+        {savingsMode ? <><label className="field"><span>Fondo de destino</span><select value={savingsFundId} onChange={(event) => setSavingsFundId(event.target.value)} required><option value="">Seleccionar fondo</option>{savingsFunds.map((fund) => <option key={fund.id} value={fund.id}>{fund.name} · {fund.moneyAccountId ? moneyAccountLabel(fund.moneyAccountId, data) : "Sin cuenta"}</option>)}</select></label>{!savingsFunds.length && <p className="form-error">No hay fondos {currency} activos vinculados a una cuenta. Configura uno en Ahorros antes de registrar este aporte.</p>}<p className="privacy-note">El dinero quedará apartado dentro de la cuenta vinculada. El saldo total de la cuenta no cambia, pero sí disminuye su disponible sin apartar.</p></> : <>
+          <label className="field"><span>¿Cómo se pagó?</span><select value={method} onChange={(event) => { const next = event.target.value as PaymentMethod | ""; setMethod(next); if (next === "cash") setMoneyAccountId(CASH_ACCOUNT_ID); else if ((next === "bankTransfer" || next === "debitCard") && !isSelectableMoneyAccount(data, moneyAccountId, next)) setMoneyAccountId(firstBankAccountId); if (next !== "bankTransfer") { setAddTransferFee(false); setTransferFee(""); } }} required><option value="">Seleccionar forma de pago</option><option value="bankTransfer">Transferencia bancaria</option><option value="debitCard">Tarjeta de débito</option><option value="cash">Efectivo</option>{canPayWithCard && <option value="creditCard">Tarjeta de crédito</option>}</select></label>
+          {method === "creditCard" && <label className="field"><span>Tarjeta</span><select value={cardId} onChange={(event) => setCardId(event.target.value)}><option value="">Seleccionar</option>{cards.map((card) => <option key={card.id} value={card.id}>{card.name}{card.lastFour ? ` · ${card.lastFour}` : ""}</option>)}</select></label>}
+          {method !== "creditCard" && <MoneyAccountField data={data} method={method as "cash" | "bankTransfer" | "debitCard"} value={effectiveMoneyAccountId || ""} onChange={setMoneyAccountId} />}
+          {effectiveMoneyAccountId && currency === "USD" && <MoneyField label="Monto real que salió en pesos" value={settlementDop} onChange={setSettlementDop} currency="DOP" />}
+          {method === "bankTransfer" && <><CheckboxField checked={addTransferFee} onChange={(checked) => { setAddTransferFee(checked); setTransferFee(checked ? minorToInput(calculateTransferFeeMinor(accountDebitMinor, data.settings.transferFeeRatePercent)) : ""); }} label="Agregar comisión por transferencia" help={`Calcula ${data.settings.transferFeeRatePercent}% automáticamente; puedes editarla.`} />{addTransferFee && <MoneyField label="Comisión por transferencia" value={transferFee} onChange={setTransferFee} currency="DOP" />}</>}
+        </>}
         {linkedLoan && <fieldset className="loan-breakdown-fieldset"><legend>Aplicación al préstamo · {linkedLoan.name}</legend><p className="privacy-note">El balance del préstamo solo baja por la porción de capital. Ajusta los valores según el comprobante del banco.</p><MoneyField label="Intereses" value={loanInterest} onChange={setLoanInterest} currency={currency} /><MoneyField label="Otros cargos" value={loanCharges} onChange={setLoanCharges} currency={currency} /><div className="form-summary"><span>Capital que reducirá la deuda</span><strong>{formatCurrency(principalMinor, currency)}</strong></div></fieldset>}
-        {allowSavings && method !== "creditCard" && <CheckboxField checked={consumeSavings} onChange={setConsumeSavings} label="Usar ahorros asignados" help="Retira automáticamente el monto reservado de los fondos vinculados." />}
+        {!savingsMode && allowSavings && method !== "creditCard" && <CheckboxField checked={consumeSavings} onChange={setConsumeSavings} label="Usar ahorros asignados" help="Retira automáticamente el monto reservado de los fondos vinculados." />}
         {error && <p className="form-error" role="alert">{error}</p>}
-        <div className="modal-actions"><button type="button" className="button button-secondary" onClick={onClose}>Cancelar</button><button type="submit" className="button button-primary" disabled={saving}>{saving ? "Guardando…" : "Confirmar pago"}</button></div>
+        <div className="modal-actions"><button type="button" className="button button-secondary" onClick={onClose}>Cancelar</button><button type="submit" className="button button-primary" disabled={saving}>{saving ? "Guardando…" : savingsMode ? "Confirmar ahorro" : "Confirmar pago"}</button></div>
       </form>
     </Modal>
   );

@@ -2,9 +2,9 @@ import type { Expense, ExpensePaymentMethod } from "../models/expense";
 import type { Currency, FinancialData, PaymentMethod } from "../models/finance";
 import { getBudgetCycleRange, getMonthKey, getQuincena, getQuincenaRange, type Quincena } from "./date";
 
-export type SpendingType = "extra" | "monthly" | "nonMonthly" | "purchaseGoal" | "bankFee" | "savings";
+export type SpendingType = "extra" | "monthly" | "nonMonthly" | "purchaseGoal" | "savings";
 export type SpendingMethod = "card" | "bank" | "cash" | "unclassified";
-export type SpendingNature = "expense" | "debt" | "savings";
+export type SpendingNature = "expense" | "savings";
 export type SpendingSource = "expense" | "payment" | "cardTransaction" | "moneyTransaction" | "savingsTransaction";
 
 export interface SpendingEntry {
@@ -35,22 +35,23 @@ export interface SpendingRange {
 }
 
 export interface SpendingTotals {
-  allocated: Record<Currency, number>;
   total: Record<Currency, number>;
   real: Record<Currency, number>;
   bank: Record<Currency, number>;
   cash: Record<Currency, number>;
   card: Record<Currency, number>;
   unclassified: Record<Currency, number>;
-  debt: Record<Currency, number>;
   savings: Record<Currency, number>;
 }
+
+export type SpendingBreakdownType = "monthly" | "extra" | "nonMonthly" | "purchaseGoal";
+export type CurrencyTotals = Record<Currency, number>;
+export type SpendingTypeTotals = Record<SpendingBreakdownType, CurrencyTotals>;
 
 const UNCATEGORIZED = "Sin categoría";
 const BANK_FEES = "Comisiones bancarias";
 
-const spendingNature = (category: string | undefined, loanId?: string): SpendingNature => {
-  if (loanId || category === "Deudas y préstamos") return "debt";
+const spendingNature = (category: string | undefined): SpendingNature => {
   if (category === "Ahorros") return "savings";
   return "expense";
 };
@@ -82,6 +83,15 @@ export const buildSpendingHistory = (data: FinancialData, expenses: Expense[]): 
   Object.values(data.moneyTransactions)
     .filter((transaction) => transaction.type === "fee" && transaction.direction === "out" && !transaction.reversedAt)
     .forEach((transaction) => {
+      const linkedPayment = transaction.linkedPaymentId ? data.payments[transaction.linkedPaymentId] : undefined;
+      const linkedOccurrence = linkedPayment
+        ? linkedPayment.sourceType === "monthly"
+          ? data.monthlyOccurrences[linkedPayment.sourceId]
+          : data.nonMonthlyOccurrences[linkedPayment.sourceId]
+        : undefined;
+      const linkedGoal = linkedOccurrence && "sourcePurchaseGoalId" in linkedOccurrence && linkedOccurrence.sourcePurchaseGoalId
+        ? data.purchaseGoals[linkedOccurrence.sourcePurchaseGoalId]
+        : undefined;
       if (transaction.linkedDailyExpenseId) activeFeesByExpense.add(transaction.linkedDailyExpenseId);
       if (transaction.linkedPaymentId) activeFeesByPayment.add(transaction.linkedPaymentId);
       entries.push({
@@ -91,7 +101,7 @@ export const buildSpendingHistory = (data: FinancialData, expenses: Expense[]): 
         date: transaction.transactionDate,
         name: transaction.description || "Comisión bancaria",
         category: BANK_FEES,
-        spendingType: "bankFee",
+        spendingType: linkedGoal ? "purchaseGoal" : linkedPayment?.sourceType || "extra",
         nature: "expense",
         method: data.moneyAccounts[transaction.accountId]?.kind === "cash" ? "cash" : "bank",
         currency: transaction.currency,
@@ -158,7 +168,7 @@ export const buildSpendingHistory = (data: FinancialData, expenses: Expense[]): 
           date: expense.occurredDate,
           name: `Comisión bancaria · ${expense.name}`,
           category: BANK_FEES,
-          spendingType: "bankFee",
+          spendingType: "extra",
           nature: "expense",
           method: "bank",
           currency: "DOP",
@@ -213,38 +223,14 @@ export const buildSpendingHistory = (data: FinancialData, expenses: Expense[]): 
         quincena: hasFinancialPeriod ? occurrence.quincena : undefined,
         dateIsApproximate: Boolean(payment.historical),
       };
-      const loanTransaction = payment.loanTransactionId ? data.loanTransactions[payment.loanTransactionId] : undefined;
-      if (loanTransaction && !loanTransaction.reversedAt) {
-        const originalTotal = positive(payment.amountMinor);
-        const originalPrincipal = Math.min(originalTotal, positive(loanTransaction.principalMinor));
-        const principalMinor = originalTotal > 0 ? Math.round(amountMinor * originalPrincipal / originalTotal) : 0;
-        const expenseMinor = Math.max(0, amountMinor - principalMinor);
-        if (principalMinor > 0) entries.push({
-          ...baseEntry,
-          id: `payment:${payment.id}:principal`,
-          name: `${occurrence?.name || "Pago de préstamo"} · Capital`,
-          nature: "debt",
-          amountMinor: principalMinor,
-          originalAmountMinor: settlesUsdWithDop ? originalPrincipal : undefined,
-        });
-        if (expenseMinor > 0) entries.push({
-          ...baseEntry,
-          id: `payment:${payment.id}:cost`,
-          name: `${occurrence?.name || "Pago de préstamo"} · Intereses y cargos`,
-          nature: "expense",
-          amountMinor: expenseMinor,
-          originalAmountMinor: settlesUsdWithDop ? Math.max(0, originalTotal - originalPrincipal) : undefined,
-        });
-      } else {
-        entries.push({
-          ...baseEntry,
-          id: `payment:${payment.id}`,
-          name: occurrence?.name || "Pago registrado",
-          nature: spendingNature(category, payment.loanId || occurrence?.loanId),
-          amountMinor,
-          originalAmountMinor: settlesUsdWithDop ? positive(payment.amountMinor) : undefined,
-        });
-      }
+      entries.push({
+        ...baseEntry,
+        id: `payment:${payment.id}`,
+        name: occurrence?.name || "Pago registrado",
+        nature: spendingNature(category),
+        amountMinor,
+        originalAmountMinor: settlesUsdWithDop ? positive(payment.amountMinor) : undefined,
+      });
       if (positive(payment.transferFeeMinor) > 0 && !activeFeesByPayment.has(payment.id)) {
         entries.push({
           id: `paymentFee:${payment.id}`,
@@ -253,7 +239,7 @@ export const buildSpendingHistory = (data: FinancialData, expenses: Expense[]): 
           date: payment.paidDate,
           name: `Comisión bancaria · ${occurrence?.name || "Pago"}`,
           category: BANK_FEES,
-          spendingType: "bankFee",
+          spendingType: goal ? "purchaseGoal" : payment.sourceType,
           nature: "expense",
           method: "bank",
           currency: "DOP",
@@ -301,22 +287,15 @@ export const isEntryInRange = (entry: SpendingEntry, range: SpendingRange): bool
 
 export const getSpendingTotals = (entries: SpendingEntry[]): SpendingTotals => {
   const totals: SpendingTotals = {
-    allocated: { DOP: 0, USD: 0 },
     total: { DOP: 0, USD: 0 },
     real: { DOP: 0, USD: 0 },
     bank: { DOP: 0, USD: 0 },
     cash: { DOP: 0, USD: 0 },
     card: { DOP: 0, USD: 0 },
     unclassified: { DOP: 0, USD: 0 },
-    debt: { DOP: 0, USD: 0 },
     savings: { DOP: 0, USD: 0 },
   };
   entries.forEach((entry) => {
-    totals.allocated[entry.currency] += entry.amountMinor;
-    if (entry.nature === "debt") {
-      totals.debt[entry.currency] += entry.amountMinor;
-      return;
-    }
     if (entry.nature === "savings") {
       totals.savings[entry.currency] += entry.amountMinor;
       return;
@@ -325,6 +304,38 @@ export const getSpendingTotals = (entries: SpendingEntry[]): SpendingTotals => {
     totals[entry.method][entry.currency] += entry.amountMinor;
     if (entry.method === "bank" || entry.method === "cash") totals.real[entry.currency] += entry.amountMinor;
   });
+  return totals;
+};
+
+export const getSpendingTypeTotals = (entries: SpendingEntry[]): SpendingTypeTotals => {
+  const totals: SpendingTypeTotals = {
+    monthly: { DOP: 0, USD: 0 },
+    extra: { DOP: 0, USD: 0 },
+    nonMonthly: { DOP: 0, USD: 0 },
+    purchaseGoal: { DOP: 0, USD: 0 },
+  };
+  entries.forEach((entry) => {
+    if (entry.nature !== "expense" || entry.spendingType === "savings") return;
+    totals[entry.spendingType][entry.currency] += entry.amountMinor;
+  });
+  return totals;
+};
+
+export const getReceivedIncomeTotals = (
+  data: FinancialData,
+  range: SpendingRange,
+  useFinancialPeriod: boolean,
+): CurrencyTotals => {
+  const totals: CurrencyTotals = { DOP: 0, USD: 0 };
+  Object.values(data.incomeOccurrences)
+    .filter((income) => income.status === "received")
+    .forEach((income) => {
+      const date = useFinancialPeriod
+        ? getQuincenaRange(income.financialMonth, income.quincena).startDateKey
+        : income.receivedDate || income.expectedDate;
+      if (date < range.startDateKey || date > range.endDateKey) return;
+      totals[income.currency] += positive(income.actualAmountMinor ?? income.expectedAmountMinor);
+    });
   return totals;
 };
 

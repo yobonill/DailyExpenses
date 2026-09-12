@@ -18,7 +18,7 @@ Los gastos diarios viven en `/expenses`. Los módulos de presupuesto viven en el
 
 ## Áreas funcionales
 
-- **Registrar / Historial:** registro rápido de extras y un historial unificado del dinero destinado. Combina extras, facturas, gastos no mensuales, metas, cargos manuales, comisiones, aportes a ahorros y pagos históricos reconciliados sin duplicar movimientos; separa consumo, deuda y ahorro.
+- **Registrar / Historial:** registro rápido de extras y un historial unificado del ciclo. Resume ingresos recibidos, total gastado, total ahorrado y restante; después desglosa los gastos por Presupuesto, Extras, No mensuales, Metas de compra, forma de pago y categoría.
 - **Dashboard:** dinero real de efectivo y cuentas de débito elegidas por el usuario, facturas pendientes y resultado esperado después de cubrir lo todavía pendiente; separa claramente el período seleccionado de los avisos que quedan fuera de él.
 - **Presupuesto:** gastos recurrentes y puntuales asignados explícitamente a Q1 o Q2, pago normal o con tarjeta, postergación individual, esperado/real y variación.
 - **Ingresos:** salario, otros ingresos recurrentes y puntuales; esperado frente a recibido y cuenta DOP/USD donde entró.
@@ -48,9 +48,11 @@ La fecha de vencimiento controla los avisos, pero un gasto de presupuesto puede 
 - Efectivo reduce la cuenta Efectivo; débito y transferencia reducen exactamente la cuenta bancaria elegida. La comisión de transferencia se registra por separado en esa misma cuenta.
 - Un gasto pagado con tarjeta cuenta como gasto una sola vez y crea deuda, pero no reduce el efectivo hasta registrar o planificar el pago de la tarjeta.
 - Pagar la tarjeta reduce deuda y flujo de caja; no crea otro gasto.
-- Un pago vinculado a un préstamo reduce su balance únicamente por la porción de capital; interés y cargos permanecen en el historial.
+- Un pago vinculado a un préstamo cuenta completo dentro de Total gastado, pero reduce el balance del préstamo únicamente por la porción de capital.
 - Los saldos iniciales por cuenta, Efectivo y préstamos forman un punto de partida: los movimientos anteriores no se vuelven a aplicar.
 - Los fondos de ahorro son porciones apartadas del saldo total de sus cuentas, no dinero adicional ni gastos.
+- Un aporte nuevo se presenta como Total ahorrado y reduce el Restante del ciclo. Los saldos iniciales, correcciones y transferencias entre fondos no se vuelven a contar como ahorro del período.
+- Al completar una obligación de Presupuesto categorizada como Ahorros, se elige el fondo de destino y se crea un único aporte vinculado sin reducir el saldo total de la cuenta física.
 - Una cuenta bancaria y un fondo vinculado siempre usan la misma moneda. Sus importes DOP y USD se muestran por separado y nunca se suman entre sí.
 - Una asignación reserva saldo sin moverlo; consumirla genera el retiro correspondiente.
 - Después de la reconciliación única, pagos, gastos y transferencias ordinarias solo pueden usar el disponible sin apartar. Consumir un ahorro vinculado libera su reserva dentro de la misma operación.
@@ -60,6 +62,8 @@ La fecha de vencimiento controla los avisos, pero un gasto de presupuesto puede 
 ## Categorías y recurrencia
 
 La categoría y la forma de pago son obligatorias para todo gasto nuevo. Las categorías se eligen de una lista predefinida y agrupan gastos extras, obligaciones mensuales, gastos futuros y compras en Historial y Reportes; no cambian fechas ni pagos.
+
+Todo lo creado desde **Registrar** conserva el tipo **Extra**, independientemente de su categoría. Esto permite detectar gastos normales que debieron registrarse y pagarse desde Presupuesto.
 
 Los registros anteriores que no conservaron esos datos pueden completarse desde **Historial → Completar clasificación**. Clasificar un pago histórico es informativo y no modifica saldos ni deudas. Si se corrige el método de un gasto extra existente, la app sí corrige su movimiento financiero vinculado y lo advierte antes de guardar.
 
