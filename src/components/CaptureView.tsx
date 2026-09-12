@@ -29,7 +29,7 @@ export function CaptureView({ onCreate, onSaved, data, activeCardName, transferF
   const [price, setPrice] = useState(initialDraft.price);
   const [quantity, setQuantity] = useState(initialDraft.quantity || "1");
   const [category, setCategory] = useState(initialDraft.category);
-  const [paymentMethod, setPaymentMethod] = useState<ExpensePaymentMethod>(initialDraft.paymentMethod);
+  const [paymentMethod, setPaymentMethod] = useState<ExpensePaymentMethod | "">(initialDraft.paymentMethod);
   const [moneyAccountId, setMoneyAccountId] = useState(initialDraft.moneyAccountId || bankAccounts[0]?.id || "");
   const [currency, setCurrency] = useState<ExpenseCurrency>(initialDraft.currency);
   const [includeTransferFee, setIncludeTransferFee] = useState(initialDraft.includeTransferFee);
@@ -41,6 +41,7 @@ export function CaptureView({ onCreate, onSaved, data, activeCardName, transferF
   const priceRef = useRef<HTMLInputElement>(null);
   const quantityRef = useRef<HTMLInputElement>(null);
   const paymentRef = useRef<HTMLSelectElement>(null);
+  const categoryRef = useRef<HTMLSelectElement>(null);
 
   const cleanName = name.trim();
   const unitPriceCents = parseMoneyToCents(price);
@@ -53,8 +54,8 @@ export function CaptureView({ onCreate, onSaved, data, activeCardName, transferF
     ? isSelectableMoneyAccount(data, CASH_ACCOUNT_ID, "cash")
     : paymentMethod === "debit" || paymentMethod === "transfer"
       ? isSelectableMoneyAccount(data, moneyAccountId, paymentMethod === "debit" ? "debitCard" : "bankTransfer")
-      : true;
-  const canSave = showQuantity && validQuantity && cardReady && sourceReady && !saving;
+      : paymentMethod === "creditCard";
+  const canSave = showQuantity && validQuantity && Boolean(category) && Boolean(paymentMethod) && cardReady && sourceReady && !saving;
   const totalCents = unitPriceCents && validQuantity ? unitPriceCents * quantityNumber : 0;
   const suggestedFee = calculateTransferFeeMinor(totalCents, transferFeeRatePercent);
   const transferFeeCents = paymentMethod === "transfer" && includeTransferFee
@@ -74,7 +75,7 @@ export function CaptureView({ onCreate, onSaved, data, activeCardName, transferF
     setPrice("");
     setQuantity("1");
     setCategory("");
-    setPaymentMethod("cash");
+    setPaymentMethod("");
     setMoneyAccountId(bankAccounts[0]?.id || "");
     setCurrency("DOP");
     setIncludeTransferFee(false);
@@ -85,7 +86,21 @@ export function CaptureView({ onCreate, onSaved, data, activeCardName, transferF
 
   const submit = async (event?: FormEvent) => {
     event?.preventDefault();
-    if (!canSave || unitPriceCents === null) return;
+    if (!cleanName || unitPriceCents === null || !validQuantity) {
+      setError("Completa el nombre, precio y cantidad.");
+      return;
+    }
+    if (!paymentMethod) {
+      setError("Selecciona cómo pagaste el gasto.");
+      paymentRef.current?.focus();
+      return;
+    }
+    if (!category) {
+      setError("Selecciona una categoría.");
+      categoryRef.current?.focus();
+      return;
+    }
+    if (!canSave) return;
 
     setSaving(true);
     setError("");
@@ -195,6 +210,7 @@ export function CaptureView({ onCreate, onSaved, data, activeCardName, transferF
                     if (next !== "transfer") { setIncludeTransferFee(false); setTransferFee(""); }
                   }}
                 >
+                  <option value="">Seleccionar forma de pago</option>
                   {(Object.keys(PAYMENT_METHOD_LABELS) as ExpensePaymentMethod[]).map((method) => (
                     <option value={method} key={method}>{PAYMENT_METHOD_LABELS[method]}</option>
                   ))}
@@ -230,9 +246,9 @@ export function CaptureView({ onCreate, onSaved, data, activeCardName, transferF
               )}
 
               <label className="capture-field">
-                <span>Categoría (opcional)</span>
-                <select value={category} onChange={(event) => setCategory(event.target.value)}>
-                  <option value="">Sin categoría</option>
+                <span>Categoría</span>
+                <select ref={categoryRef} value={category} onChange={(event) => setCategory(event.target.value)} required>
+                  <option value="">Seleccionar categoría</option>
                   {EXPENSE_CATEGORIES.map((item) => <option value={item} key={item}>{item}</option>)}
                 </select>
               </label>

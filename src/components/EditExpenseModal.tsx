@@ -43,6 +43,7 @@ export function EditExpenseModal({ expense, data, onClose, onSave, activeCardNam
   const totalMinor = (unitPriceCents || 0) * (Number.isInteger(quantityNumber) ? quantityNumber : 0);
   const canSave =
     name.trim().length > 0 &&
+    category.length > 0 &&
     unitPriceCents !== null &&
     Number.isInteger(quantityNumber) &&
     quantityNumber > 0 &&
@@ -56,6 +57,10 @@ export function EditExpenseModal({ expense, data, onClose, onSave, activeCardNam
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
+    if (!category) {
+      setError("Selecciona una categoría.");
+      return;
+    }
     if (!canSave || unitPriceCents === null) return;
     setSaving(true);
     setError("");
@@ -132,7 +137,7 @@ export function EditExpenseModal({ expense, data, onClose, onSave, activeCardNam
             {activeCardName ? <p className="privacy-note">El cargo vinculado se actualizará en {activeCardName}.</p> : <p className="form-error">Configura una tarjeta activa para usar esta forma de pago.</p>}
           </>}
           {paymentMethod === "transfer" && <><label className="checkbox-field"><input type="checkbox" checked={includeTransferFee} onChange={(event) => { const checked = event.target.checked; setIncludeTransferFee(checked); setTransferFee(checked ? (calculateTransferFeeMinor(totalMinor, transferFeeRatePercent) / 100).toFixed(2) : ""); }} /><span><strong>Agregar comisión por transferencia</strong><small>Calcula {transferFeeRatePercent}% y permite editar el monto.</small></span></label>{includeTransferFee && <label className="field"><span>Comisión (RD$)</span><input inputMode="decimal" value={transferFee} onChange={(event) => setTransferFee(event.target.value)} /></label>}</>}
-          <label className="field"><span>Categoría (opcional)</span><select value={category} onChange={(event) => setCategory(event.target.value)}><option value="">Sin categoría</option>{category && !isPredefinedExpenseCategory(category) && <option value={category}>{category} (anterior)</option>}{EXPENSE_CATEGORIES.map((item) => <option value={item} key={item}>{item}</option>)}</select></label>
+          <label className="field"><span>Categoría</span><select value={category} onChange={(event) => setCategory(event.target.value)} required><option value="">Seleccionar categoría</option>{category && !isPredefinedExpenseCategory(category) && <option value={category}>{category} (anterior)</option>}{EXPENSE_CATEGORIES.map((item) => <option value={item} key={item}>{item}</option>)}</select></label>
 
           {error && <p className="form-error" role="alert">{error}</p>}
 

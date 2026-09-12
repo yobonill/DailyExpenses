@@ -28,6 +28,7 @@ function FutureExpenseForm({ data, plan, defaultWarning, onSave, onClose }: { da
     const recurrenceInterval = Math.max(1, Number(interval) || 1);
     const warningMonths = Math.max(0, Number(warning) || 0);
     if (!name.trim() || !estimatedAmountMinor || !nextDueDate) return setError("Completa nombre, monto y próxima fecha.");
+    if (!category) return setError("Selecciona una categoría.");
     setSaving(true); setError("");
     try {
       await onSave({ name, category, estimatedAmountMinor, currency, nextDueDate, recurrenceKind, recurrenceInterval, warningMonths, canPayWithCard, active, notes, loanId: category === "Deudas y préstamos" ? loanId || undefined : undefined }, plan?.id);
@@ -37,7 +38,7 @@ function FutureExpenseForm({ data, plan, defaultWarning, onSave, onClose }: { da
   };
   return <Modal title={plan ? "Editar gasto no mensual" : "Nuevo gasto no mensual"} onClose={onClose}><form className="form-grid" onSubmit={submit}>
     <label className="field"><span>Nombre</span><input value={name} onChange={(event) => setName(event.target.value)} required /></label>
-    <label className="field"><span>Categoría (opcional)</span><select value={category} onChange={(event) => { const next = event.target.value; setCategory(next); if (next !== "Deudas y préstamos") setLoanId(""); }}><option value="">Sin categoría</option>{category && !isPredefinedExpenseCategory(category) && <option value={category}>{category} (anterior)</option>}{EXPENSE_CATEGORIES.map((item) => <option value={item} key={item}>{item}</option>)}</select></label>
+    <label className="field"><span>Categoría</span><select value={category} onChange={(event) => { const next = event.target.value; setCategory(next); if (next !== "Deudas y préstamos") setLoanId(""); }} required><option value="">Seleccionar categoría</option>{category && !isPredefinedExpenseCategory(category) && <option value={category}>{category} (anterior)</option>}{EXPENSE_CATEGORIES.map((item) => <option value={item} key={item}>{item}</option>)}</select></label>
     {category === "Deudas y préstamos" && <label className="field"><span>Préstamo relacionado (opcional)</span><select value={loanId} onChange={(event) => setLoanId(event.target.value)}><option value="">No vincular</option>{Object.values(data.loans).filter((loan) => !loan.archivedAt && loan.currency === currency).map((loan) => <option key={loan.id} value={loan.id}>{loan.name}</option>)}</select></label>}
     <div className="form-columns"><MoneyField label="Costo estimado" value={amount} onChange={setAmount} currency={currency} /><CurrencyField value={currency} onChange={setCurrency} /></div>
     <label className="field"><span>Próximo vencimiento</span><input type="date" value={nextDueDate} onChange={(event) => setNextDueDate(event.target.value)} /></label>

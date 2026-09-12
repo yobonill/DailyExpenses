@@ -42,13 +42,13 @@ export const readDraft = (): ExpenseDraft => {
       paymentMethod: (["cash", "debit", "transfer", "creditCard"] as ExpensePaymentMethod[])
         .includes(parsed.paymentMethod as ExpensePaymentMethod)
         ? parsed.paymentMethod as ExpensePaymentMethod
-        : "cash",
+        : "",
       moneyAccountId: typeof parsed.moneyAccountId === "string" ? parsed.moneyAccountId : "",
       includeTransferFee: parsed.includeTransferFee === true,
       transferFee: typeof parsed.transferFee === "string" ? parsed.transferFee : "",
     };
   } catch {
-    return { name: "", price: "", quantity: "1", category: "", currency: "DOP", paymentMethod: "cash", moneyAccountId: "", includeTransferFee: false, transferFee: "" };
+    return { name: "", price: "", quantity: "1", category: "", currency: "DOP", paymentMethod: "", moneyAccountId: "", includeTransferFee: false, transferFee: "" };
   }
 };
 

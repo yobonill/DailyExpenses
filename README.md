@@ -18,7 +18,7 @@ Los gastos diarios viven en `/expenses`. Los módulos de presupuesto viven en el
 
 ## Áreas funcionales
 
-- **Registrar / Historial:** registro rápido de extras y un historial unificado de gastos realizados. El Historial combina extras, facturas, gastos no mensuales, metas, cargos manuales y comisiones sin duplicar los movimientos financieros vinculados.
+- **Registrar / Historial:** registro rápido de extras y un historial unificado del dinero destinado. Combina extras, facturas, gastos no mensuales, metas, cargos manuales, comisiones, aportes a ahorros y pagos históricos reconciliados sin duplicar movimientos; separa consumo, deuda y ahorro.
 - **Dashboard:** dinero real de efectivo y cuentas de débito elegidas por el usuario, facturas pendientes y resultado esperado después de cubrir lo todavía pendiente; separa claramente el período seleccionado de los avisos que quedan fuera de él.
 - **Presupuesto:** gastos recurrentes y puntuales asignados explícitamente a Q1 o Q2, pago normal o con tarjeta, postergación individual, esperado/real y variación.
 - **Ingresos:** salario, otros ingresos recurrentes y puntuales; esperado frente a recibido y cuenta DOP/USD donde entró.
@@ -59,7 +59,9 @@ La fecha de vencimiento controla los avisos, pero un gasto de presupuesto puede 
 
 ## Categorías y recurrencia
 
-Las categorías son opcionales y se eligen de una lista predefinida. Agrupan gastos extras, obligaciones mensuales y gastos futuros en Reportes; no cambian fechas ni pagos.
+La categoría y la forma de pago son obligatorias para todo gasto nuevo. Las categorías se eligen de una lista predefinida y agrupan gastos extras, obligaciones mensuales, gastos futuros y compras en Historial y Reportes; no cambian fechas ni pagos.
+
+Los registros anteriores que no conservaron esos datos pueden completarse desde **Historial → Completar clasificación**. Clasificar un pago histórico es informativo y no modifica saldos ni deudas. Si se corrige el método de un gasto extra existente, la app sí corrige su movimiento financiero vinculado y lo advierte antes de guardar.
 
 `Repetir automáticamente cada mes` controla si una plantilla genera nuevos meses. Al pausarla se conserva la obligación del período financiero actual y todo el historial pagado/cancelado, pero se eliminan sus proyecciones futuras todavía pendientes. Al reactivarla se vuelven a generar los períodos futuros sin duplicados.
 

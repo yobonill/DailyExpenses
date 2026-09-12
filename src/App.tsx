@@ -143,11 +143,13 @@ function AuthenticatedApp({ user, onLogout }: { user: AppUserDefinition; onLogou
     moneyAccountId: MoneyAccountId,
     transferFeeMinor: number,
   ) => {
+    if (!goal.category) throw new Error("Selecciona una categoría para la meta antes de comprarla.");
     const expense = await expensesState.createExpense({
       name: goal.name,
       unitPriceCents: actualPaymentDopMinor,
       quantity: 1,
       occurredDate: date,
+      category: goal.category,
       currency: "DOP",
       paymentMethod: method === "bankTransfer" ? "transfer" : method === "debitCard" ? "debit" : "cash",
       moneyAccountId,
@@ -220,7 +222,7 @@ function AuthenticatedApp({ user, onLogout }: { user: AppUserDefinition; onLogou
   const renderView = () => {
     switch (view) {
       case "capture": return <CaptureView data={financial.data} activeCardName={activeCard?.name} transferFeeRatePercent={financial.data.settings.transferFeeRatePercent} onCreate={handleCreateExpense} onSaved={() => showNotice("Gasto registrado en el sistema")} />;
-      case "review": return <ReviewView data={financial.data} expenses={expensesState.expenses} activeCardName={activeCard?.name} transferFeeRatePercent={financial.data.settings.transferFeeRatePercent} onEdit={handleEditExpense} onDelete={handleDeleteExpense} onRestore={handleRestoreExpense} onNotice={showNotice} />;
+      case "review": return <ReviewView data={financial.data} expenses={expensesState.expenses} activeCardName={activeCard?.name} transferFeeRatePercent={financial.data.settings.transferFeeRatePercent} onEdit={handleEditExpense} onDelete={handleDeleteExpense} onRestore={handleRestoreExpense} onClassifyHistorical={actions.classifyHistoricalPayment} onNotice={showNotice} />;
       case "dashboard": return <DashboardView data={financial.data} expenses={expensesState.expenses} onPay={(value) => actions.payObligation(value)} onPostpone={actions.postponeObligation} onSaveCardPaymentPlan={actions.saveCardPaymentPlan} onUpdateDashboardAccounts={(accountIds) => actions.updateSettings({ ...financial.data.settings, dashboardMoneyAccountIds: accountIds })} onNavigate={setView} />;
       case "budget": return <BudgetView data={financial.data} onSaveTemplate={actions.saveMonthlyTemplate} onArchiveTemplate={actions.archiveMonthlyTemplate} onCreateOneTime={actions.createOneTimeMonthly} onUpdateOneTime={actions.updateOneTimeMonthly} onReconcileStartingPoint={actions.reconcileStartingPoint} onPay={(value) => actions.payObligation(value)} onPostpone={(sourceType, sourceId, newDueDate) => actions.postponeObligation(sourceType, sourceId, newDueDate)} onReopen={(id) => actions.reopenObligation("monthly", id)} onCancel={actions.cancelMonthlyOccurrence} />;
       case "income": return <IncomeView data={financial.data} onSaveTemplate={actions.saveIncomeTemplate} onCreateOneTime={actions.createOneTimeIncome} onReceive={actions.receiveIncome} onReopen={actions.reopenIncome} />;

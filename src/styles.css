@@ -239,6 +239,16 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px s
 .history-summary-card small.spending-up { color: var(--danger); }
 .history-summary-card small.spending-down { color: var(--brand); }
 .history-comparison-caption { margin: -7px 3px 14px; color: var(--muted); font-size: .7rem; text-align: right; }
+.history-classification-banner { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-bottom: 14px; padding: 1rem 1.1rem; border: 1px solid #dba944; border-radius: 18px; background: #fff8e8; }
+.history-classification-banner > div { display: grid; gap: .25rem; }
+.history-classification-banner span, .classification-context { color: var(--muted); }
+.classification-form { min-width: 0; }
+.classification-progress { display: flex; justify-content: space-between; gap: 1rem; color: var(--muted); }
+.classification-complete { display: grid; gap: 1rem; padding: 1rem 0; }
+.history-entry-nature { border-radius: 999px; padding: .12rem .5rem; font-weight: 750; }
+.nature-debt { background: #fff0df; color: #885014; }
+.nature-savings { background: #e9f4ed; color: var(--brand); }
+.nature-expense { background: #eef1ef; }
 .history-filter-shell { margin-bottom: 14px; border: 1px solid var(--border); border-radius: 18px; background: var(--surface); overflow: hidden; }
 .history-filter-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 13px 14px; }
 .history-filter-heading > div:first-child { display: grid; gap: 2px; }
@@ -743,6 +753,7 @@ tbody tr:last-child td { border-bottom: 0; }
 }
 
 @media (max-width: 720px) {
+  .history-classification-banner { align-items: stretch; flex-direction: column; }
   .compact-brand > span:last-child { max-width: 170px; overflow: hidden; text-overflow: ellipsis; }
   .bottom-nav.expanded-nav { padding-inline: 4px; }
   .bottom-nav.expanded-nav button { font-size: .64rem; }

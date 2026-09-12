@@ -33,7 +33,7 @@ export interface ExpenseDraft {
   quantity: string;
   category: string;
   currency: ExpenseCurrency;
-  paymentMethod: ExpensePaymentMethod;
+  paymentMethod: ExpensePaymentMethod | "";
   moneyAccountId: string;
   includeTransferFee: boolean;
   transferFee: string;

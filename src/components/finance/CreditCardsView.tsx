@@ -260,6 +260,10 @@ function CardTransactionModal({
       setError("Completa monto y descripción.");
       return;
     }
+    if (type === "charge" && !category) {
+      setError("Selecciona una categoría para la compra o cargo.");
+      return;
+    }
     if (type === "payment" && !includedInCurrentBalance && parsedAmount > currentDebt) {
       setError("El pago no puede exceder la deuda pendiente.");
       return;
@@ -343,7 +347,7 @@ function CardTransactionModal({
           }
         }} /></label>
         <label className="field"><span>Descripción</span><input value={description} onChange={(event) => setDescription(event.target.value)} /></label>
-        {type === "charge" && <label className="field"><span>Categoría (opcional)</span><select value={category} onChange={(event) => setCategory(event.target.value)}><option value="">Sin categoría</option>{EXPENSE_CATEGORIES.map((item) => <option value={item} key={item}>{item}</option>)}</select></label>}
+        {type === "charge" && <label className="field"><span>Categoría</span><select value={category} onChange={(event) => setCategory(event.target.value)} required><option value="">Seleccionar categoría</option>{EXPENSE_CATEGORIES.map((item) => <option value={item} key={item}>{item}</option>)}</select></label>}
         {type === "payment" && <CheckboxField checked={includedInCurrentBalance} onChange={(checked) => {
           setIncludedInCurrentBalance(checked);
           if (checked) setSavingsFundId("");

@@ -132,7 +132,7 @@ export interface NewExpenseInput {
   unitPriceCents: number;
   quantity: number;
   occurredDate?: string;
-  category?: string;
+  category: string;
   currency: "DOP" | "USD";
   paymentMethod: ExpensePaymentMethod;
   moneyAccountId?: string;
@@ -317,6 +317,8 @@ export const useExpenses = (): UseExpensesResult => {
 
   const createExpense = useCallback(
     async (input: NewExpenseInput): Promise<Expense> => {
+      if (!input.category.trim()) throw new Error("Selecciona una categoría.");
+      if (!["cash", "debit", "transfer", "creditCard"].includes(input.paymentMethod)) throw new Error("Selecciona cómo pagaste el gasto.");
       const now = new Date();
       const nowIso = now.toISOString();
       const expense: Expense = {
@@ -326,7 +328,7 @@ export const useExpenses = (): UseExpensesResult => {
         quantity: Math.max(1, Math.floor(input.quantity)),
         occurredDate: input.occurredDate || toLocalDateKey(now),
         occurredAt: nowIso,
-        category: input.category?.trim() || undefined,
+        category: input.category.trim(),
         currency: input.paymentMethod === "creditCard" && input.currency === "USD" ? "USD" : "DOP",
         paymentMethod: input.paymentMethod,
         moneyAccountId: input.paymentMethod === "cash" ? "cash" : input.paymentMethod === "debit" || input.paymentMethod === "transfer" ? input.moneyAccountId : undefined,
@@ -362,12 +364,13 @@ export const useExpenses = (): UseExpensesResult => {
       expenseId: string,
       changes: ExpenseEditableFields,
     ) => {
+      if (!changes.category?.trim()) throw new Error("Selecciona una categoría.");
       await patchExpense(expenseId, {
         name: changes.name.trim(),
         unitPriceCents: Math.round(changes.unitPriceCents),
         quantity: Math.max(1, Math.floor(changes.quantity)),
         occurredDate: changes.occurredDate,
-        category: changes.category?.trim() || null,
+        category: changes.category.trim(),
         currency: changes.paymentMethod === "creditCard" && changes.currency === "USD" ? "USD" : "DOP",
         paymentMethod: changes.paymentMethod,
         moneyAccountId: changes.paymentMethod === "cash" ? "cash" : changes.paymentMethod === "debit" || changes.paymentMethod === "transfer" ? changes.moneyAccountId || null : null,

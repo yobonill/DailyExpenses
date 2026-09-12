@@ -4,7 +4,7 @@ import { filterBudgetOccurrences, type BudgetStatusFilter } from "../../lib/budg
 import { formatShortDate, getMonthKey, toLocalDateKey } from "../../lib/date";
 import { deriveDatedStatus, monthlyVariance, statusLabel } from "../../lib/financialCalculations";
 import { formatCurrency, minorToInput, parseMoneyToCents } from "../../lib/money";
-import type { CreditCard, Currency, FinancialData, MonthlyExpenseOccurrence, MonthlyExpenseTemplate } from "../../models/finance";
+import type { CreditCard, Currency, FinancialData, MonthlyExpenseOccurrence, MonthlyExpenseTemplate, PaymentMethod } from "../../models/finance";
 import type { MonthlyTemplateInput, OneTimeMonthlyInput } from "../../hooks/useFinanceActions";
 import { historicalSourceLabel, type StartingPointReconciliationInput } from "../../lib/startingPointReconciliation";
 import { CheckboxField, CurrencyField, EmptyPanel, Modal, MoneyField, PageHeading, PayModal, PeriodSelector, PostponeModal, StatusChip, type PayModalValue } from "./Shared";
@@ -61,6 +61,7 @@ function MonthlyFormModal({ data, template, occurrence, onSaveTemplate, onCreate
     const estimatedAmountMinor = parseMoneyToCents(amount);
     const day = Number(dueDay);
     if (!name.trim() || !estimatedAmountMinor) return setError("Completa el nombre y el monto esperado.");
+    if (!category) return setError("Selecciona una categoría.");
     if (mode === "recurring" && !lastDay && (!Number.isInteger(day) || day < 1 || day > 31)) return setError("El día debe estar entre 1 y 31.");
     setSaving(true); setError("");
     try {
@@ -78,7 +79,7 @@ function MonthlyFormModal({ data, template, occurrence, onSaveTemplate, onCreate
         {!template && !occurrence && <fieldset className="choice-field"><legend>Tipo</legend><label><input type="radio" checked={mode === "recurring"} onChange={() => setMode("recurring")} /> Se repite cada mes</label><label><input type="radio" checked={mode === "oneTime"} onChange={() => setMode("oneTime")} /> Solo una vez</label></fieldset>}
         {template && <p className="form-warning">Los cambios se aplicarán a esta plantilla y a todas sus obligaciones pendientes que ya se hayan generado.</p>}
         <label className="field"><span>Nombre</span><input value={name} onChange={(event) => setName(event.target.value)} required /></label>
-        <label className="field"><span>Categoría (opcional)</span><select value={category} onChange={(event) => { const next = event.target.value; setCategory(next); if (next !== "Deudas y préstamos") setLoanId(""); }}><option value="">Sin categoría</option>{category && !isPredefinedExpenseCategory(category) && <option value={category}>{category} (anterior)</option>}{EXPENSE_CATEGORIES.map((item) => <option value={item} key={item}>{item}</option>)}</select><small className="field-help">Se usa para agrupar las obligaciones en Reportes.</small></label>
+        <label className="field"><span>Categoría</span><select value={category} onChange={(event) => { const next = event.target.value; setCategory(next); if (next !== "Deudas y préstamos") setLoanId(""); }} required><option value="">Seleccionar categoría</option>{category && !isPredefinedExpenseCategory(category) && <option value={category}>{category} (anterior)</option>}{EXPENSE_CATEGORIES.map((item) => <option value={item} key={item}>{item}</option>)}</select><small className="field-help">Obligatoria para agrupar correctamente los pagos en Historial y Reportes.</small></label>
         {category === "Deudas y préstamos" && <label className="field"><span>Préstamo relacionado (opcional)</span><select value={loanId} onChange={(event) => setLoanId(event.target.value)}><option value="">No vincular</option>{Object.values(data.loans).filter((loan) => !loan.archivedAt && loan.currency === currency).map((loan) => <option key={loan.id} value={loan.id}>{loan.name}</option>)}</select><small className="field-help">Al pagar, indicarás capital, interés y cargos. Solo el capital reducirá la deuda.</small></label>}
         <div className="form-columns"><MoneyField label="Monto esperado" value={amount} onChange={setAmount} currency={currency} /><CurrencyField value={currency} onChange={setCurrency} /></div>
         {mode === "oneTime" ? <label className="field"><span>Fecha de pago</span><input type="date" value={dueDate} onChange={(event) => setDueDate(event.target.value)} /></label> : <div className="form-columns"><label className="field"><span>Día de vencimiento</span><input type="number" min="1" max="31" value={dueDay} disabled={lastDay} onChange={(event) => setDueDay(event.target.value)} /></label><CheckboxField checked={lastDay} onChange={setLastDay} label="Último día del mes" /></div>}
@@ -103,7 +104,7 @@ export function BudgetView({ data, onSaveTemplate, onArchiveTemplate, onCreateOn
   const [reconciling, setReconciling] = useState(false);
   const [paying, setPaying] = useState<MonthlyExpenseOccurrence | null>(null);
   const [postponing, setPostponing] = useState<MonthlyExpenseOccurrence | null>(null);
-  const [initialPayMethod, setInitialPayMethod] = useState<"cash" | "bankTransfer" | "creditCard">("bankTransfer");
+  const [initialPayMethod, setInitialPayMethod] = useState<PaymentMethod | "">("");
   const [search, setSearch] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState<BudgetStatusFilter>("all");

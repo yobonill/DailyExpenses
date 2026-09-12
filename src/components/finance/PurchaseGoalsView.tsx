@@ -74,10 +74,14 @@ function GoalForm({
       setError("Escribe el nombre y un precio estimado válido.");
       return;
     }
+    if (!category) {
+      setError("Selecciona una categoría.");
+      return;
+    }
     setSaving(true);
     setError("");
     try {
-      await onSave({ name, estimatedAmountMinor, currency, priority, category: category || undefined, notes }, goal?.id);
+      await onSave({ name, estimatedAmountMinor, currency, priority, category, notes }, goal?.id);
       onClose();
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "No se pudo guardar la meta.");
@@ -93,7 +97,7 @@ function GoalForm({
         <MoneyField label="Precio estimado" value={amount} onChange={setAmount} currency={currency} />
         <CurrencyField value={currency} onChange={setCurrency} />
         <label className="field"><span>Prioridad</span><select value={priority} onChange={(event) => setPriority(event.target.value as PurchaseGoalPriority)}><option value="high">Alta</option><option value="medium">Media</option><option value="low">Baja</option></select></label>
-        <label className="field"><span>Categoría (opcional)</span><select value={category} onChange={(event) => setCategory(event.target.value)}><option value="">Sin categoría</option>{EXPENSE_CATEGORIES.map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
+        <label className="field"><span>Categoría</span><select value={category} onChange={(event) => setCategory(event.target.value)} required><option value="">Seleccionar categoría</option>{EXPENSE_CATEGORIES.map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
         <label className="field"><span>Notas (opcional)</span><textarea value={notes} onChange={(event) => setNotes(event.target.value)} /></label>
         <p className="privacy-note">Esta meta no tiene fecha y no afectará las proyecciones hasta que decidas programarla.</p>
         {error && <p className="form-error">{error}</p>}

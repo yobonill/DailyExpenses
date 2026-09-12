@@ -171,7 +171,7 @@ export interface PayModalValue {
   loanChargesMinor?: number;
 }
 
-export function PayModal({ title, expectedMinor, currency, canPayWithCard, cards, data, loanId, allowSavings, initialMethod = "bankTransfer", onConfirm, onClose }: {
+export function PayModal({ title, expectedMinor, currency, canPayWithCard, cards, data, loanId, allowSavings, initialMethod = "", onConfirm, onClose }: {
   title: string;
   expectedMinor: number;
   currency: Currency;
@@ -180,13 +180,13 @@ export function PayModal({ title, expectedMinor, currency, canPayWithCard, cards
   data: FinancialData;
   loanId?: string;
   allowSavings?: boolean;
-  initialMethod?: PaymentMethod;
+  initialMethod?: PaymentMethod | "";
   onConfirm: (value: PayModalValue) => Promise<void>;
   onClose: () => void;
 }) {
   const [amount, setAmount] = useState(minorToInput(expectedMinor));
   const [paidDate, setPaidDate] = useState(toLocalDateKey());
-  const [method, setMethod] = useState<PaymentMethod>(initialMethod);
+  const [method, setMethod] = useState<PaymentMethod | "">(initialMethod);
   const [cardId, setCardId] = useState(cards[0]?.id || "");
   const firstBankAccountId = getActiveBankAccounts(data)[0]?.id || "";
   const [moneyAccountId, setMoneyAccountId] = useState<MoneyAccountId>(initialMethod === "cash" ? CASH_ACCOUNT_ID : firstBankAccountId);
@@ -212,6 +212,7 @@ export function PayModal({ title, expectedMinor, currency, canPayWithCard, cards
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     if (!amountMinor) return setError("Escribe un monto válido.");
+    if (!method) return setError("Selecciona cómo se pagó.");
     if (method === "creditCard" && !cardId) return setError("Selecciona una tarjeta activa.");
     if (method !== "creditCard" && !accountReady) return setError(method === "cash" ? "Configura primero tu saldo en Efectivo." : "Selecciona una cuenta bancaria activa.");
     if (effectiveMoneyAccountId && currency === "USD" && accountDebitMinor <= 0) return setError("Indica cuánto salió realmente en pesos.");
@@ -232,7 +233,7 @@ export function PayModal({ title, expectedMinor, currency, canPayWithCard, cards
         <div className="form-summary"><span>Monto esperado</span><strong>{formatCurrency(expectedMinor, currency)}</strong></div>
         <MoneyField label="Monto pagado" value={amount} onChange={setAmount} currency={currency} />
         <label className="field"><span>Fecha de pago</span><input type="date" value={paidDate} onChange={(event) => setPaidDate(event.target.value)} /></label>
-        <label className="field"><span>¿Cómo se pagó?</span><select value={method} onChange={(event) => { const next = event.target.value as PaymentMethod; setMethod(next); if (next === "cash") setMoneyAccountId(CASH_ACCOUNT_ID); else if ((next === "bankTransfer" || next === "debitCard") && !isSelectableMoneyAccount(data, moneyAccountId, next)) setMoneyAccountId(firstBankAccountId); if (next !== "bankTransfer") { setAddTransferFee(false); setTransferFee(""); } }}><option value="bankTransfer">Transferencia bancaria</option><option value="debitCard">Tarjeta de débito</option><option value="cash">Efectivo</option>{canPayWithCard && <option value="creditCard">Tarjeta de crédito</option>}</select></label>
+        <label className="field"><span>¿Cómo se pagó?</span><select value={method} onChange={(event) => { const next = event.target.value as PaymentMethod | ""; setMethod(next); if (next === "cash") setMoneyAccountId(CASH_ACCOUNT_ID); else if ((next === "bankTransfer" || next === "debitCard") && !isSelectableMoneyAccount(data, moneyAccountId, next)) setMoneyAccountId(firstBankAccountId); if (next !== "bankTransfer") { setAddTransferFee(false); setTransferFee(""); } }} required><option value="">Seleccionar forma de pago</option><option value="bankTransfer">Transferencia bancaria</option><option value="debitCard">Tarjeta de débito</option><option value="cash">Efectivo</option>{canPayWithCard && <option value="creditCard">Tarjeta de crédito</option>}</select></label>
         {method === "creditCard" && <label className="field"><span>Tarjeta</span><select value={cardId} onChange={(event) => setCardId(event.target.value)}><option value="">Seleccionar</option>{cards.map((card) => <option key={card.id} value={card.id}>{card.name}{card.lastFour ? ` · ${card.lastFour}` : ""}</option>)}</select></label>}
         {method !== "creditCard" && <MoneyAccountField data={data} method={method as "cash" | "bankTransfer" | "debitCard"} value={effectiveMoneyAccountId || ""} onChange={setMoneyAccountId} />}
         {effectiveMoneyAccountId && currency === "USD" && <MoneyField label="Monto real que salió en pesos" value={settlementDop} onChange={setSettlementDop} currency="DOP" />}

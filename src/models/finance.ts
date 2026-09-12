@@ -90,6 +90,12 @@ export interface Payment extends RecordMetadata {
   /** A historical payment documents a settled bill without changing current cash, savings or card debt. */
   historical?: boolean;
   historicalSource?: HistoricalPaymentSource;
+  /** Reporting-only method confirmed for a historical payment. It never creates ledger movements. */
+  reportingMethod?: PaymentMethod;
+  /** Reporting-only account/card references used to explain a historical payment. */
+  reportingMoneyAccountId?: MoneyAccountId;
+  reportingCardId?: string;
+  reportingClassifiedAt?: string;
   notes?: string;
   reversedAt?: string;
 }

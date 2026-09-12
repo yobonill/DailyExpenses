@@ -53,7 +53,7 @@ const cleanOptional = (value: string | undefined): string | undefined => value?.
 
 export interface MonthlyTemplateInput {
   name: string;
-  category?: string;
+  category: string;
   estimatedAmountMinor: number;
   currency: Currency;
   dueRule: DueDateRule;
@@ -94,7 +94,7 @@ export interface OneTimeIncomeInput {
 
 export interface NonMonthlyInput {
   name: string;
-  category?: string;
+  category: string;
   estimatedAmountMinor: number;
   currency: Currency;
   nextDueDate: string;
@@ -141,7 +141,7 @@ export interface PurchaseGoalInput {
   estimatedAmountMinor: number;
   currency: Currency;
   priority: PurchaseGoalPriority;
-  category?: string;
+  category: string;
   notes?: string;
 }
 
@@ -220,6 +220,7 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
   }, [actor, commitUpdates, data]);
 
   const saveMonthlyTemplate = useCallback(async (input: MonthlyTemplateInput, id?: string) => {
+    if (!input.category.trim()) throw new Error("Selecciona una categoría.");
     if (input.loanId) {
       const loan = data.loans[input.loanId];
       if (!loan || loan.archivedAt) throw new Error("Selecciona un préstamo vigente.");
@@ -231,7 +232,7 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
       id: templateId,
       ...input,
       name: input.name.trim(),
-      category: cleanOptional(input.category),
+      category: input.category.trim(),
       notes: cleanOptional(input.notes),
       excelRowLabel: cleanOptional(input.excelRowLabel),
       loanId: cleanOptional(input.loanId),
@@ -279,6 +280,7 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
   }, [commitUpdates, data, meta]);
 
   const createOneTimeMonthly = useCallback(async (input: OneTimeMonthlyInput) => {
+    if (!input.category.trim()) throw new Error("Selecciona una categoría.");
     if (input.loanId) {
       const loan = data.loans[input.loanId];
       if (!loan || loan.archivedAt || loan.currency !== input.currency) throw new Error("Revisa el préstamo relacionado y su moneda.");
@@ -287,7 +289,7 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
     const occurrence: MonthlyExpenseOccurrence = {
       id,
       name: input.name.trim(),
-      category: cleanOptional(input.category),
+      category: input.category.trim(),
       expectedAmountMinor: input.estimatedAmountMinor,
       currency: input.currency,
       dueDate: input.dueDate,
@@ -305,6 +307,7 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
   }, [commitUpdates, data.loans, meta]);
 
   const updateOneTimeMonthly = useCallback(async (id: string, input: OneTimeMonthlyInput) => {
+    if (!input.category.trim()) throw new Error("Selecciona una categoría.");
     const existing = data.monthlyOccurrences[id];
     if (!existing?.oneTime) throw new Error("Este gasto no es una obligación de una sola vez.");
     if (existing.status !== "upcoming") throw new Error("Solo se puede editar una obligación pendiente.");
@@ -315,7 +318,7 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
     const occurrence: MonthlyExpenseOccurrence = {
       ...existing,
       name: input.name.trim(),
-      category: cleanOptional(input.category),
+      category: input.category.trim(),
       expectedAmountMinor: input.estimatedAmountMinor,
       currency: input.currency,
       dueDate: input.dueDate,
@@ -365,6 +368,7 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
       ? data.monthlyOccurrences[input.sourceId]
       : data.nonMonthlyOccurrences[input.sourceId];
     if (!occurrence || occurrence.status !== "upcoming") throw new Error("Esta obligación ya no está pendiente.");
+    if (!occurrence.category) throw new Error("Asigna una categoría a la obligación antes de registrar el pago.");
     if (occurrence.currency !== input.currency) throw new Error("La moneda no coincide con la obligación.");
     if (input.amountMinor <= 0) throw new Error("El monto debe ser mayor que cero.");
     if (input.method === "creditCard") {
@@ -504,6 +508,7 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
         amountMinor: input.amountMinor,
         transactionDate: input.paidDate,
         description: occurrence.name,
+        category: occurrence.category,
         linkedPaymentId: paymentId,
         linkedExpenseId: input.sourceId,
         linkedPurchaseGoalId: input.sourceType === "nonMonthly" && "sourcePurchaseGoalId" in occurrence
@@ -784,6 +789,7 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
   }, [commitUpdates, data.incomeOccurrences, data.moneyTransactions, meta]);
 
   const saveNonMonthly = useCallback(async (input: NonMonthlyInput, id?: string) => {
+    if (!input.category.trim()) throw new Error("Selecciona una categoría.");
     if (input.loanId) {
       const loan = data.loans[input.loanId];
       if (!loan || loan.archivedAt || loan.currency !== input.currency) throw new Error("Revisa el préstamo relacionado y su moneda.");
@@ -802,7 +808,7 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
       id: planId,
       ...input,
       name: input.name.trim(),
-      category: cleanOptional(input.category),
+      category: input.category.trim(),
       notes: cleanOptional(input.notes),
       loanId: cleanOptional(input.loanId),
       ...meta(existing),
@@ -1002,6 +1008,7 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
   }, [commitUpdates, data.savingsAllocations, meta]);
 
   const savePurchaseGoal = useCallback(async (input: PurchaseGoalInput, id?: string) => {
+    if (!input.category.trim()) throw new Error("Selecciona una categoría.");
     const goalId = id || createId();
     const existing = data.purchaseGoals[goalId];
     if (existing && existing.status !== "active") throw new Error("Solo se pueden editar metas activas.");
@@ -1014,7 +1021,7 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
       estimatedAmountMinor: input.estimatedAmountMinor,
       currency: input.currency,
       priority: input.priority,
-      category: cleanOptional(input.category),
+      category: input.category.trim(),
       notes: cleanOptional(input.notes),
       status: existing?.status || "active",
       ...meta(existing),
@@ -1048,6 +1055,7 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
   const schedulePurchaseGoal = useCallback(async (goalId: string, dueDate: string) => {
     const goal = data.purchaseGoals[goalId];
     if (!goal || goal.status !== "active") throw new Error("La meta ya no está disponible para programar.");
+    if (!goal.category) throw new Error("Selecciona una categoría para la meta antes de programarla.");
     const planId = createId();
     const occurrenceId = `${planId}_${dueDate}`;
     const plan: NonMonthlyExpense = {
@@ -1112,6 +1120,7 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
   ) => {
     const goal = data.purchaseGoals[goalId];
     if (!goal || goal.status !== "active") throw new Error("La meta ya no está disponible para comprar.");
+    if (!goal.category) throw new Error("Selecciona una categoría para la meta antes de comprarla.");
     if (actualAmountMinor <= 0 || actualPaymentDopMinor <= 0) throw new Error("Escribe montos válidos para la compra.");
     const now = new Date().toISOString();
     const updates: Record<string, unknown> = {
@@ -1181,6 +1190,7 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
     const goal = data.purchaseGoals[goalId];
     const card = data.creditCards[cardId];
     if (!goal || goal.status !== "active") throw new Error("La meta ya no está disponible para comprar.");
+    if (!goal.category) throw new Error("Selecciona una categoría para la meta antes de comprarla.");
     if (!card?.active) throw new Error("Selecciona una tarjeta activa.");
     if (actualAmountMinor <= 0) throw new Error("Escribe un monto válido para la compra.");
     const transactionId = createId();
@@ -1192,6 +1202,7 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
       amountMinor: actualAmountMinor,
       transactionDate: purchaseDate,
       description: goal.name,
+      category: goal.category,
       linkedPurchaseGoalId: goalId,
       ...meta(),
     };
@@ -1295,6 +1306,7 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
   }, [commitUpdates, data.cardPaymentPlans, meta]);
 
   const syncDailyExpenseCardCharge = useCallback(async (expense: Expense) => {
+    if (!expense.category?.trim()) throw new Error("Selecciona una categoría para el gasto.");
     const linkedTransactions = Object.values(data.cardTransactions)
       .filter((transaction) => transaction.linkedDailyExpenseId === expense.id
         && transaction.type === "charge"
@@ -1382,6 +1394,7 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
         amountMinor: expense.unitPriceCents * expense.quantity,
         transactionDate: expense.occurredDate,
         description: expense.name,
+        category: expense.category,
         linkedDailyExpenseId: expense.id,
         ...meta(existing),
       };
@@ -1473,6 +1486,7 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
     const card = data.creditCards[cardId];
     if (!card) throw new Error("Tarjeta no encontrada.");
     if (type === "charge" && !card.active) throw new Error("La tarjeta está inactiva.");
+    if (type === "charge" && !category?.trim()) throw new Error("Selecciona una categoría para la compra o cargo.");
     if (amountMinor <= 0 && type !== "adjustment") throw new Error("El monto debe ser mayor que cero.");
     if (type === "payment") {
       if (affectsCurrentBalance) {
@@ -1525,7 +1539,7 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
       affectsCurrentBalance: type === "payment" ? affectsCurrentBalance : undefined,
       transactionDate,
       description: description.trim(),
-      category: type === "charge" ? cleanOptional(category) : undefined,
+      category: type === "charge" ? category!.trim() : undefined,
       moneyAccountId: type === "payment" && affectsCurrentBalance ? moneyAccountId : undefined,
       paymentMethod: type === "payment" && affectsCurrentBalance ? paymentMethod : undefined,
       transferFeeMinor: normalizedFee || undefined,
@@ -1934,6 +1948,35 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
     await commitUpdates(buildStartingPointReconciliationUpdates(data, input, actor));
   }, [actor, commitUpdates, data]);
 
+  const classifyHistoricalPayment = useCallback(async (
+    paymentId: string,
+    method: PaymentMethod,
+    moneyAccountId?: MoneyAccountId,
+    cardId?: string,
+  ) => {
+    const payment = data.payments[paymentId];
+    if (!payment || payment.reversedAt || !payment.historical) throw new Error("El pago histórico ya no está disponible.");
+    if (method === "creditCard") {
+      if (!cardId || !data.creditCards[cardId]) throw new Error("Selecciona la tarjeta usada para este pago histórico.");
+    } else {
+      const effectiveAccountId = method === "cash" ? CASH_ACCOUNT_ID : moneyAccountId;
+      if (!effectiveAccountId || !data.moneyAccounts[effectiveAccountId]) {
+        throw new Error(method === "cash" ? "Configura primero Efectivo." : "Selecciona la cuenta utilizada.");
+      }
+      moneyAccountId = effectiveAccountId;
+    }
+    await commitUpdates({
+      [`payments/${paymentId}`]: {
+        ...payment,
+        reportingMethod: method,
+        reportingMoneyAccountId: method === "creditCard" ? undefined : moneyAccountId,
+        reportingCardId: method === "creditCard" ? cardId : undefined,
+        reportingClassifiedAt: new Date().toISOString(),
+        ...meta(payment),
+      } satisfies Payment,
+    });
+  }, [commitUpdates, data.creditCards, data.moneyAccounts, data.payments, meta]);
+
   const reconcileSavingsAccounts = useCallback(async (input: SavingsAccountReconciliationInput) => {
     if (!navigator.onLine) throw new Error("Conéctate a internet antes de realizar esta reconciliación única.");
     await commitUpdates(buildSavingsAccountReconciliationUpdates(data, input, actor));
@@ -1983,6 +2026,7 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
     adjustLoanBalance,
     reverseLoanAdjustment,
     reconcileStartingPoint,
+    classifyHistoricalPayment,
     reconcileSavingsAccounts,
     updateSettings,
   };
