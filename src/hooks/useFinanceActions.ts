@@ -1,4 +1,5 @@
-import { useCallback } from "react";
+import { useMemo } from "react";
+import { validatePastDate } from "../lib/financialReview";
 import type { AppUserDefinition } from "../config/appUsers";
 import { getMonthKey, getQuincena, toLocalDateKey } from "../lib/date";
 import { dateFromFinancialMonthRule, nextOccurrenceDate } from "../lib/financeDates";
@@ -50,6 +51,9 @@ interface ActionDependencies {
 }
 
 const cleanOptional = (value: string | undefined): string | undefined => value?.trim() || undefined;
+
+export const useFinanceActions = (dependencies: ActionDependencies) =>
+  useMemo(() => createFinanceActions(dependencies), [dependencies.data, dependencies.user, dependencies.commitUpdates]);
 
 export interface MonthlyTemplateInput {
   name: string;
@@ -200,10 +204,13 @@ export interface LoanInput {
   notes?: string;
 }
 
-export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependencies) => {
+const bindAction = <T,>(action: T, _dependencies: unknown[]): T => action;
+
+/** Pure action factory also used to assemble a complete edit before one atomic commit. */
+export const createFinanceActions = ({ data, user, commitUpdates }: ActionDependencies) => {
   const actor = user.uid;
 
-  const meta = useCallback((existing?: RecordMetadata): RecordMetadata => {
+  const meta = bindAction((existing?: RecordMetadata): RecordMetadata => {
     const now = new Date().toISOString();
     return {
       createdAt: existing?.createdAt || now,
@@ -215,12 +222,12 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
     };
   }, [actor]);
 
-  const generateRecurring = useCallback(async () => {
+  const generateRecurring = bindAction(async () => {
     const updates = buildGenerationUpdates(data, actor);
     if (Object.keys(updates).length) await commitUpdates(updates);
   }, [actor, commitUpdates, data]);
 
-  const saveMonthlyTemplate = useCallback(async (input: MonthlyTemplateInput, id?: string) => {
+  const saveMonthlyTemplate = bindAction(async (input: MonthlyTemplateInput, id?: string) => {
     if (!input.category.trim()) throw new Error("Selecciona una categoría.");
     if (input.loanId) {
       const loan = data.loans[input.loanId];
@@ -271,7 +278,7 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
     await commitUpdates(updates);
   }, [commitUpdates, data, meta]);
 
-  const archiveMonthlyTemplate = useCallback(async (id: string) => {
+  const archiveMonthlyTemplate = bindAction(async (id: string) => {
     const existing = data.monthlyTemplates[id];
     if (!existing) return;
     await commitUpdates({
@@ -280,7 +287,7 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
     });
   }, [commitUpdates, data, meta]);
 
-  const createOneTimeMonthly = useCallback(async (input: OneTimeMonthlyInput) => {
+  const createOneTimeMonthly = bindAction(async (input: OneTimeMonthlyInput) => {
     if (!input.category.trim()) throw new Error("Selecciona una categoría.");
     if (input.loanId) {
       const loan = data.loans[input.loanId];
@@ -307,7 +314,7 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
     await commitUpdates({ [`monthlyOccurrences/${id}`]: occurrence });
   }, [commitUpdates, data.loans, meta]);
 
-  const updateOneTimeMonthly = useCallback(async (id: string, input: OneTimeMonthlyInput) => {
+  const updateOneTimeMonthly = bindAction(async (id: string, input: OneTimeMonthlyInput) => {
     if (!input.category.trim()) throw new Error("Selecciona una categoría.");
     const existing = data.monthlyOccurrences[id];
     if (!existing?.oneTime) throw new Error("Este gasto no es una obligación de una sola vez.");
@@ -334,7 +341,7 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
     await commitUpdates({ [`monthlyOccurrences/${id}`]: occurrence });
   }, [commitUpdates, data.loans, data.monthlyOccurrences, meta]);
 
-  const cancelMonthlyOccurrence = useCallback(async (id: string, reason?: string) => {
+  const cancelMonthlyOccurrence = bindAction(async (id: string, reason?: string) => {
     const occurrence = data.monthlyOccurrences[id];
     if (!occurrence) return;
     await commitUpdates({
@@ -348,7 +355,7 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
     });
   }, [commitUpdates, data.monthlyOccurrences, meta]);
 
-  const postponeObligation = useCallback(async (
+  const postponeObligation = bindAction(async (
     sourceType: "monthly" | "nonMonthly",
     sourceId: string,
     newDueDate: string,
@@ -364,7 +371,8 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
     await commitUpdates({ [`${path}/${sourceId}`]: updated });
   }, [commitUpdates, data.monthlyOccurrences, data.nonMonthlyOccurrences, meta]);
 
-  const payObligation = useCallback(async (input: PayObligationInput) => {
+  const payObligation = bindAction(async (input: PayObligationInput) => {
+    validatePastDate(input.paidDate);
     const occurrence = input.sourceType === "monthly"
       ? data.monthlyOccurrences[input.sourceId]
       : data.nonMonthlyOccurrences[input.sourceId];
@@ -400,7 +408,7 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
     const accountDebitMinor = isSavings || input.currency === "DOP" ? input.amountMinor : input.settlementAmountDopMinor || 0;
     const transferFeeMinor = !isSavings && paymentMethod === "bankTransfer" ? Math.max(0, Math.round(input.transferFeeMinor || 0)) : 0;
     if (accountId) {
-      if (!isSelectableMoneyAccount(data, accountId, paymentMethod as "cash" | "bankTransfer" | "debitCard")) {
+      if (!isSelectableMoneyAccount(data, accountId, paymentMethod as "cash" | "bankTransfer" | "debitCard", isSavings ? input.currency : "DOP")) {
         throw new Error(paymentMethod === "cash" ? "Configura primero tu saldo en Efectivo." : "Selecciona una cuenta bancaria activa.");
       }
       if (!isSavings && input.currency === "USD" && accountDebitMinor <= 0) throw new Error("Indica cuánto salió realmente en pesos dominicanos.");
@@ -413,7 +421,7 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
           .reduce((total, allocation) => total + allocation.amountMinor, 0))
         : 0;
       const available = getMoneyAccountSpendableBalance(data, accountId) + releasableFromAccount;
-      if (accountDebitMinor + transferFeeMinor > available) {
+      if (isSavings && accountDebitMinor + transferFeeMinor > available) {
         throw new Error(`No hay suficiente dinero disponible en ${data.moneyAccounts[accountId]?.name || "la cuenta seleccionada"}.`);
       }
     } else if (paymentMethod !== "creditCard") {
@@ -633,7 +641,7 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
     await commitUpdates(updates);
   }, [commitUpdates, data, meta]);
 
-  const reopenObligation = useCallback(async (sourceType: "monthly" | "nonMonthly", sourceId: string) => {
+  const reopenObligation = bindAction(async (sourceType: "monthly" | "nonMonthly", sourceId: string, preserveSchedule = false) => {
     const occurrence = sourceType === "monthly" ? data.monthlyOccurrences[sourceId] : data.nonMonthlyOccurrences[sourceId];
     if (!occurrence?.paymentId) return;
     const payment = data.payments[occurrence.paymentId];
@@ -685,7 +693,7 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
       const transaction = data.savingsTransactions[transactionId];
       if (transaction) updates[`savingsTransactions/${transactionId}`] = { ...transaction, reversedAt: now, ...meta(transaction) };
     }
-    if (sourceType === "nonMonthly" && "planId" in occurrence) {
+    if (!preserveSchedule && sourceType === "nonMonthly" && "planId" in occurrence) {
       const plan = data.nonMonthlyExpenses[occurrence.planId];
       if (plan) {
         const generatedNext = data.nonMonthlyOccurrences[`${plan.id}_${plan.nextDueDate}`];
@@ -701,7 +709,7 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
     await commitUpdates(updates);
   }, [commitUpdates, data, meta]);
 
-  const saveIncomeTemplate = useCallback(async (input: IncomeTemplateInput, id?: string) => {
+  const saveIncomeTemplate = bindAction(async (input: IncomeTemplateInput, id?: string) => {
     const templateId = id || createId();
     const existing = data.incomeTemplates[templateId];
     const template: IncomeTemplate = {
@@ -736,7 +744,7 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
     await commitUpdates(updates);
   }, [commitUpdates, data.incomeOccurrences, data.incomeTemplates, meta]);
 
-  const createOneTimeIncome = useCallback(async (input: OneTimeIncomeInput) => {
+  const createOneTimeIncome = bindAction(async (input: OneTimeIncomeInput) => {
     const id = createId();
     const occurrence: IncomeOccurrence = {
       id,
@@ -757,7 +765,7 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
     await commitUpdates({ [`incomeOccurrences/${id}`]: occurrence });
   }, [commitUpdates, meta]);
 
-  const receiveIncome = useCallback(async (id: string, amountMinor: number, receivedDate: string, moneyAccountId?: MoneyAccountId) => {
+  const receiveIncome = bindAction(async (id: string, amountMinor: number, receivedDate: string, moneyAccountId?: MoneyAccountId) => {
     const occurrence = data.incomeOccurrences[id];
     if (!occurrence) return;
     if (!moneyAccountId) throw new Error("Selecciona dónde recibiste el ingreso.");
@@ -797,7 +805,7 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
     await commitUpdates(updates);
   }, [commitUpdates, data, meta]);
 
-  const reopenIncome = useCallback(async (id: string) => {
+  const reopenIncome = bindAction(async (id: string) => {
     const occurrence = data.incomeOccurrences[id];
     if (!occurrence) return;
     const updates: Record<string, unknown> = {
@@ -819,7 +827,7 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
     await commitUpdates(updates);
   }, [commitUpdates, data.incomeOccurrences, data.moneyTransactions, meta]);
 
-  const saveNonMonthly = useCallback(async (input: NonMonthlyInput, id?: string) => {
+  const saveNonMonthly = bindAction(async (input: NonMonthlyInput, id?: string) => {
     if (!input.category.trim()) throw new Error("Selecciona una categoría.");
     if (input.loanId) {
       const loan = data.loans[input.loanId];
@@ -874,7 +882,7 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
     await commitUpdates(updates);
   }, [commitUpdates, data.loans, data.nonMonthlyExpenses, data.nonMonthlyOccurrences, data.savingsAllocations, meta]);
 
-  const saveSavingsFund = useCallback(async (input: SavingsFundInput, id?: string) => {
+  const saveSavingsFund = bindAction(async (input: SavingsFundInput, id?: string) => {
     const fundId = id || createId();
     const existing = data.savingsFunds[fundId];
     if (input.moneyAccountId) {
@@ -926,7 +934,7 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
     await commitUpdates(updates);
   }, [commitUpdates, data.savingsAllocations, data.savingsFunds, data.savingsTransactions, meta]);
 
-  const addSavingsTransaction = useCallback(async (
+  const addSavingsTransaction = bindAction(async (
     fundId: string,
     type: SavingsTransaction["type"],
     amountMinor: number,
@@ -963,7 +971,7 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
     await commitUpdates({ [`savingsTransactions/${id}`]: transaction });
   }, [commitUpdates, data, meta]);
 
-  const transferSavings = useCallback(async (fromFundId: string, toFundId: string, amountMinor: number, date: string) => {
+  const transferSavings = bindAction(async (fromFundId: string, toFundId: string, amountMinor: number, date: string) => {
     const from = data.savingsFunds[fromFundId];
     const to = data.savingsFunds[toFundId];
     if (!from || !to || from.currency !== to.currency) throw new Error("Los fondos deben existir y usar la misma moneda.");
@@ -1003,7 +1011,7 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
     await commitUpdates(updates);
   }, [commitUpdates, data, meta]);
 
-  const allocateSavings = useCallback(async (fundId: string, occurrenceId: string, amountMinor: number) => {
+  const allocateSavings = bindAction(async (fundId: string, occurrenceId: string, amountMinor: number) => {
     const fund = data.savingsFunds[fundId];
     const occurrence = data.nonMonthlyOccurrences[occurrenceId];
     if (!fund || !occurrence) throw new Error("Fondo u obligación no disponible.");
@@ -1025,7 +1033,7 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
     await commitUpdates({ [`savingsAllocations/${id}`]: allocation });
   }, [commitUpdates, data, meta]);
 
-  const releaseAllocation = useCallback(async (id: string) => {
+  const releaseAllocation = bindAction(async (id: string) => {
     const allocation = data.savingsAllocations[id];
     if (!allocation) return;
     await commitUpdates({
@@ -1038,7 +1046,7 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
     });
   }, [commitUpdates, data.savingsAllocations, meta]);
 
-  const savePurchaseGoal = useCallback(async (input: PurchaseGoalInput, id?: string) => {
+  const savePurchaseGoal = bindAction(async (input: PurchaseGoalInput, id?: string) => {
     if (!input.category.trim()) throw new Error("Selecciona una categoría.");
     const goalId = id || createId();
     const existing = data.purchaseGoals[goalId];
@@ -1060,7 +1068,7 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
     await commitUpdates({ [`purchaseGoals/${goalId}`]: goal });
   }, [commitUpdates, data, meta]);
 
-  const allocatePurchaseGoalSavings = useCallback(async (fundId: string, goalId: string, amountMinor: number) => {
+  const allocatePurchaseGoalSavings = bindAction(async (fundId: string, goalId: string, amountMinor: number) => {
     const fund = data.savingsFunds[fundId];
     const goal = data.purchaseGoals[goalId];
     if (!fund?.active || !goal || goal.status !== "active") throw new Error("El fondo o la meta ya no está disponible.");
@@ -1083,7 +1091,7 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
     await commitUpdates({ [`savingsAllocations/${allocationId}`]: allocation });
   }, [commitUpdates, data, meta]);
 
-  const schedulePurchaseGoal = useCallback(async (goalId: string, dueDate: string) => {
+  const schedulePurchaseGoal = bindAction(async (goalId: string, dueDate: string) => {
     const goal = data.purchaseGoals[goalId];
     if (!goal || goal.status !== "active") throw new Error("La meta ya no está disponible para programar.");
     if (!goal.category) throw new Error("Selecciona una categoría para la meta antes de programarla.");
@@ -1141,7 +1149,7 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
     await commitUpdates(updates);
   }, [commitUpdates, data, meta]);
 
-  const purchaseGoalWithCash = useCallback(async (
+  const purchaseGoalWithCash = bindAction(async (
     goalId: string,
     actualAmountMinor: number,
     actualPaymentDopMinor: number,
@@ -1212,7 +1220,7 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
     await commitUpdates(updates);
   }, [commitUpdates, data, meta]);
 
-  const purchaseGoalWithCard = useCallback(async (
+  const purchaseGoalWithCard = bindAction(async (
     goalId: string,
     actualAmountMinor: number,
     purchaseDate: string,
@@ -1274,7 +1282,7 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
     await commitUpdates(updates);
   }, [commitUpdates, data, meta]);
 
-  const discardPurchaseGoal = useCallback(async (goalId: string) => {
+  const discardPurchaseGoal = bindAction(async (goalId: string) => {
     const goal = data.purchaseGoals[goalId];
     if (!goal || goal.status !== "active") return;
     const now = new Date().toISOString();
@@ -1292,7 +1300,7 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
     await commitUpdates(updates);
   }, [commitUpdates, data, meta]);
 
-  const saveCardStatementMinimum = useCallback(async (statementId: string, minimumPaymentMinor: number) => {
+  const saveCardStatementMinimum = bindAction(async (statementId: string, minimumPaymentMinor: number) => {
     const statement = data.cardStatements[statementId];
     if (!statement) throw new Error("Estado de cuenta no encontrado.");
     const minimum = Math.max(0, Math.round(minimumPaymentMinor));
@@ -1311,7 +1319,7 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
     });
   }, [commitUpdates, data.cardStatements, meta]);
 
-  const saveCardPaymentPlan = useCallback(async (
+  const saveCardPaymentPlan = bindAction(async (
     financialMonth: string,
     quincena: 1 | 2,
     plannedDopMinor: number,
@@ -1336,7 +1344,7 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
     await commitUpdates({ [`cardPaymentPlans/${id}`]: plan });
   }, [commitUpdates, data.cardPaymentPlans, meta]);
 
-  const syncDailyExpenseCardCharge = useCallback(async (expense: Expense) => {
+  const syncDailyExpenseCardCharge = bindAction(async (expense: Expense) => {
     if (!expense.category?.trim()) throw new Error("Selecciona una categoría para el gasto.");
     const linkedTransactions = Object.values(data.cardTransactions)
       .filter((transaction) => transaction.linkedDailyExpenseId === expense.id
@@ -1367,9 +1375,8 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
       const replaceableBalance = linkedMoneyTransactions
         .filter((transaction) => transaction.accountId === accountId)
         .reduce((total, transaction) => total + transaction.amountMinor, getMoneyAccountSpendableBalance(data, accountId));
-      if (amountMinor + feeMinor > replaceableBalance) {
-        throw new Error(`No hay suficiente dinero disponible en ${data.moneyAccounts[accountId]?.name || "la cuenta seleccionada"}.`);
-      }
+      // Spending exceptions are confirmed and recorded by the atomic commit boundary.
+      void replaceableBalance;
       const existingExpenseMovement = linkedMoneyTransactions.find((transaction) => transaction.type === "expense");
       const expenseMovementId = existingExpenseMovement?.id || createId();
       updates[`moneyTransactions/${expenseMovementId}`] = {
@@ -1445,7 +1452,7 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
     if (Object.keys(updates).length) await commitUpdates(updates);
   }, [commitUpdates, data, meta]);
 
-  const removeDailyExpenseCardCharge = useCallback(async (expenseId: string) => {
+  const removeDailyExpenseCardCharge = bindAction(async (expenseId: string) => {
     const now = new Date().toISOString();
     const updates: Record<string, unknown> = {};
     Object.values(data.cardTransactions)
@@ -1465,7 +1472,7 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
     if (Object.keys(updates).length) await commitUpdates(updates);
   }, [commitUpdates, data.cardTransactions, data.moneyTransactions, meta]);
 
-  const saveCreditCard = useCallback(async (input: CreditCardInput, id?: string) => {
+  const saveCreditCard = bindAction(async (input: CreditCardInput, id?: string) => {
     const cardId = id || createId();
     const existing = data.creditCards[cardId];
     if (input.bankId && (!data.banks[input.bankId] || data.banks[input.bankId].archivedAt)) {
@@ -1499,7 +1506,7 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
     await commitUpdates({ [`creditCards/${cardId}`]: card });
   }, [commitUpdates, data.banks, data.cardStatements, data.cardTransactions, data.creditCards, meta]);
 
-  const addCardTransaction = useCallback(async (
+  const addCardTransaction = bindAction(async (
     cardId: string,
     currency: Currency,
     type: CardTransaction["type"],
@@ -1545,9 +1552,7 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
         const releasedSavings = hasUnifiedSavingsAccounts(data) && selectedFund?.moneyAccountId === moneyAccountId
           ? Math.min(cashAmount, getFundBalance(data, selectedFund.id))
           : 0;
-        if (cashAmount + fee > getMoneyAccountSpendableBalance(data, moneyAccountId) + releasedSavings) {
-          throw new Error(`No hay suficiente dinero disponible en ${data.moneyAccounts[moneyAccountId]?.name || "la cuenta seleccionada"}.`);
-        }
+        void cashAmount; void fee; void releasedSavings;
       }
     }
     const id = createId();
@@ -1685,7 +1690,7 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
     await commitUpdates(updates);
   }, [commitUpdates, data, meta]);
 
-  const reverseCardTransaction = useCallback(async (id: string) => {
+  const reverseCardTransaction = bindAction(async (id: string) => {
     const transaction = data.cardTransactions[id];
     if (!transaction || transaction.reversedAt) return;
     if (transaction.linkedPaymentId) throw new Error("Reabre la obligación vinculada para revertir este cargo.");
@@ -1729,7 +1734,7 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
     await commitUpdates(updates);
   }, [commitUpdates, data, meta]);
 
-  const saveBank = useCallback(async (input: BankInput, id?: string) => {
+  const saveBank = bindAction(async (input: BankInput, id?: string) => {
     if (!input.name.trim()) throw new Error("Escribe el nombre del banco.");
     const bankId = id || createId();
     const existing = data.banks[bankId];
@@ -1743,7 +1748,7 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
     await commitUpdates({ [`banks/${bankId}`]: bank });
   }, [commitUpdates, data.banks, meta]);
 
-  const deleteEmptyBank = useCallback(async (bankId: string) => {
+  const deleteEmptyBank = bindAction(async (bankId: string) => {
     const bank = data.banks[bankId];
     if (!bank) return;
     const hasLinkedProduct = Object.values(data.moneyAccounts).some((account) => account.bankId === bankId)
@@ -1753,7 +1758,7 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
     await commitUpdates({ [`banks/${bankId}`]: null });
   }, [commitUpdates, data.banks, data.creditCards, data.loans, data.moneyAccounts]);
 
-  const saveMoneyAccount = useCallback(async (input: MoneyAccountInput, id?: string) => {
+  const saveMoneyAccount = bindAction(async (input: MoneyAccountInput, id?: string) => {
     const bank = data.banks[input.bankId];
     if (!bank || bank.archivedAt) throw new Error("Selecciona un banco válido.");
     if (!input.name.trim() || input.openingBalanceMinor < 0) throw new Error("Revisa el nombre y el balance de la cuenta.");
@@ -1788,7 +1793,7 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
     await commitUpdates({ [`moneyAccounts/${accountId}`]: account });
   }, [commitUpdates, data, meta]);
 
-  const initializeCashAccount = useCallback(async (openingBalanceMinor: number, openingDate: string) => {
+  const initializeCashAccount = bindAction(async (openingBalanceMinor: number, openingDate: string) => {
     if (data.moneyAccounts[CASH_ACCOUNT_ID]) throw new Error("Efectivo ya está configurado. Usa Ajustar balance.");
     if (openingBalanceMinor < 0) throw new Error("El balance no puede ser negativo.");
     const cash: MoneyAccount = {
@@ -1805,7 +1810,7 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
     await commitUpdates({ [`moneyAccounts/${CASH_ACCOUNT_ID}`]: cash });
   }, [commitUpdates, data.moneyAccounts, meta]);
 
-  const initializeMoneyAccounts = useCallback(async (input: MoneyAccountsSetupInput) => {
+  const initializeMoneyAccounts = bindAction(async (input: MoneyAccountsSetupInput) => {
     if (hasInitializedMoneyAccounts(data)) throw new Error("Los saldos iniciales ya fueron configurados.");
     if (input.bankBalanceMinor < 0 || input.cashBalanceMinor < 0) throw new Error("Los saldos iniciales no pueden ser negativos.");
     const bank: MoneyAccount = {
@@ -1833,7 +1838,7 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
     await commitUpdates({ [`moneyAccounts/${BANK_ACCOUNT_ID}`]: bank, [`moneyAccounts/${CASH_ACCOUNT_ID}`]: cash });
   }, [commitUpdates, data, meta]);
 
-  const adjustMoneyAccountBalance = useCallback(async (
+  const adjustMoneyAccountBalance = bindAction(async (
     accountId: MoneyAccountId,
     exactBalanceMinor: number,
     transactionDate: string,
@@ -1865,7 +1870,7 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
     await commitUpdates({ [`moneyTransactions/${id}`]: transaction });
   }, [commitUpdates, data, meta]);
 
-  const transferMoney = useCallback(async (
+  const transferMoney = bindAction(async (
     fromAccountId: MoneyAccountId,
     toAccountId: MoneyAccountId,
     amountMinor: number,
@@ -1911,7 +1916,7 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
     await commitUpdates(updates);
   }, [commitUpdates, data, meta]);
 
-  const saveLoan = useCallback(async (input: LoanInput, id?: string) => {
+  const saveLoan = bindAction(async (input: LoanInput, id?: string) => {
     const loanId = id || createId();
     const existing = data.loans[loanId];
     if (input.bankId && (!data.banks[input.bankId] || data.banks[input.bankId].archivedAt)) {
@@ -1937,7 +1942,7 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
     await commitUpdates({ [`loans/${loanId}`]: loan });
   }, [commitUpdates, data.banks, data.loanTransactions, data.loans, meta]);
 
-  const adjustLoanBalance = useCallback(async (loanId: string, exactBalanceMinor: number, transactionDate: string, notes?: string) => {
+  const adjustLoanBalance = bindAction(async (loanId: string, exactBalanceMinor: number, transactionDate: string, notes?: string) => {
     const loan = data.loans[loanId];
     if (!loan) throw new Error("Préstamo no encontrado.");
     if (exactBalanceMinor < 0) throw new Error("El balance no puede ser negativo.");
@@ -1962,7 +1967,7 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
     });
   }, [commitUpdates, data, meta]);
 
-  const reverseLoanAdjustment = useCallback(async (transactionId: string) => {
+  const reverseLoanAdjustment = bindAction(async (transactionId: string) => {
     const transaction = data.loanTransactions[transactionId];
     if (!transaction || transaction.reversedAt) return;
     if (transaction.linkedPaymentId) throw new Error("Reabre la factura relacionada para corregir este pago.");
@@ -1971,15 +1976,15 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
     });
   }, [commitUpdates, data.loanTransactions, meta]);
 
-  const updateSettings = useCallback(async (settings: AppSettings) => {
+  const updateSettings = bindAction(async (settings: AppSettings) => {
     await commitUpdates({ settings: { ...settings, updatedAt: new Date().toISOString(), updatedBy: actor } });
   }, [actor, commitUpdates]);
 
-  const reconcileStartingPoint = useCallback(async (input: StartingPointReconciliationInput) => {
+  const reconcileStartingPoint = bindAction(async (input: StartingPointReconciliationInput) => {
     await commitUpdates(buildStartingPointReconciliationUpdates(data, input, actor));
   }, [actor, commitUpdates, data]);
 
-  const classifyHistoricalPayment = useCallback(async (
+  const classifyHistoricalPayment = bindAction(async (
     paymentId: string,
     method: PaymentMethod,
     moneyAccountId?: MoneyAccountId,
@@ -2008,7 +2013,7 @@ export const useFinanceActions = ({ data, user, commitUpdates }: ActionDependenc
     });
   }, [commitUpdates, data.creditCards, data.moneyAccounts, data.payments, meta]);
 
-  const reconcileSavingsAccounts = useCallback(async (input: SavingsAccountReconciliationInput) => {
+  const reconcileSavingsAccounts = bindAction(async (input: SavingsAccountReconciliationInput) => {
     if (!navigator.onLine) throw new Error("Conéctate a internet antes de realizar esta reconciliación única.");
     await commitUpdates(buildSavingsAccountReconciliationUpdates(data, input, actor));
   }, [actor, commitUpdates, data]);

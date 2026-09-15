@@ -30,6 +30,8 @@ import {
 } from "../lib/spendingHistory";
 import { EditExpenseModal } from "./EditExpenseModal";
 import { SpendingClassificationModal } from "./SpendingClassificationModal";
+import { toggleFilterSelection } from "../lib/filterSelection";
+import type { MovementTarget } from "../lib/movementEditing";
 
 interface ReviewViewProps {
   expenses: Expense[];
@@ -41,6 +43,7 @@ interface ReviewViewProps {
   onClassifyHistorical: (paymentId: string, method: PaymentMethod, moneyAccountId?: string, cardId?: string) => Promise<void>;
   onNotice: (message: string, actionLabel?: string, action?: () => void) => void;
   transferFeeRatePercent: number;
+  onOpenMovement?: (target: MovementTarget) => void;
 }
 
 type RangeMode = "cycle" | "custom";
@@ -57,7 +60,7 @@ const TYPE_OPTIONS: Array<{ value: SpendingType; label: string }> = [
 
 const METHOD_OPTIONS: Array<{ value: SpendingMethod; label: string }> = [
   { value: "card", label: "Tarjeta" },
-  { value: "bank", label: "Banco" },
+  { value: "bank", label: "Pagado desde banco" },
   { value: "cash", label: "Efectivo" },
   { value: "unclassified", label: "Por clasificar" },
 ];
@@ -73,15 +76,7 @@ const DETAIL_LABELS: Record<string, string> = {
   debitCard: "Débito",
 };
 
-const toggleSelection = (current: Selection, value: string, allValues: string[]): Selection => {
-  const selected = current || allValues;
-  if (selected.includes(value)) {
-    if (selected.length === 1) return selected;
-    return selected.filter((item) => item !== value);
-  }
-  const next = [...selected, value];
-  return next.length === allValues.length ? null : next;
-};
+const toggleSelection = toggleFilterSelection;
 
 const isSelected = (selection: Selection, value: string): boolean => selection === null || selection.includes(value);
 
@@ -93,10 +88,10 @@ function MultiSelectGroup({ title, options, selection, onChange }: {
 }) {
   const values = options.map((option) => option.value);
   return <fieldset className="history-filter-group">
-    <legend>{title}</legend>
+    <legend>{title}{selection !== null && ` · ${selection.length} de ${options.length} seleccionadas`}</legend>
     <div className="history-filter-chips">
       <button type="button" className={selection === null ? "active" : ""} onClick={() => onChange(null)}>Todos</button>
-      {options.map((option) => <button type="button" role="checkbox" aria-checked={isSelected(selection, option.value)} className={isSelected(selection, option.value) ? "active" : ""} key={option.value} onClick={() => onChange(toggleSelection(selection, option.value, values))}>{isSelected(selection, option.value) ? "✓ " : ""}{option.label}</button>)}
+      {options.map((option) => <button type="button" aria-pressed={selection?.includes(option.value) || false} className={selection?.includes(option.value) ? "active" : ""} key={option.value} onClick={() => onChange(toggleSelection(selection, option.value, values))}>{selection?.includes(option.value) ? "✓ " : ""}{option.label}</button>)}
     </div>
   </fieldset>;
 }
@@ -146,7 +141,7 @@ function RemainingCard({ current, previous, secondaryCurrent, secondaryPrevious 
 
 const accountKey = (entry: SpendingEntry): string => entry.accountId || "unassigned";
 
-export function ReviewView({ expenses, data, activeCardName, onEdit, onDelete, onRestore, onClassifyHistorical, onNotice, transferFeeRatePercent }: ReviewViewProps) {
+export function ReviewView({ expenses, data, activeCardName, onEdit, onDelete, onRestore, onClassifyHistorical, onNotice, transferFeeRatePercent, onOpenMovement }: ReviewViewProps) {
   const todayKey = toLocalDateKey();
   const currentMonth = getMonthKey(todayKey);
   const currentQuincena = getQuincena(todayKey);
@@ -346,7 +341,7 @@ export function ReviewView({ expenses, data, activeCardName, onEdit, onDelete, o
       <div className="history-section-divider" />
       <div className="history-section-heading compact"><span className="eyebrow">Medio utilizado</span><h2>Cómo se pagó</h2></div>
       <div className="history-summary history-detail-summary">
-        <SummaryCard title="Banco" current={periodTotals.bank.DOP} previous={previousPeriodTotals.bank.DOP} secondaryCurrent={periodTotals.bank.USD} secondaryPrevious={previousPeriodTotals.bank.USD} />
+        <div><SummaryCard title="Pagado desde banco" current={periodTotals.bank.DOP} previous={previousPeriodTotals.bank.DOP} secondaryCurrent={periodTotals.bank.USD} secondaryPrevious={previousPeriodTotals.bank.USD} /><small>Débito y transferencias</small></div>
         <SummaryCard title="Efectivo" current={periodTotals.cash.DOP} previous={previousPeriodTotals.cash.DOP} secondaryCurrent={periodTotals.cash.USD} secondaryPrevious={previousPeriodTotals.cash.USD} />
         <SummaryCard title="Tarjeta DOP" current={periodTotals.card.DOP} previous={previousPeriodTotals.card.DOP} />
         {(periodTotals.card.USD > 0 || previousPeriodTotals.card.USD > 0) && <SummaryCard title="Tarjeta USD" current={periodTotals.card.USD} previous={previousPeriodTotals.card.USD} currency="USD" />}
@@ -381,7 +376,7 @@ export function ReviewView({ expenses, data, activeCardName, onEdit, onDelete, o
       const batchTotals = getSpendingTotals(batch);
       return <section className="quincena-group" key={key}><div className="quincena-header"><div><h3>{formatMonthTitle(monthKey)} · Quincena {quincena}</h3><span>{formatQuincenaRange(monthKey, quincena)} · {batch.length} registro{batch.length === 1 ? "" : "s"} · {totalCaption(batchTotals)}</span></div></div><div className="expense-list">{batch.map((entry) => {
         const editableExpense = entry.source === "expense" ? expenses.find((expense) => expense.id === entry.sourceId) : undefined;
-        return <article className="expense-card" key={entry.id}><div className="expense-main"><div className="expense-title-row"><h4>{entry.name}</h4><strong>{formatCurrency(entry.amountMinor, entry.currency)}</strong></div><div className="expense-meta"><span>{entry.dateIsApproximate ? "Fecha exacta no registrada" : formatShortDate(entry.date)}</span><span className="history-entry-type">{TYPE_LABELS[entry.spendingType]}</span>{entry.nature === "savings" && <span className="history-entry-nature nature-savings">Ahorrado</span>}<span>{entry.category}</span><span>{paymentDescription(entry)}</span>{entry.originalCurrency && entry.originalAmountMinor && <span>Importe original: {formatCurrency(entry.originalAmountMinor, entry.originalCurrency)}</span>}</div></div>{editableExpense && <div className="expense-actions history-expense-actions"><button type="button" onClick={() => setEditing(editableExpense)}>Editar</button><button type="button" className="action-danger" onClick={() => void remove(editableExpense)}>Eliminar</button></div>}</article>;
+        return <article className="expense-card" key={entry.id}><div className="expense-main"><div className="expense-title-row"><h4>{entry.name}</h4><strong>{formatCurrency(entry.amountMinor, entry.currency)}</strong></div><div className="expense-meta"><span>{entry.dateIsApproximate ? "Fecha exacta no registrada" : formatShortDate(entry.date)}</span><span className="history-entry-type">{TYPE_LABELS[entry.spendingType]}</span>{entry.nature === "savings" && <span className="history-entry-nature nature-savings">Ahorrado</span>}<span>{entry.category}</span><span>{paymentDescription(entry)}</span>{entry.originalCurrency && entry.originalAmountMinor && <span>Importe original: {formatCurrency(entry.originalAmountMinor, entry.originalCurrency)}</span>}{Object.values(data.balanceIssues).some(i=>i.status==="pending" && i.movementPaths.some(p=>p.endsWith(`/${entry.sourceId}`) || (entry.source==="expense" && p.startsWith("moneyTransactions/") && data.moneyTransactions[p.split("/")[1]]?.linkedDailyExpenseId===entry.sourceId))) && <span className="form-error">Incidencia pendiente</span>}</div></div>{editableExpense ? <div className="expense-actions history-expense-actions"><button type="button" onClick={() => setEditing(editableExpense)}>Editar</button><button type="button" className="action-danger" onClick={() => void remove(editableExpense)}>Eliminar</button></div> : entry.source !== "expense" && onOpenMovement && <div className="expense-actions"><button type="button" onClick={()=>onOpenMovement({source:entry.source as MovementTarget["source"],sourceId:entry.sourceId})}>Ver y corregir en origen</button></div>}</article>;
       })}</div></section>;
     })}</div>}
 

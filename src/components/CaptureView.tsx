@@ -6,6 +6,8 @@ import { EXPENSE_CATEGORIES } from "../config/financeCategories";
 import type { NewExpenseInput } from "../hooks/useExpenses";
 import type { ExpenseCurrency, ExpensePaymentMethod } from "../models/expense";
 import type { FinancialData } from "../models/finance";
+import { toLocalDateKey } from "../lib/date";
+import { validatePastDate } from "../lib/financialReview";
 
 interface CaptureViewProps {
   onCreate: (input: NewExpenseInput) => Promise<unknown>;
@@ -36,6 +38,8 @@ export function CaptureView({ onCreate, onSaved, data, activeCardName, transferF
   const [transferFee, setTransferFee] = useState(initialDraft.transferFee);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const [occurredDate, setOccurredDate] = useState(toLocalDateKey());
+  const [includedInOpeningBalance,setIncludedInOpeningBalance] = useState(false);
 
   const nameRef = useRef<HTMLInputElement>(null);
   const priceRef = useRef<HTMLInputElement>(null);
@@ -80,6 +84,8 @@ export function CaptureView({ onCreate, onSaved, data, activeCardName, transferF
     setCurrency("DOP");
     setIncludeTransferFee(false);
     setTransferFee("");
+    setOccurredDate(toLocalDateKey());
+    setIncludedInOpeningBalance(false);
     clearDraft();
     requestAnimationFrame(() => nameRef.current?.focus());
   };
@@ -105,7 +111,10 @@ export function CaptureView({ onCreate, onSaved, data, activeCardName, transferF
     setSaving(true);
     setError("");
     try {
+      validatePastDate(occurredDate);
       await onCreate({
+        occurredDate,
+        includedInOpeningBalance,
         name: cleanName,
         unitPriceCents,
         quantity: quantityNumber,
@@ -143,6 +152,8 @@ export function CaptureView({ onCreate, onSaved, data, activeCardName, transferF
       </div>
 
       <form className="capture-form" onSubmit={submit}>
+        <label className="capture-field"><span>Fecha del gasto</span><input type="date" required max={toLocalDateKey()} value={occurredDate} onChange={event => setOccurredDate(event.target.value)} /></label>
+        {occurredDate < toLocalDateKey() && <label className="checkbox-field"><input type="checkbox" checked={includedInOpeningBalance} onChange={e=>setIncludedInOpeningBalance(e.target.checked)} /><span><strong>Ya estaba incluido en el saldo inicial</strong><small>Solo para reconstruir gastos anteriores al inicio del seguimiento. Aparecerá en el historial sin descontar dinero otra vez.</small></span></label>}
         <label className="capture-field capture-name-field">
           <span>Nombre del gasto</span>
           <input

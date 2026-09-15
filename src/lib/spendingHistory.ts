@@ -198,6 +198,7 @@ export const buildSpendingHistory = (data: FinancialData, expenses: Expense[]): 
         && payment.currency === "USD"
         && positive(payment.settlementAmountDopMinor) > 0;
       const hasFinancialPeriod = payment.historical
+        && !payment.reportingExactDate
         && occurrence
         && "financialMonth" in occurrence
         && typeof occurrence.financialMonth === "string"
@@ -210,7 +211,7 @@ export const buildSpendingHistory = (data: FinancialData, expenses: Expense[]): 
       const baseEntry: Omit<SpendingEntry, "id" | "name" | "nature" | "amountMinor"> = {
         source: "payment",
         sourceId: payment.id,
-        date: historicalRange?.startDateKey || payment.paidDate,
+        date: payment.reportingExactDate || historicalRange?.startDateKey || payment.paidDate,
         category,
         spendingType: goal ? "purchaseGoal" : payment.sourceType,
         method,
@@ -221,7 +222,7 @@ export const buildSpendingHistory = (data: FinancialData, expenses: Expense[]): 
         detailedMethod: payment.historical ? historicalMethod : payment.method,
         financialMonth: hasFinancialPeriod ? occurrence.financialMonth : undefined,
         quincena: hasFinancialPeriod ? occurrence.quincena : undefined,
-        dateIsApproximate: Boolean(payment.historical),
+        dateIsApproximate: Boolean(payment.historical && !payment.reportingExactDate),
       };
       entries.push({
         ...baseEntry,

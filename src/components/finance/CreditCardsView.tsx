@@ -278,10 +278,8 @@ function CardTransactionModal({
     }
     const selectedFund = savingsFundId ? data.savingsFunds[savingsFundId] : undefined;
     const releasableSavings = selectedFund?.moneyAccountId === effectiveMoneyAccountId ? getFundBalance(data, selectedFund.id) : 0;
-    if (type === "payment" && !includedInCurrentBalance && cashAmountMinor + feeMinor > getMoneyAccountSpendableBalance(data, effectiveMoneyAccountId) + releasableSavings) {
-      setError(`No hay suficiente dinero disponible sin apartar en ${moneyAccountLabel(effectiveMoneyAccountId, data)}.`);
-      return;
-    }
+    // Insufficient balances are handled by the shared confirmation boundary.
+    void releasableSavings;
     const signed = type === "adjustment" && adjustmentDirection === "decrease"
       ? -parsedAmount
       : parsedAmount;

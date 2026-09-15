@@ -16,11 +16,14 @@ import { CreditCardsView, type AddCardTransaction } from "./CreditCardsView";
 import { LoansView } from "./LoansView";
 import { MoneyView } from "./MoneyView";
 import { SavingsView } from "./SavingsView";
+import { SourceMovementLinks } from "../SourceMovementLinks";
+import type { MovementTarget } from "../../lib/movementEditing";
 
 export type FinancialHubSection = "overview" | "savings" | "cards" | "loans";
 
 interface FinancialHubViewProps {
   data: FinancialData;
+  onOpenMovement?: (target:MovementTarget)=>void;
   canReconcileSavingsAccounts: boolean;
   initialSection?: FinancialHubSection;
   onSaveBank: (input: BankInput, id?: string) => Promise<void>;
@@ -52,6 +55,7 @@ const sections: Array<{ id: FinancialHubSection; label: string }> = [
 
 export function FinancialHubView({
   data,
+  onOpenMovement,
   canReconcileSavingsAccounts,
   initialSection = "overview",
   onSaveBank,
@@ -100,5 +104,6 @@ export function FinancialHubView({
     {section === "savings" && <SavingsView data={data} onSave={onSaveSavingsFund} onAddTransaction={onAddSavingsTransaction} onTransfer={onTransferSavings} onRelease={onReleaseSavings} />}
     {section === "cards" && <CreditCardsView data={data} onSaveCard={onSaveCard} onSaveMinimum={onSaveCardMinimum} onAddTransaction={onAddCardTransaction} onReverseTransaction={onReverseCardTransaction} />}
     {section === "loans" && <LoansView data={data} onSave={onSaveLoan} onAdjust={onAdjustLoan} onReverseAdjustment={onReverseLoanAdjustment} />}
+    {onOpenMovement && <SourceMovementLinks data={data} section={section} onOpen={onOpenMovement} />}
   </div>;
 }

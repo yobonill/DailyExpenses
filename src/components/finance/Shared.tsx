@@ -218,7 +218,7 @@ export function PayModal({ title, expectedMinor, currency, canPayWithCard, cards
     : confirmedMethod === "cash" ? CASH_ACCOUNT_ID : confirmedMethod === "bankTransfer" || confirmedMethod === "debitCard" ? moneyAccountId : undefined;
   const accountDebitMinor = savingsMode || currency === "DOP" ? amountMinor : parseMoneyToCents(settlementDop) || 0;
   const accountReady = confirmedMethod === "creditCard" || (effectiveMoneyAccountId && confirmedMethod
-    ? isSelectableMoneyAccount(data, effectiveMoneyAccountId, confirmedMethod as "cash" | "bankTransfer" | "debitCard")
+    ? isSelectableMoneyAccount(data, effectiveMoneyAccountId, confirmedMethod as "cash" | "bankTransfer" | "debitCard", savingsMode ? currency : "DOP")
     : false);
   const accountBalance = effectiveMoneyAccountId ? getMoneyAccountSpendableBalance(data, effectiveMoneyAccountId) : 0;
   const submit = async (event: FormEvent) => {
@@ -229,7 +229,7 @@ export function PayModal({ title, expectedMinor, currency, canPayWithCard, cards
     if (confirmedMethod === "creditCard" && !cardId) return setError("Selecciona una tarjeta activa.");
     if (confirmedMethod !== "creditCard" && !accountReady) return setError(confirmedMethod === "cash" ? "Configura primero tu saldo en Efectivo." : "Selecciona una cuenta bancaria activa.");
     if (!savingsMode && effectiveMoneyAccountId && currency === "USD" && accountDebitMinor <= 0) return setError("Indica cuánto salió realmente en pesos.");
-    if (effectiveMoneyAccountId && accountDebitMinor + feeMinor > accountBalance && !(allowSavings && consumeSavings)) return setError(`No hay suficiente dinero disponible sin apartar en ${moneyAccountLabel(effectiveMoneyAccountId, data)}.`);
+    if (savingsMode && effectiveMoneyAccountId && accountDebitMinor + feeMinor > accountBalance) return setError(`No hay suficiente dinero disponible sin apartar en ${moneyAccountLabel(effectiveMoneyAccountId, data)}.`);
     if (linkedLoan && interestMinor + chargesMinor > amountMinor) return setError("Intereses y cargos no pueden exceder el pago total.");
     if (linkedLoan && principalMinor > getLoanBalance(data, linkedLoan.id)) return setError("El capital calculado excede el balance del préstamo.");
     setSaving(true); setError("");

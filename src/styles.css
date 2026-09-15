@@ -830,3 +830,12 @@ tbody tr:last-child td { border-bottom: 0; }
   .account-center-summary, .unassigned-products-panel { grid-template-columns: 1fr; }
   .unassigned-products-panel > div:first-child { grid-column: auto; }
 }
+/* Review controls share the existing palette and remain usable above the mobile navigation. */
+.balance-review-card { padding: 1.2rem; margin: 1rem 0; border: 1px solid #d4dfd8; border-radius: 20px; background: #fff; }
+.balance-review-card summary { cursor: pointer; font-weight: 700; }
+.balance-review-card article { padding: .8rem 0; border-bottom: 1px solid #d4dfd8; }
+.source-movement-row { display: flex; gap: 1rem; justify-content: space-between; align-items: center; padding: .8rem 0; border-bottom: 1px solid #d4dfd8; }
+.balance-review-card .field { max-width: 34rem; }
+.balance-review-card ul { max-height: 18rem; overflow: auto; }
+[hidden] { display: none !important; }
+@media(max-width: 600px) { .source-movement-row { align-items: flex-start; flex-direction: column; } .balance-review-card { padding: 1rem; } }

@@ -96,6 +96,7 @@ export interface Payment extends RecordMetadata {
   reportingMoneyAccountId?: MoneyAccountId;
   reportingCardId?: string;
   reportingClassifiedAt?: string;
+  reportingExactDate?: string;
   notes?: string;
   reversedAt?: string;
 }
@@ -435,6 +436,11 @@ export interface FinancialData {
   loans: Record<string, Loan>;
   loanTransactions: Record<string, LoanTransaction>;
   savingsAccountReconciliations: Record<string, SavingsAccountReconciliation>;
+  balanceIssues: Record<string, import("./review").BalanceIssue>;
+  cycleClosings: Record<string, import("./review").CycleClosing>;
+  changeAudits: Record<string, import("./review").ChangeAudit>;
+  managedExpenses: Record<string, import("./review").ManagedExpense>;
+  reviewControl?: RecordMetadata;
   settings: AppSettings;
   lastBackupAt?: string;
 }

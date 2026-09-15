@@ -42,6 +42,10 @@ export const createEmptyFinancialData = (): FinancialData => ({
   loans: {},
   loanTransactions: {},
   savingsAccountReconciliations: {},
+  balanceIssues: {},
+  cycleClosings: {},
+  changeAudits: {},
+  managedExpenses: {},
   settings: createDefaultSettings(),
 });
 
@@ -76,6 +80,11 @@ export const normalizeFinancialData = (value: unknown): FinancialData => {
     loans: asRecord(raw.loans),
     loanTransactions: asRecord(raw.loanTransactions),
     savingsAccountReconciliations: asRecord(raw.savingsAccountReconciliations),
+    balanceIssues: asRecord(raw.balanceIssues),
+    cycleClosings: asRecord(raw.cycleClosings),
+    changeAudits: asRecord(raw.changeAudits),
+    managedExpenses: asRecord(raw.managedExpenses),
+    reviewControl: raw.reviewControl,
     settings: raw.settings && typeof raw.settings === "object"
       ? { ...defaults.settings, ...raw.settings }
       : defaults.settings,

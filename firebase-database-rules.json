@@ -13,7 +13,30 @@
       "v1": {
         ".read": "auth != null && (auth.uid === 'hmJi0g20svTPkfOF9ZzZwRi9Bdw2' || auth.uid === 'YHtQh4N0RaViD8rXqDNE4xZTcN12')",
         ".write": "auth != null && (auth.uid === 'hmJi0g20svTPkfOF9ZzZwRi9Bdw2' || auth.uid === 'YHtQh4N0RaViD8rXqDNE4xZTcN12')",
-        ".validate": "newData.hasChild('schemaVersion') && newData.child('schemaVersion').val() === 1",
+        ".validate": "newData.hasChild('schemaVersion') && newData.child('schemaVersion').val() === 1 && (!data.hasChild('reviewControl') || newData.hasChild('reviewControl'))",
+        "reviewControl": {
+          ".validate": "newData.hasChildren(['createdAt','createdBy','updatedAt','updatedBy','version']) && newData.child('version').isNumber() && (!data.exists() || newData.child('version').val() === data.child('version').val() + 1)"
+        },
+        "managedExpenses": {
+          "$id": {
+            ".validate": "newData.hasChildren(['id','name','unitPriceCents','quantity','occurredDate','category','paymentMethod','version','createdAt','updatedAt']) && newData.child('id').val() === $id && newData.child('name').isString() && newData.child('name').val().length > 0 && newData.child('category').isString() && newData.child('category').val().length > 0 && newData.child('unitPriceCents').isNumber() && newData.child('unitPriceCents').val() > 0 && newData.child('quantity').isNumber() && newData.child('quantity').val() >= 1 && (newData.child('currency').val() === 'DOP' || newData.child('currency').val() === 'USD') && (newData.child('paymentMethod').val() === 'cash' || newData.child('paymentMethod').val() === 'transfer' || newData.child('paymentMethod').val() === 'debit' || newData.child('paymentMethod').val() === 'creditCard') && newData.child('occurredDate').isString() && newData.child('version').isNumber() && newData.child('version').val() > 0"
+          }
+        },
+        "balanceIssues": {
+          "$id": {
+            ".validate": "newData.hasChildren(['id','currency','date','description','differenceMinor','beforeMinor','afterMinor','movementPaths','status','createdAt','createdBy','updatedAt','updatedBy','version']) && newData.child('id').val() === $id && (newData.child('currency').val() === 'DOP' || newData.child('currency').val() === 'USD') && newData.child('differenceMinor').isNumber() && newData.child('differenceMinor').val() > 0 && newData.child('beforeMinor').isNumber() && newData.child('afterMinor').isNumber() && (newData.child('status').val() === 'pending' || (newData.child('status').val() === 'reviewed' && newData.child('resolution').isString() && newData.child('resolution').val().length > 0))"
+          }
+        },
+        "cycleClosings": {
+          "$id": {
+            ".validate": "newData.hasChildren(['id','financialMonth','quincena','cutoff','revision','status','balances','fingerprint','createdAt','createdBy','updatedAt','updatedBy','version']) && newData.child('id').val() === $id && (newData.child('quincena').val() === 1 || newData.child('quincena').val() === 2) && newData.child('revision').isNumber() && newData.child('revision').val() > 0 && newData.child('fingerprint').isString() && (newData.child('status').val() === 'reconciled' || newData.child('status').val() === 'differences' || newData.child('status').val() === 'incomplete')"
+          }
+        },
+        "changeAudits": {
+          "$id": {
+            ".validate": "newData.hasChildren(['id','after','description','createdAt','createdBy','updatedAt','updatedBy','version']) && newData.child('id').val() === $id && newData.child('description').isString() && newData.child('version').val() === 1"
+          }
+        },
         "monthlyTemplates": {
           "$id": {
             ".validate": "!newData.exists() || (newData.hasChildren(['id','name','estimatedAmountMinor','currency','dueRule','active','createdAt','createdBy','updatedAt','updatedBy','version']) && newData.child('id').val() === $id && newData.child('name').isString() && newData.child('estimatedAmountMinor').isNumber() && newData.child('estimatedAmountMinor').val() > 0 && (newData.child('currency').val() === 'DOP' || newData.child('currency').val() === 'USD') && (!newData.hasChild('plannedQuincena') || newData.child('plannedQuincena').val() === 1 || newData.child('plannedQuincena').val() === 2) && (newData.child('createdAt').val() < '2026-09-12T14:05:00.000Z' || (newData.child('category').isString() && newData.child('category').val().length > 0)))"

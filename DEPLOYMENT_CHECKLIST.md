@@ -1,43 +1,17 @@
-# Lista de publicación · Daily Expenses 2.1.2
+# Publicación · Daily Expenses 2.2.0
 
-## Antes de actualizar
+Sigue `INSTRUCCIONES_ACTUALIZACION_v2.2.0.md` para instalar sobre 2.1.2.
 
-1. Confirma cero cambios pendientes en ambos dispositivos.
-2. Descarga un respaldo JSON actualizado.
-3. Pausa el registro de movimientos hasta finalizar la actualización.
+- Ambos dispositivos sincronizados, sin movimientos pendientes, y respaldo JSON descargado.
+- Registro de movimientos pausado durante la actualización.
+- Archivos incrementales aplicados a la raíz del proyecto.
+- `npm ci`, `npm test` y `npm run build` completados.
+- Revisar `git status`, `git diff --stat` y `git diff --check`; no incluir respaldos personales ni archivos locales de pruebas.
+- Publicar `firebase-database-rules.json` en Realtime Database del proyecto Daily Expenses.
+- Commit sugerido: `feat: add expense dates, fortnight closing and reviewed corrections`.
+- Publicar la aplicación con el flujo habitual del repositorio.
+- Actualizar ambos dispositivos y verificar versión 2.2.0 antes de registrar movimientos.
+- Confirmar sincronización y balances; no repetir clasificación ni reconciliación ya realizadas.
+- Verificar en el teléfono la fecha, los campos obligatorios, los filtros y los avisos de saldo insuficiente.
 
-## Publicación
-
-1. Extrae el ZIP incremental sobre la versión 2.1.1.
-2. No cambies las reglas de Firebase; 2.1.2 reutiliza las ya publicadas.
-3. Ejecuta:
-
-   ```bash
-   npm ci
-   npm test
-   npm run build
-   git status
-   git diff --stat
-   ```
-
-4. Crea y publica el commit:
-
-   ```bash
-   git add .
-   git commit -m "fix: clarify cycle summary and spending breakdown"
-   git push origin master
-   ```
-
-5. Espera a que GitHub Actions finalice.
-6. Actualiza el primer dispositivo y confirma la versión 2.1.2.
-7. Verifica:
-   - Ingresado − Gastado − Ahorrado = Restante.
-   - Restante positivo en verde, faltante en rojo y cero neutral.
-   - Presupuesto + Extras + No mensuales + Metas de compra = Total gastado.
-   - Banco + Efectivo + Tarjeta + Por clasificar = Total gastado.
-   - Un pago de préstamo aparece en Gastado, no en una sección independiente.
-   - Registrar siempre produce un Extra.
-8. Ejecuta la clasificación pendiente desde el primer dispositivo.
-9. Después de sincronizar, actualiza el segundo dispositivo.
-
-No ejecutes nuevamente la reconciliación de cuentas y ahorros.
+No se desplegó ni se modificó Firebase al preparar este paquete.

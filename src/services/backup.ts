@@ -1,4 +1,5 @@
-import { ref, update } from "firebase/database";
+import { get, ref, update } from "firebase/database";
+import { reviewMeta } from "../lib/financialReview";
 import type { Expense } from "../models/expense";
 import type { FinancialData } from "../models/finance";
 import { FINANCIAL_ROOT_PATH, FINANCIAL_SCHEMA_VERSION, normalizeFinancialData } from "../lib/financialState";
@@ -62,6 +63,9 @@ export const validateBackupText = (text: string): BackupPreview => {
     prestamos: Object.keys(financial.loans).length,
     movimientosDePrestamos: Object.keys(financial.loanTransactions).length,
     reconciliacionesDeCuentasYAhorros: Object.keys(financial.savingsAccountReconciliations).length,
+    cierresDeQuincena: Object.keys(financial.cycleClosings).length,
+    incidencias: Object.keys(financial.balanceIssues).length,
+    registrosDeCambios: Object.keys(financial.changeAudits).length,
   };
   const backup: DailyExpensesBackup | undefined = errors.length ? undefined : {
     format: "daily-expenses-budget-backup",
@@ -75,11 +79,13 @@ export const validateBackupText = (text: string): BackupPreview => {
 };
 
 export const restoreBackupAtomically = async (backup: DailyExpensesBackup): Promise<void> => {
-  const { database } = getAuthenticatedFirebaseServices();
+  const { database, auth } = getAuthenticatedFirebaseServices();
+  const current = normalizeFinancialData((await get(ref(database, FINANCIAL_ROOT_PATH))).val());
+  const restored = { ...backup.financialData, reviewControl: reviewMeta(auth.currentUser!.uid, current.reviewControl) };
   const expenseMap = Object.fromEntries(backup.expenses.map((expense) => [expense.id, expense]));
   await update(ref(database), {
     expenses: expenseMap,
-    [FINANCIAL_ROOT_PATH]: backup.financialData,
+    [FINANCIAL_ROOT_PATH]: JSON.parse(JSON.stringify(restored)),
   });
   localStorage.removeItem("dailyExpenses.localState.v1");
   localStorage.removeItem("dailyExpenses.budget.localState.v1");

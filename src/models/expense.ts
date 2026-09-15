@@ -25,6 +25,7 @@ export interface Expense {
   createdAt: string;
   updatedAt: string;
   deletedAt?: string;
+  includedInOpeningBalance?: boolean;
 }
 
 export interface ExpenseDraft {
@@ -40,6 +41,7 @@ export interface ExpenseDraft {
 }
 
 export interface ExpenseEditableFields {
+  includedInOpeningBalance?: boolean;
   name: string;
   unitPriceCents: number;
   quantity: number;

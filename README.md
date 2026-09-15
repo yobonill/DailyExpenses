@@ -14,7 +14,9 @@ PWA compartida para Yorki y Yisel. Integra gastos extras, presupuesto mensual, D
 - Importes almacenados en unidades menores enteras; DOP y USD nunca se convierten ni combinan
 - Sin servidor propio, APK, Firestore, notificaciones push ni conexiones bancarias
 
-Los gastos diarios viven en `/expenses`. Los módulos de presupuesto viven en el espacio versionado `/dailyExpensesBudget/v1`.
+Desde 2.2.0, los extras nuevos y corregidos se guardan en `/dailyExpensesBudget/v1/managedExpenses`, junto con sus movimientos, incidencias y auditoría, en una transacción. Los extras anteriores en `/expenses` siguen disponibles; se combinan por ID dando prioridad al registro actualizado. No se duplican ni migran automáticamente los saldos.
+
+La actualización 2.2.0 requiere publicar `firebase-database-rules.json` y actualizar ambos dispositivos. Consulta `INSTRUCCIONES_ACTUALIZACION_v2.2.0.md`. Incluye fecha del gasto, cierres quincenales, correcciones desde el origen, incidencias por saldo insuficiente y filtros de selección múltiple más rápidos.
 
 ## Áreas funcionales
 

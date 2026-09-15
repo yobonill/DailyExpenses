@@ -5,6 +5,7 @@ import { parseMoneyToCents } from "../lib/money";
 import { CASH_ACCOUNT_ID, calculateTransferFeeMinor, getActiveBankAccounts, getMoneyAccountSpendableBalance, isSelectableMoneyAccount, moneyAccountLabel } from "../lib/moneyLedger";
 import { formatMoney } from "../lib/money";
 import type { FinancialData } from "../models/finance";
+import { toLocalDateKey } from "../lib/date";
 
 interface EditExpenseModalProps {
   expense: Expense;
@@ -28,6 +29,7 @@ export function EditExpenseModal({ expense, data, onClose, onSave, activeCardNam
   const [price, setPrice] = useState(initialPrice);
   const [quantity, setQuantity] = useState(String(expense.quantity));
   const [date, setDate] = useState(expense.occurredDate);
+  const [includedInOpeningBalance,setIncludedInOpeningBalance] = useState(Boolean(expense.includedInOpeningBalance));
   const [category, setCategory] = useState(expense.category || "");
   const [paymentMethod, setPaymentMethod] = useState<ExpensePaymentMethod>(expense.paymentMethod || "cash");
   const bankAccounts = getActiveBankAccounts(data);
@@ -70,6 +72,7 @@ export function EditExpenseModal({ expense, data, onClose, onSave, activeCardNam
         unitPriceCents,
         quantity: quantityNumber,
         occurredDate: date,
+        includedInOpeningBalance,
         category,
         paymentMethod,
         moneyAccountId: paymentMethod === "cash" ? CASH_ACCOUNT_ID : paymentMethod === "debit" || paymentMethod === "transfer" ? moneyAccountId : undefined,
@@ -100,6 +103,7 @@ export function EditExpenseModal({ expense, data, onClose, onSave, activeCardNam
         </div>
 
         <form className="edit-form" onSubmit={submit}>
+          <label className="checkbox-field"><input type="checkbox" checked={includedInOpeningBalance} onChange={e=>setIncludedInOpeningBalance(e.target.checked)} /><span>Ya estaba incluido en el saldo inicial (solo histórico, sin descontar nuevamente)</span></label>
           <label className="field">
             <span>Nombre</span>
             <input autoFocus value={name} onChange={(event) => setName(event.target.value)} />
@@ -114,7 +118,7 @@ export function EditExpenseModal({ expense, data, onClose, onSave, activeCardNam
           </label>
           <label className="field">
             <span>Fecha del gasto</span>
-            <input type="date" value={date} onChange={(event) => setDate(event.target.value)} />
+            <input type="date" required max={toLocalDateKey()} value={date} onChange={(event) => setDate(event.target.value)} />
           </label>
           <label className="field">
             <span>Forma de pago</span>

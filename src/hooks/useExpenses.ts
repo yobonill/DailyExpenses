@@ -128,6 +128,7 @@ export const getExpenseForRemoteWrite = (
 };
 
 export interface NewExpenseInput {
+  includedInOpeningBalance?: boolean;
   name: string;
   unitPriceCents: number;
   quantity: number;

@@ -20,6 +20,7 @@ import type {
 import { isFinanciallyConsistent, reconcileVersionedUpdates } from "../lib/financialIntegrity";
 import { getAuthenticatedFirebaseServices } from "../services/firebase";
 import { appendSyncLog } from "../lib/syncLog";
+import { prepareReviewedUpdates } from "../lib/reviewedUpdates";
 
 export const toFirebaseCompatibleValue = <T,>(value: T): T =>
   JSON.parse(JSON.stringify(value)) as T;
@@ -175,12 +176,15 @@ export const useFinancialData = (user: AppUserDefinition): UseFinancialDataResul
 
   const commitUpdates = useCallback(async (updates: Record<string, unknown>) => {
     if (!Object.keys(updates).length) return;
+    const reviewed = prepareReviewedUpdates(localRef.current.data, updates, user.uid, {
+      warn: message => window.alert(message), confirm: message => window.confirm(message),
+    });
     await queueOperation({
       id: createId(),
       createdAt: new Date().toISOString(),
-      updates,
+      updates: reviewed,
     });
-  }, [queueOperation]);
+  }, [queueOperation, user.uid]);
 
   const replaceData = useCallback(async (replacement: FinancialData) => {
     await queueOperation({

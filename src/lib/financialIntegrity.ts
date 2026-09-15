@@ -27,6 +27,8 @@ export const reconcileVersionedUpdates = (
     const incomingVersion = recordVersion(value);
     const currentVersion = recordVersion(getAtPath(current, path));
     if (incomingVersion !== undefined && currentVersion !== undefined) {
+      if (path === "reviewControl" && incomingVersion !== currentVersion + 1) return { updates: {}, conflict: true };
+      if (path.startsWith("cycleClosings/") || path.startsWith("changeAudits/")) return { updates: {}, conflict: true };
       if (path.startsWith("savingsAccountReconciliations/")) {
         // The reconciliation marker guards its complete multi-path operation.
         // If another device already created it, none of this queued operation may run.
@@ -81,10 +83,11 @@ export const isFinanciallyConsistent = (candidate: FinancialData): boolean => {
       || !["DOP", "USD"].includes(account.currency)
       || ((isCash || isLegacy) && account.currency !== "DOP")
       || account.openingBalanceMinor < 0
-      || getMoneyAccountBalance(candidate, account.id) < 0) return false;
+      || (getMoneyAccountBalance(candidate, account.id) < 0 && !Object.values(candidate.balanceIssues).some(i => i.accountId === account.id))) return false;
     if (hasUnifiedSavingsAccounts(candidate)
       && account.id !== LEGACY_BANK_ACCOUNT_ID
-      && getAccountReservedSavings(candidate, account.id) > getMoneyAccountBalance(candidate, account.id)) return false;
+      && getAccountReservedSavings(candidate, account.id) > getMoneyAccountBalance(candidate, account.id)
+      && !Object.values(candidate.balanceIssues).some(i => i.accountId === account.id)) return false;
   }
   for (const transaction of Object.values(candidate.moneyTransactions)) {
     const account = candidate.moneyAccounts[transaction.accountId];
@@ -149,6 +152,11 @@ export const isFinanciallyConsistent = (candidate: FinancialData): boolean => {
   }
   for (const [cardId, card] of Object.entries(candidate.creditCards)) {
     if (card.bankId && !candidate.banks[card.bankId]) return false;
+    for (const currency of ["DOP", "USD"] as const) {
+      const rawDebt = Object.values(candidate.cardTransactions).filter(t=>t.cardId===cardId && t.currency===currency && !t.reversedAt && t.affectsCurrentBalance!==false)
+        .reduce((n,t)=>n+((t.type==="payment" || t.type==="credit")?-t.amountMinor:t.amountMinor), currency==="DOP"?card.openingCurrentDebtDopMinor:card.openingCurrentDebtUsdMinor);
+      if (rawDebt < 0) return false;
+    }
     if (getCardCurrentDebt(candidate, cardId, "DOP") < 0
       || getCardCurrentDebt(candidate, cardId, "USD") < 0) return false;
   }
