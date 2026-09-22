@@ -5,6 +5,7 @@ import { toLocalDateKey } from "./date";
 import { isFinanciallyConsistent } from "./financialIntegrity";
 import { formatCurrency } from "./money";
 import { createId } from "./id";
+import { auditEntriesFromUpdates, isAuditedFinancialPath } from "./changeAudit";
 
 export interface ReviewPrompts { warn(message: string): void; confirm(message: string): boolean }
 export function prepareReviewedUpdates(data: FinancialData, requested: Record<string, unknown>, actor: string, prompts: ReviewPrompts): Record<string, unknown> {
@@ -16,7 +17,7 @@ export function prepareReviewedUpdates(data: FinancialData, requested: Record<st
     const original = id ? (data[collection as keyof FinancialData] as Record<string, unknown> | undefined)?.[id] : undefined;
     before[path] = original || null;
     const r = value as Record<string, unknown> | null;
-    if (/^(payments|moneyTransactions|cardTransactions|savingsTransactions|loanTransactions|managedExpenses)\//.test(path) && r) {
+    if (isAuditedFinancialPath(path) && r) {
       const date = r.paidDate || r.transactionDate || r.occurredDate;
       // Existing historical rows can preserve an unknown date; all new dates are validated.
       const old = original as Record<string, unknown> | undefined;
@@ -87,8 +88,14 @@ export function prepareReviewedUpdates(data: FinancialData, requested: Record<st
       before[path] = (data[group as keyof FinancialData] as Record<string,unknown> | undefined)?.[key] || null;
     }
   }
-  const audited = Object.keys(updates).some(p => /^(payments|moneyTransactions|cardTransactions|savingsTransactions|loanTransactions|managedExpenses)\//.test(p));
-  if (audited) updates[`changeAudits/${id}`] = { id, before, after: { ...updates }, description: isEdit ? "Corrección o reversión de movimiento" : "Registro de movimiento", ...reviewMeta(actor) };
+  const audited = Object.keys(updates).some(isAuditedFinancialPath);
+  if (audited) updates[`changeAudits/${id}`] = {
+    id,
+    before: auditEntriesFromUpdates(before),
+    after: auditEntriesFromUpdates({ ...updates }),
+    description: isEdit ? "Corrección o reversión de movimiento" : "Registro de movimiento",
+    ...reviewMeta(actor),
+  };
   // Serializes operations against the version the user reviewed on this device.
   updates.reviewControl = reviewMeta(actor, data.reviewControl);
   return updates;

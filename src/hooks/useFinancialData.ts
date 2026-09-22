@@ -7,6 +7,7 @@ import {
   applyFinancialUpdates,
   applyPendingFinancialOperations,
   createEmptyFinancialData,
+  migratePendingFinancialOperation,
   normalizeFinancialData,
   readLocalFinancialState,
   storeLocalFinancialState,
@@ -25,12 +26,19 @@ import { prepareReviewedUpdates } from "../lib/reviewedUpdates";
 export const toFirebaseCompatibleValue = <T,>(value: T): T =>
   JSON.parse(JSON.stringify(value)) as T;
 
-const syncErrorMessage = (reason: unknown): string => {
-  const code = reason && typeof reason === "object" && "code" in reason
+const syncErrorCode = (reason: unknown): string =>
+  reason && typeof reason === "object" && "code" in reason
     ? String((reason as { code?: unknown }).code || "")
     : "";
-  if (code.toLowerCase().includes("permission-denied") || code.toLowerCase().includes("permission_denied")) {
+
+const syncErrorMessage = (reason: unknown): string => {
+  const code = syncErrorCode(reason);
+  const normalized = code.toLowerCase();
+  if (normalized.includes("permission-denied") || normalized.includes("permission_denied")) {
     return "Firebase rechazó la escritura. Revisa que hayas iniciado sesión y que las reglas publicadas correspondan a Daily Expenses.";
+  }
+  if (normalized.includes("auth") || normalized.includes("token")) {
+    return "La sesión de Firebase no es válida. Cierra sesión, vuelve a entrar y reintenta.";
   }
   return code
     ? `No se pudo sincronizar con Firebase (${code}).`
@@ -39,21 +47,50 @@ const syncErrorMessage = (reason: unknown): string => {
 
 const syncErrorDetails = (reason: unknown): string => {
   if (!(reason instanceof Error)) return String(reason || "Error desconocido");
-  const code = "code" in reason ? String((reason as Error & { code?: unknown }).code || "") : "";
+  const code = syncErrorCode(reason);
   return [code, reason.message].filter(Boolean).join(" · ");
 };
 
-export const useFinancialData = (user: AppUserDefinition): UseFinancialDataResult => {
+export const isRetryableFinancialSyncError = (reason: unknown): boolean => {
+  if (!navigator.onLine) return true;
+  const code = syncErrorCode(reason).toLowerCase();
+  const message = reason instanceof Error ? reason.message.toLowerCase() : String(reason || "").toLowerCase();
+  const combined = `${code} ${message}`;
+  return [
+    "network",
+    "unavailable",
+    "disconnected",
+    "connection",
+    "timeout",
+    "offline",
+    "fetch failed",
+  ].some((needle) => combined.includes(needle));
+};
+
+interface UseFinancialDataOptions {
+  offlineOnly?: boolean;
+}
+
+type OperationResult = "success" | "retryable-error" | "blocked";
+
+export const useFinancialData = (
+  user: AppUserDefinition,
+  { offlineOnly = false }: UseFinancialDataOptions = {},
+): UseFinancialDataResult => {
   const initial = readLocalFinancialState();
   const [data, setData] = useState(initial.data);
-  const [ready, setReady] = useState(false);
-  const [pendingCount, setPendingCount] = useState(initial.pendingOperations.length);
-  const [syncState, setSyncState] = useState<UseFinancialDataResult["syncState"]>("connecting");
-  const [syncMessage, setSyncMessage] = useState("Conectando datos financieros…");
+  const [ready, setReady] = useState(offlineOnly);
+  const [pendingOperations, setPendingOperations] = useState(initial.pendingOperations);
+  const [syncState, setSyncState] = useState<UseFinancialDataResult["syncState"]>(offlineOnly ? "offline" : "connecting");
+  const [syncMessage, setSyncMessage] = useState(offlineOnly
+    ? "Modo sin conexión · los cambios se guardarán en este dispositivo"
+    : "Conectando datos financieros…");
+  const [canDiscardPendingChanges, setCanDiscardPendingChanges] = useState(false);
 
   const localRef = useRef<LocalFinancialState>(initial);
   const remoteRef = useRef<FinancialData>(createEmptyFinancialData());
   const connectedRef = useRef(false);
+  const remoteLoadedRef = useRef(false);
   const mountedRef = useRef(true);
   const syncingRef = useRef(false);
   const conflictMessageRef = useRef("");
@@ -63,7 +100,7 @@ export const useFinancialData = (user: AppUserDefinition): UseFinancialDataResul
     localRef.current = next;
     if (mountedRef.current) {
       setData(next.data);
-      setPendingCount(next.pendingOperations.length);
+      setPendingOperations(next.pendingOperations);
     }
   }, []);
 
@@ -75,8 +112,41 @@ export const useFinancialData = (user: AppUserDefinition): UseFinancialDataResul
     });
   }, [commitState]);
 
-  const executeOperation = useCallback(async (operation: FinancialPendingOperation): Promise<boolean> => {
-    if (!navigator.onLine || !connectedRef.current) return false;
+  const markBlocked = useCallback((operation: FinancialPendingOperation, reason: unknown) => {
+    const technical = syncErrorDetails(reason);
+    const userMessage = syncErrorMessage(reason);
+    const now = new Date().toISOString();
+    const current = localRef.current;
+    commitState({
+      ...current,
+      pendingOperations: current.pendingOperations.map((item) => item.id === operation.id
+        ? { ...item, status: "blocked", blockedAt: now, lastError: technical || userMessage }
+        : item),
+    });
+    appendSyncLog("Presupuesto", "error", `${userMessage} El cambio quedó bloqueado para evitar reintentos infinitos. Detalle técnico: ${technical}`);
+    if (mountedRef.current) {
+      setSyncState("error");
+      setSyncMessage("Hay un cambio financiero bloqueado. Revisa Configuración → Diagnóstico de sincronización.");
+    }
+  }, [commitState]);
+
+  const executeOperation = useCallback(async (
+    rawOperation: FinancialPendingOperation,
+    forceBlocked = false,
+  ): Promise<OperationResult> => {
+    if (offlineOnly || !navigator.onLine || !connectedRef.current) return "retryable-error";
+    const operation = migratePendingFinancialOperation(rawOperation);
+    if (operation.status === "blocked" && !forceBlocked) return "blocked";
+
+    // Persist local migration before retrying an operation created by v2.2.0.
+    if (JSON.stringify(operation) !== JSON.stringify(rawOperation)) {
+      const current = localRef.current;
+      commitState({
+        ...current,
+        pendingOperations: current.pendingOperations.map((item) => item.id === operation.id ? operation : item),
+      });
+    }
+
     try {
       setSyncState("saving");
       setSyncMessage("Sincronizando datos financieros…");
@@ -84,6 +154,9 @@ export const useFinancialData = (user: AppUserDefinition): UseFinancialDataResul
       let rejected = false;
       if (operation.replaceRoot) {
         await set(ref(database, FINANCIAL_ROOT_PATH), toFirebaseCompatibleValue(operation.replaceRoot));
+        remoteRef.current = normalizeFinancialData(operation.replaceRoot);
+        remoteLoadedRef.current = true;
+        if (mountedRef.current) setCanDiscardPendingChanges(true);
       } else {
         const result = await runTransaction(ref(database, FINANCIAL_ROOT_PATH), (currentValue) => {
           const current = normalizeFinancialData(currentValue);
@@ -98,6 +171,12 @@ export const useFinancialData = (user: AppUserDefinition): UseFinancialDataResul
           rejected = true;
           conflictMessageRef.current = "Otro cambio se guardó primero o el movimiento dejaría datos inconsistentes. Se conservó la versión compartida.";
           remoteRef.current = normalizeFinancialData(result.snapshot.val());
+          remoteLoadedRef.current = true;
+          if (mountedRef.current) setCanDiscardPendingChanges(true);
+        } else {
+          remoteRef.current = normalizeFinancialData(result.snapshot.val());
+          remoteLoadedRef.current = true;
+          if (mountedRef.current) setCanDiscardPendingChanges(true);
         }
       }
       if (rejected) {
@@ -110,40 +189,62 @@ export const useFinancialData = (user: AppUserDefinition): UseFinancialDataResul
       } else {
         removePending(operation.id);
       }
-      return true;
+      return "success";
     } catch (reason) {
       console.error("[Daily Expenses] Error al sincronizar datos financieros", reason);
       const errorMessage = syncErrorMessage(reason);
-      appendSyncLog("Presupuesto", "error", `${errorMessage} Detalle técnico: ${syncErrorDetails(reason)}`);
-      if (mountedRef.current) {
-        setSyncState(navigator.onLine ? "error" : "offline");
-        setSyncMessage(`${errorMessage} Guardado localmente; se reintentará.`);
+      const technical = syncErrorDetails(reason);
+      if (isRetryableFinancialSyncError(reason)) {
+        appendSyncLog("Presupuesto", "error", `${errorMessage} Se reintentará automáticamente. Detalle técnico: ${technical}`);
+        if (mountedRef.current) {
+          setSyncState(navigator.onLine ? "error" : "offline");
+          setSyncMessage(`${errorMessage} Guardado localmente; se reintentará cuando vuelva la conexión.`);
+        }
+        return "retryable-error";
       }
-      return false;
+      markBlocked(operation, reason);
+      return "blocked";
     }
-  }, [commitState, removePending]);
+  }, [commitState, markBlocked, offlineOnly, removePending]);
 
-  const retrySync = useCallback(async () => {
+  const syncQueue = useCallback(async (forceBlocked: boolean) => {
     if (syncingRef.current) return;
     const initialCount = localRef.current.pendingOperations.length;
-    if (!navigator.onLine || !connectedRef.current) {
+    if (offlineOnly || !navigator.onLine || !connectedRef.current) {
       setSyncState("offline");
-      const message = navigator.onLine
-        ? "Firebase no ha confirmado conexión. Revisa la sesión o la red y vuelve a intentar."
-        : "El dispositivo no tiene conexión a internet.";
+      const message = offlineOnly
+        ? "Modo sin conexión activo."
+        : navigator.onLine
+          ? "Firebase no ha confirmado conexión. Revisa la sesión o la red y vuelve a intentar."
+          : "El dispositivo no tiene conexión a internet.";
       setSyncMessage(`${message} Los datos financieros permanecen en este dispositivo.`);
-      if (initialCount > 0) appendSyncLog("Presupuesto", "error", `${message} Pendientes: ${initialCount}.`);
+      if (initialCount > 0) appendSyncLog("Presupuesto", "info", `${message} Pendientes: ${initialCount}.`);
       return;
     }
+    if (!initialCount) {
+      setSyncState("synced");
+      setSyncMessage("Sincronizado");
+      return;
+    }
+
     syncingRef.current = true;
     try {
-      while (connectedRef.current && navigator.onLine) {
+      while (connectedRef.current && navigator.onLine && !offlineOnly) {
         const operation = localRef.current.pendingOperations[0];
-        if (!operation || !(await executeOperation(operation))) break;
+        if (!operation) break;
+        if (operation.status === "blocked" && !forceBlocked) {
+          setSyncState("error");
+          setSyncMessage("Hay un cambio financiero bloqueado. Revisa Configuración → Diagnóstico de sincronización.");
+          break;
+        }
+        const result = await executeOperation(operation, forceBlocked);
+        if (result !== "success") break;
+        forceBlocked = false;
       }
     } finally {
       syncingRef.current = false;
     }
+
     if (!localRef.current.pendingOperations.length && mountedRef.current) {
       if (conflictMessageRef.current) {
         setSyncState("error");
@@ -155,9 +256,33 @@ export const useFinancialData = (user: AppUserDefinition): UseFinancialDataResul
         if (initialCount > 0) appendSyncLog("Presupuesto", "success", `${initialCount} cambio${initialCount === 1 ? "" : "s"} sincronizado${initialCount === 1 ? "" : "s"} correctamente.`);
       }
     }
-  }, [executeOperation]);
+  }, [executeOperation, offlineOnly]);
 
-  const queueOperation = useCallback(async (operation: FinancialPendingOperation) => {
+  const retrySync = useCallback(async () => {
+    await syncQueue(true);
+  }, [syncQueue]);
+
+  const autoRetrySync = useCallback(async () => {
+    await syncQueue(false);
+  }, [syncQueue]);
+
+  const discardPendingChanges = useCallback((): number => {
+    const count = localRef.current.pendingOperations.length;
+    if (!count || !remoteLoadedRef.current) return 0;
+    commitState({ data: remoteRef.current, pendingOperations: [] });
+    appendSyncLog("Presupuesto", "info", `${count} cambio${count === 1 ? "" : "s"} financiero${count === 1 ? "" : "s"} local${count === 1 ? "" : "es"} descartado${count === 1 ? "" : "s"}.`);
+    if (connectedRef.current && navigator.onLine && !offlineOnly) {
+      setSyncState("synced");
+      setSyncMessage("Sincronizado");
+    } else {
+      setSyncState("offline");
+      setSyncMessage("Cambios locales descartados · datos compartidos conservados en este dispositivo");
+    }
+    return count;
+  }, [commitState, offlineOnly]);
+
+  const queueOperation = useCallback(async (rawOperation: FinancialPendingOperation) => {
+    const operation = migratePendingFinancialOperation({ ...rawOperation, status: rawOperation.status || "pending" });
     const current = localRef.current;
     const nextData = operation.replaceRoot
       ? normalizeFinancialData(operation.replaceRoot)
@@ -166,13 +291,13 @@ export const useFinancialData = (user: AppUserDefinition): UseFinancialDataResul
       data: nextData,
       pendingOperations: [...current.pendingOperations, operation],
     });
-    if (!navigator.onLine || !connectedRef.current) {
+    if (offlineOnly || !navigator.onLine || !connectedRef.current) {
       setSyncState("offline");
       setSyncMessage("Guardado en este dispositivo · pendiente de sincronizar");
       return;
     }
-    void retrySync();
-  }, [commitState, retrySync]);
+    void autoRetrySync();
+  }, [autoRetrySync, commitState, offlineOnly]);
 
   const commitUpdates = useCallback(async (updates: Record<string, unknown>) => {
     if (!Object.keys(updates).length) return;
@@ -183,6 +308,7 @@ export const useFinancialData = (user: AppUserDefinition): UseFinancialDataResul
       id: createId(),
       createdAt: new Date().toISOString(),
       updates: reviewed,
+      status: "pending",
     });
   }, [queueOperation, user.uid]);
 
@@ -192,17 +318,40 @@ export const useFinancialData = (user: AppUserDefinition): UseFinancialDataResul
       createdAt: new Date().toISOString(),
       updates: {},
       replaceRoot: normalizeFinancialData(replacement),
+      status: "pending",
     });
   }, [queueOperation]);
 
   useEffect(() => {
     mountedRef.current = true;
+    if (offlineOnly) {
+      connectedRef.current = false;
+      remoteLoadedRef.current = false;
+      setCanDiscardPendingChanges(false);
+      setReady(true);
+      setSyncState("offline");
+      setSyncMessage(localRef.current.pendingOperations.length
+        ? `Modo sin conexión · ${localRef.current.pendingOperations.length} cambio${localRef.current.pendingOperations.length === 1 ? "" : "s"} pendiente${localRef.current.pendingOperations.length === 1 ? "" : "s"}`
+        : "Modo sin conexión · datos disponibles en este dispositivo");
+      return () => { mountedRef.current = false; };
+    }
+
     let unsubscribeData: Unsubscribe | undefined;
     let unsubscribeConnection: Unsubscribe | undefined;
-    const { database } = getAuthenticatedFirebaseServices();
+    let database: ReturnType<typeof getAuthenticatedFirebaseServices>["database"];
+    try {
+      database = getAuthenticatedFirebaseServices().database;
+    } catch (reason) {
+      setReady(true);
+      setSyncState("error");
+      setSyncMessage(syncErrorMessage(reason));
+      return () => { mountedRef.current = false; };
+    }
 
     const refresh = () => {
       const current = localRef.current;
+      remoteLoadedRef.current = true;
+      setCanDiscardPendingChanges(true);
       commitState({
         data: applyPendingFinancialOperations(remoteRef.current, current.pendingOperations),
         pendingOperations: current.pendingOperations,
@@ -211,12 +360,15 @@ export const useFinancialData = (user: AppUserDefinition): UseFinancialDataResul
       if (!current.pendingOperations.length) {
         setSyncState("synced");
         setSyncMessage("Sincronizado");
+      } else if (current.pendingOperations.some((item) => item.status === "blocked")) {
+        setSyncState("error");
+        setSyncMessage("Hay un cambio financiero bloqueado. Revisa Configuración → Diagnóstico de sincronización.");
       }
     };
 
     unsubscribeConnection = onValue(ref(database, ".info/connected"), (snapshot) => {
       connectedRef.current = snapshot.val() === true;
-      if (connectedRef.current) void retrySync();
+      if (connectedRef.current) void autoRetrySync();
       else {
         setSyncState("offline");
         setSyncMessage(navigator.onLine
@@ -244,8 +396,8 @@ export const useFinancialData = (user: AppUserDefinition): UseFinancialDataResul
         const errorMessage = syncErrorMessage(reason);
         appendSyncLog("Presupuesto", "error", `No se pudieron cargar los datos financieros compartidos. ${errorMessage} Detalle técnico: ${syncErrorDetails(reason)}`);
         setReady(true);
-        setSyncState("error");
-        setSyncMessage(errorMessage);
+        setSyncState(navigator.onLine ? "error" : "offline");
+        setSyncMessage(navigator.onLine ? errorMessage : "Sin internet · usando los datos guardados en este dispositivo");
       },
     );
 
@@ -255,12 +407,12 @@ export const useFinancialData = (user: AppUserDefinition): UseFinancialDataResul
       unsubscribeData?.();
       unsubscribeConnection?.();
     };
-  }, [commitState, retrySync, user.uid]);
+  }, [autoRetrySync, commitState, offlineOnly, user.uid]);
 
   useEffect(() => {
-    const retryWhenOnline = () => { void retrySync(); };
+    const retryWhenOnline = () => { if (!offlineOnly) void autoRetrySync(); };
     const retryWhenVisible = () => {
-      if (document.visibilityState === "visible") void retrySync();
+      if (!offlineOnly && document.visibilityState === "visible") void autoRetrySync();
     };
     window.addEventListener("online", retryWhenOnline);
     document.addEventListener("visibilitychange", retryWhenVisible);
@@ -268,7 +420,21 @@ export const useFinancialData = (user: AppUserDefinition): UseFinancialDataResul
       window.removeEventListener("online", retryWhenOnline);
       document.removeEventListener("visibilitychange", retryWhenVisible);
     };
-  }, [retrySync]);
+  }, [autoRetrySync, offlineOnly]);
 
-  return { data, ready, syncState, syncMessage, pendingCount, commitUpdates, replaceData, retrySync };
+  const blockedCount = pendingOperations.filter((item) => item.status === "blocked").length;
+  return {
+    data,
+    ready,
+    syncState,
+    syncMessage,
+    pendingCount: pendingOperations.length,
+    blockedCount,
+    pendingOperations,
+    canDiscardPendingChanges,
+    commitUpdates,
+    replaceData,
+    retrySync,
+    discardPendingChanges,
+  };
 };

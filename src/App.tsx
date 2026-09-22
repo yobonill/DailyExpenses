@@ -17,7 +17,7 @@ import { useExpenses } from "./hooks/useExpenses";
 import { useFinancialData } from "./hooks/useFinancialData";
 import { useFinanceActions, createFinanceActions } from "./hooks/useFinanceActions";
 import { buildExpenseUpdates, collapsePatchVersions, mergedExpenses, newExpense } from "./lib/movementEditing";
-import { applyFinancialUpdates } from "./lib/financialState";
+import { applyFinancialUpdates, hasLocalFinancialState } from "./lib/financialState";
 import { toLocalDateKey } from "./lib/date";
 import type { MovementTarget } from "./lib/movementEditing";
 import { MovementEditor } from "./components/MovementEditor";
@@ -55,15 +55,15 @@ function MoreView({ onNavigate }: { onNavigate: (view: View) => void }) {
   return <section className="finance-page"><div className="finance-heading"><div><span className="eyebrow">Todas las áreas</span><h1>Más</h1></div></div><div className="more-grid">{items.map((item) => <button key={item.view} type="button" onClick={() => onNavigate(item.view)}><span className="more-icon" aria-hidden="true">{item.icon}</span><span><strong>{item.title}</strong><small>{item.text}</small></span><b aria-hidden="true">›</b></button>)}</div></section>;
 }
 
-function AuthenticatedApp({ user, onLogout }: { user: AppUserDefinition; onLogout: () => Promise<void> }) {
+function AuthenticatedApp({ user, onLogout, offlineSession }: { user: AppUserDefinition; onLogout: () => Promise<void>; offlineSession: boolean }) {
   const [view, setView] = useState<View>("capture");
   const [notice, setNotice] = useState<NoticeState | null>(null);
   const [movementTarget,setMovementTarget] = useState<MovementTarget|null>(null);
   const [linkedExpense,setLinkedExpense] = useState<Expense|null>(null);
   const reviewScroll = useRef(0);
   const returnToReview = useRef(false);
-  const legacyExpensesState = useExpenses();
-  const financial = useFinancialData(user);
+  const legacyExpensesState = useExpenses({ offlineOnly: offlineSession });
+  const financial = useFinancialData(user, { offlineOnly: offlineSession });
   const allExpenses = useMemo(() => mergedExpenses(financial.data, legacyExpensesState.expenses), [financial.data, legacyExpensesState.expenses]);
   const expensesState = { ...legacyExpensesState, expenses: allExpenses };
   const openMovement = (requested:MovementTarget, fromReview=false) => {
@@ -241,13 +241,14 @@ function AuthenticatedApp({ user, onLogout }: { user: AppUserDefinition; onLogou
       case "money": return renderFinancialHub("overview");
       case "loans": return renderFinancialHub("loans");
       case "reports": return <FinanceReportView data={financial.data} expenses={expensesState.expenses} />;
-      case "settings": return <SettingsView data={financial.data} expenses={expensesState.expenses} syncPendingCount={combinedPendingCount} syncDiagnostics={{ expenses: { state: expensesState.syncState, message: expensesState.syncMessage, pendingCount: expensesState.pendingCount }, financial: { state: financial.syncState, message: financial.syncMessage, pendingCount: financial.pendingCount } }} onRetrySync={retryCombinedSync} onDiscardExpenseChanges={expensesState.discardPendingChanges} onUpdateSettings={actions.updateSettings} onRecordBackup={(timestamp) => financial.commitUpdates({ lastBackupAt: timestamp })} canInstall={canInstall} onInstall={handleInstall} onLogout={onLogout} />;
+      case "settings": return <SettingsView data={financial.data} expenses={expensesState.expenses} syncPendingCount={combinedPendingCount} syncDiagnostics={{ expenses: { state: expensesState.syncState, message: expensesState.syncMessage, pendingCount: expensesState.pendingCount }, financial: { state: financial.syncState, message: financial.syncMessage, pendingCount: financial.pendingCount, blockedCount: financial.blockedCount } }} financialPendingOperations={financial.pendingOperations} canDiscardFinancialChanges={financial.canDiscardPendingChanges} canDiscardExpenseChanges={expensesState.canDiscardPendingChanges} onRetrySync={retryCombinedSync} onDiscardExpenseChanges={expensesState.discardPendingChanges} onDiscardFinancialChanges={financial.discardPendingChanges} onUpdateSettings={actions.updateSettings} onRecordBackup={(timestamp) => financial.commitUpdates({ lastBackupAt: timestamp })} canInstall={canInstall} onInstall={handleInstall} onLogout={onLogout} />;
       default: return <MoreView onNavigate={setView} />;
     }
   };
 
   return (
     <div className="app-shell">
+      {offlineSession && <div className="offline-mode-banner" role="status">Modo sin conexión · los cambios se guardan en este dispositivo y se sincronizarán cuando vuelva internet.</div>}
       <header className="topbar">
         <button className="compact-brand" type="button" onClick={() => setView("capture")} aria-label="Ir a registrar gasto"><span className="compact-brand-mark" aria-hidden="true">$</span><span>Gastos & Presupuesto</span></button>
         <SyncStatus state={combinedState} message={combinedMessage} pendingCount={combinedPendingCount} onRetry={retryCombinedSync} />
@@ -277,9 +278,23 @@ function AuthenticatedApp({ user, onLogout }: { user: AppUserDefinition; onLogou
   );
 }
 
+function StartupSplash({ canContinueOffline, userName, onContinueOffline }: { canContinueOffline: boolean; userName?: string; onContinueOffline: () => void }) {
+  const [showOfflineOption, setShowOfflineOption] = useState(!navigator.onLine);
+  useEffect(() => {
+    const timer = window.setTimeout(() => setShowOfflineOption(true), 3000);
+    const onOffline = () => setShowOfflineOption(true);
+    window.addEventListener("offline", onOffline);
+    return () => { window.clearTimeout(timer); window.removeEventListener("offline", onOffline); };
+  }, []);
+  return <main className="splash-screen"><div className="splash-panel"><div className="brand-icon" aria-hidden="true">$</div><p>Cargando Gastos & Presupuesto…</p>{showOfflineOption && <div className="offline-startup-actions">{canContinueOffline ? <><p>No tienes que esperar a Firebase. Puedes usar la última copia guardada en este dispositivo.</p><button className="button button-primary" type="button" onClick={onContinueOffline}>Continuar sin conexión{userName ? ` como ${userName}` : ""}</button></> : <small>Para usar la aplicación sin conexión primero debes haber iniciado sesión y cargado los datos al menos una vez en este dispositivo.</small>}</div>}</div></main>;
+}
+
 export default function App() {
-  const { user, status, error, login, logout } = useAuth();
-  if (status === "loading") return <main className="splash-screen"><div className="brand-icon" aria-hidden="true">$</div><p>Cargando Gastos & Presupuesto…</p></main>;
+  const { user, status, error, offlineCandidate, offlineSession, continueOffline, login, logout } = useAuth();
+  const canContinueOffline = Boolean(offlineCandidate && hasLocalFinancialState());
+  if (status === "loading" || ((!navigator.onLine || offlineSession) && !user && canContinueOffline)) {
+    return <StartupSplash canContinueOffline={canContinueOffline} userName={offlineCandidate?.name} onContinueOffline={() => { void continueOffline(); }} />;
+  }
   if (!user || status === "unauthenticated" || status === "authenticating" || status === "error") return <LoginScreen loading={status === "authenticating"} error={error} onLogin={login} />;
-  return <AuthenticatedApp user={user} onLogout={logout} />;
+  return <AuthenticatedApp user={user} onLogout={logout} offlineSession={offlineSession} />;
 }

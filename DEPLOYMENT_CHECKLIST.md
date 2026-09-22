@@ -1,17 +1,21 @@
-# Publicación · Daily Expenses 2.2.0
+# Publicación · Daily Expenses 2.2.1
 
-Sigue `INSTRUCCIONES_ACTUALIZACION_v2.2.0.md` para instalar sobre 2.1.2.
+Sigue `INSTRUCCIONES_ACTUALIZACION_v2.2.1.md` para instalar sobre 2.2.0.
 
-- Ambos dispositivos sincronizados, sin movimientos pendientes, y respaldo JSON descargado.
-- Registro de movimientos pausado durante la actualización.
-- Archivos incrementales aplicados a la raíz del proyecto.
-- `npm ci`, `npm test` y `npm run build` completados.
-- Revisar `git status`, `git diff --stat` y `git diff --check`; no incluir respaldos personales ni archivos locales de pruebas.
-- Publicar `firebase-database-rules.json` en Realtime Database del proyecto Daily Expenses.
-- Commit sugerido: `feat: add expense dates, fortnight closing and reviewed corrections`.
-- Publicar la aplicación con el flujo habitual del repositorio.
-- Actualizar ambos dispositivos y verificar versión 2.2.0 antes de registrar movimientos.
-- Confirmar sincronización y balances; no repetir clasificación ni reconciliación ya realizadas.
-- Verificar en el teléfono la fecha, los campos obligatorios, los filtros y los avisos de saldo insuficiente.
+- No descartar ni duplicar el movimiento que quedó pendiente por el error de auditoría.
+- Aplicar únicamente los archivos del ZIP incremental.
+- Ejecutar `npm ci`, `npm test` y `npm run build`.
+- Ejecutar `git status`, `git diff --stat` y `git diff --check`.
+- **No cambiar/publicar reglas Firebase** para 2.2.1; conservar las reglas vigentes de 2.2.0.
+- Publicar la app con el flujo habitual.
+- Abrir primero el dispositivo con el pendiente y comprobar **Configuración → Versión 2.2.1**.
+- Confirmar que el pendiente 2.2.0 se migra/sincroniza sin volver a registrar el pago.
+- Confirmar que no se duplicaron balances, pagos ni deudas.
+- Abrir una vez ambos dispositivos online para instalar service worker/cache v15.
+- Probar arranque sin internet: debe aparecer **Continuar sin conexión** y cargar la copia local.
+- Registrar un cambio offline, restaurar internet y confirmar sincronización automática en el otro dispositivo.
+- Revisar Configuración → Diagnóstico de sincronización: colas en cero y ningún movimiento bloqueado.
 
-No se desplegó ni se modificó Firebase al preparar este paquete.
+Commit sugerido: `fix: harden financial sync and offline startup`.
+
+No se modificó ni se desplegó Firebase durante la preparación de este paquete.

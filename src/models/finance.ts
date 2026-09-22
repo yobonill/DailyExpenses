@@ -450,6 +450,9 @@ export interface FinancialPendingOperation {
   createdAt: string;
   updates: Record<string, unknown>;
   replaceRoot?: FinancialData;
+  status?: "pending" | "blocked";
+  blockedAt?: string;
+  lastError?: string;
 }
 
 export interface LocalFinancialState {
@@ -463,7 +466,11 @@ export interface UseFinancialDataResult {
   syncState: SyncState;
   syncMessage: string;
   pendingCount: number;
+  blockedCount: number;
+  pendingOperations: FinancialPendingOperation[];
+  canDiscardPendingChanges: boolean;
   commitUpdates: (updates: Record<string, unknown>) => Promise<void>;
   replaceData: (data: FinancialData) => Promise<void>;
   retrySync: () => Promise<void>;
+  discardPendingChanges: () => number;
 }

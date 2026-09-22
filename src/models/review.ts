@@ -37,10 +37,18 @@ export interface CycleClosing extends RecordMetadata {
   fingerprint: string;
   notes: string;
 }
+export interface AuditChangeEntry {
+  path: string;
+  value: unknown;
+}
+
+/** New writes use AuditChangeEntry[]. Record is accepted for local migration of pre-2.2.1 queues. */
+export type AuditSnapshot = AuditChangeEntry[] | Record<string, unknown>;
+
 export interface ChangeAudit extends RecordMetadata {
   id: string;
-  before: Record<string, unknown>;
-  after: Record<string, unknown>;
+  before: AuditSnapshot;
+  after: AuditSnapshot;
   description: string;
 }
 export interface ManagedExpense extends Expense {

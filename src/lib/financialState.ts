@@ -4,6 +4,7 @@ import type {
   FinancialPendingOperation,
   LocalFinancialState,
 } from "../models/finance";
+import { migrateChangeAudit } from "./changeAudit";
 
 export const FINANCIAL_ROOT_PATH = "dailyExpensesBudget/v1";
 export const FINANCIAL_STATE_KEY = "dailyExpenses.budget.localState.v1";
@@ -54,6 +55,11 @@ const asRecord = <T,>(value: unknown): Record<string, T> =>
     ? (value as Record<string, T>)
     : {};
 
+const normalizeChangeAudits = (value: unknown): FinancialData["changeAudits"] =>
+  Object.fromEntries(
+    Object.entries(asRecord(value)).map(([id, audit]) => [id, migrateChangeAudit(audit)]),
+  ) as FinancialData["changeAudits"];
+
 export const normalizeFinancialData = (value: unknown): FinancialData => {
   const raw = value && typeof value === "object" ? (value as Partial<FinancialData>) : {};
   const defaults = createEmptyFinancialData();
@@ -82,7 +88,7 @@ export const normalizeFinancialData = (value: unknown): FinancialData => {
     savingsAccountReconciliations: asRecord(raw.savingsAccountReconciliations),
     balanceIssues: asRecord(raw.balanceIssues),
     cycleClosings: asRecord(raw.cycleClosings),
-    changeAudits: asRecord(raw.changeAudits),
+    changeAudits: normalizeChangeAudits(raw.changeAudits),
     managedExpenses: asRecord(raw.managedExpenses),
     reviewControl: raw.reviewControl,
     settings: raw.settings && typeof raw.settings === "object"
@@ -130,15 +136,48 @@ const emptyLocalState = (): LocalFinancialState => ({
   pendingOperations: [],
 });
 
+export const migratePendingFinancialOperation = (operation: FinancialPendingOperation): FinancialPendingOperation => {
+  if (operation.replaceRoot) {
+    return { ...operation, replaceRoot: normalizeFinancialData(operation.replaceRoot) };
+  }
+  let changed = false;
+  const updates = Object.fromEntries(Object.entries(operation.updates || {}).map(([path, value]) => {
+    if (!path.startsWith("changeAudits/")) return [path, value];
+    const migrated = migrateChangeAudit(value);
+    if (JSON.stringify(migrated) !== JSON.stringify(value)) changed = true;
+    return [path, migrated];
+  }));
+  return changed ? { ...operation, updates } : operation;
+};
+
+export const migrateLocalFinancialState = (state: LocalFinancialState): LocalFinancialState => ({
+  data: normalizeFinancialData(state.data),
+  pendingOperations: state.pendingOperations.map(migratePendingFinancialOperation),
+});
+
+export const hasLocalFinancialState = (): boolean => {
+  try {
+    const raw = localStorage.getItem(FINANCIAL_STATE_KEY);
+    if (!raw) return false;
+    const parsed = JSON.parse(raw) as Partial<LocalFinancialState>;
+    return Boolean(parsed.data && typeof parsed.data === "object");
+  } catch {
+    return false;
+  }
+};
+
 export const readLocalFinancialState = (): LocalFinancialState => {
   try {
     const raw = localStorage.getItem(FINANCIAL_STATE_KEY);
     if (!raw) return emptyLocalState();
     const parsed = JSON.parse(raw) as Partial<LocalFinancialState>;
-    return {
+    const migrated = migrateLocalFinancialState({
       data: normalizeFinancialData(parsed.data),
       pendingOperations: Array.isArray(parsed.pendingOperations) ? parsed.pendingOperations : [],
-    };
+    });
+    const serialized = JSON.stringify(migrated);
+    if (serialized !== raw) localStorage.setItem(FINANCIAL_STATE_KEY, serialized);
+    return migrated;
   } catch {
     return emptyLocalState();
   }

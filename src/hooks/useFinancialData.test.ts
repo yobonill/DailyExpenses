@@ -1,6 +1,16 @@
 import { describe, expect, it } from "vitest";
-import { normalizeFinancialData } from "../lib/financialState";
+import { migratePendingFinancialOperation, normalizeFinancialData } from "../lib/financialState";
 import { toFirebaseCompatibleValue } from "./useFinancialData";
+
+const collectInvalidFirebaseKeys = (value: unknown, path = "root"): string[] => {
+  if (!value || typeof value !== "object") return [];
+  if (Array.isArray(value)) return value.flatMap((item, index) => collectInvalidFirebaseKeys(item, `${path}/${index}`));
+  return Object.entries(value as Record<string, unknown>).flatMap(([key, child]) => {
+    const current = `${path}/${key}`;
+    const own = /[.#$\[\]\/]/.test(key) ? [current] : [];
+    return [...own, ...collectInvalidFirebaseKeys(child, current)];
+  });
+};
 
 describe("financial Firebase serialization", () => {
   it("removes optional undefined fields before a transaction is submitted", () => {
@@ -32,4 +42,31 @@ describe("financial Firebase serialization", () => {
     expect(normalized.moneyAccounts.bank).toEqual(legacyBank);
     expect(normalized.banks).toEqual({});
   });
+  it("migrates queued v2.2.0 audit maps into Firebase-safe entry arrays", () => {
+    const operation = migratePendingFinancialOperation({
+      id: "op",
+      createdAt: "2026-09-19T12:00:00.000Z",
+      updates: {
+        "changeAudits/audit": {
+          id: "audit",
+          description: "Registro de movimiento",
+          before: { "payments/payment-1": null },
+          after: { "payments/payment-1": { id: "payment-1", amountMinor: 100 } },
+          createdAt: "2026-09-19T12:00:00.000Z",
+          createdBy: "u",
+          updatedAt: "2026-09-19T12:00:00.000Z",
+          updatedBy: "u",
+          version: 1,
+        },
+      },
+    });
+    const audit = operation.updates["changeAudits/audit"] as { before: Array<{ path: string }>; after: Array<{ path: string }> };
+    expect(Array.isArray(audit.before)).toBe(true);
+    expect(Array.isArray(audit.after)).toBe(true);
+    expect(audit.before[0].path).toBe("payments/payment-1");
+    expect(audit.after[0].path).toBe("payments/payment-1");
+    expect(JSON.stringify(audit)).not.toContain('"payments/payment-1":');
+    expect(collectInvalidFirebaseKeys(toFirebaseCompatibleValue(audit))).toEqual([]);
+  });
+
 });

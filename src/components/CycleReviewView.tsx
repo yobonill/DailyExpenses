@@ -6,6 +6,7 @@ import { formatCurrency, parseMoneyToCents } from "../lib/money";
 import { createId } from "../lib/id";
 import { MoneyField } from "./finance/Shared";
 import { getLoanBalance } from "../lib/loanLedger";
+import { auditEntries, findAuditValue, isAuditedFinancialPath } from "../lib/changeAudit";
 
 const statusNames = { reconciled: "Cerrada y conciliada", differences: "Cerrada con diferencias", incomplete: "Cerrada incompleta" };
 export function CycleReviewView({data, actor, synced, onCommit}: {data: FinancialData; actor: string; synced: boolean; onCommit:(patch:Record<string,unknown>)=>Promise<void>}) {
@@ -79,9 +80,10 @@ export function CycleReviewView({data, actor, synced, onCommit}: {data: Financia
     {Object.values(data.loans).filter(l=>!l.archivedAt).map(l=><p key={l.id}>{l.name} · Deuda calculada: {formatCurrency(getLoanBalance(data,l.id,cutoff),l.currency)} (confirmación opcional desde Préstamos).</p>)}
     {error && <p role="alert" className="form-error">{error}</p>}<button className="button button-primary" disabled={busy || cutoff>today || !synced} onClick={()=>void save()}>Confirmar cierre de quincena</button>
     <h2>Cierres guardados</h2>{closings.map(c=><details className="balance-review-card" key={c.id}><summary>Revisión {c.revision} · {closingNeedsReview(data,c)?"Requiere revisión":statusNames[c.status]} · {new Date(c.createdAt).toLocaleString("es-DO")}</summary><p>{c.notes}</p>{c.balances.map(b=><p key={b.key}>{b.name}: calculado {formatCurrency(b.calculatedMinor,b.currency)} · reportado {b.reportedMinor===undefined?"Sin confirmar":formatCurrency(b.reportedMinor,b.currency)}</p>)}</details>)}
-    <details className="balance-review-card"><summary>Registro de cambios y correcciones</summary>{Object.values(data.changeAudits).sort((a,b)=>b.createdAt.localeCompare(a.createdAt)).map(a=><details key={a.id}><summary>{new Date(a.createdAt).toLocaleString("es-DO")} · {a.description}</summary>{Object.entries(a.after).filter(([path])=>/^(payments|moneyTransactions|cardTransactions|savingsTransactions|loanTransactions|managedExpenses)\//.test(path)).map(([path,value])=>{
-      const after=value as {description?:string;name?:string;amountMinor?:number;unitPriceCents?:number;quantity?:number;currency?:"DOP"|"USD";reversedAt?:string;notes?:string;deletedAt?:string};
-      const before=a.before[path] as typeof after|undefined;
+    <details className="balance-review-card"><summary>Registro de cambios y correcciones</summary>{Object.values(data.changeAudits).sort((a,b)=>b.createdAt.localeCompare(a.createdAt)).map(a=><details key={a.id}><summary>{new Date(a.createdAt).toLocaleString("es-DO")} · {a.description}</summary>{auditEntries(a.after).filter(entry=>isAuditedFinancialPath(entry.path)).map(({path,value})=>{
+      const after=value as {description?:string;name?:string;amountMinor?:number;unitPriceCents?:number;quantity?:number;currency?:"DOP"|"USD";reversedAt?:string;notes?:string;deletedAt?:string}|null;
+      const before=findAuditValue(a.before,path) as typeof after|undefined;
+      if (!after) return <p key={path}>Movimiento eliminado</p>;
       return <p key={path}>{after.description||after.name||"Movimiento"}: {before?formatCurrency(before.amountMinor||(before.unitPriceCents||0)*(before.quantity||1),before.currency||"DOP"):"Nuevo"} → {after.reversedAt||after.deletedAt?"Revertido":formatCurrency(after.amountMinor||(after.unitPriceCents||0)*(after.quantity||1),after.currency||"DOP")}{after.notes&&` · ${after.notes}`}</p>;
     })}</details>)}</details>
   </section>;

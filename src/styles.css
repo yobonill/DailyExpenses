@@ -34,6 +34,12 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px s
 }
 
 .splash-screen { color: var(--muted); text-align: center; }
+.splash-panel { width: min(100%, 430px); display: grid; justify-items: center; }
+.offline-startup-actions { width: 100%; margin-top: 14px; padding: 16px; border: 1px solid var(--border); border-radius: 18px; background: var(--surface); box-shadow: var(--shadow); }
+.offline-startup-actions p { margin: 0 0 12px; color: var(--muted); font-size: .86rem; line-height: 1.5; }
+.offline-startup-actions small { color: var(--muted); line-height: 1.5; }
+.offline-startup-actions .button { width: 100%; }
+.offline-mode-banner { padding: 7px 14px; background: #fff2cf; color: #745318; border-bottom: 1px solid #e4c97d; text-align: center; font-size: .76rem; font-weight: 800; line-height: 1.35; }
 .brand-icon,
 .compact-brand-mark {
   display: inline-grid;
@@ -713,6 +719,15 @@ tbody tr:last-child td { border-bottom: 0; }
 .sync-channel-grid article > div { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .sync-channel-grid p { margin: 9px 0 6px; color: var(--muted); font-size: .78rem; line-height: 1.45; overflow-wrap: anywhere; }
 .sync-channel-grid small { color: var(--muted); }
+.pending-operation-list { display: grid; gap: 8px; margin-top: 15px; }
+.pending-operation-list h3 { margin: 0 0 2px; font-size: .9rem; }
+.pending-operation { padding: 10px 11px; border: 1px solid var(--border); border-radius: 11px; background: var(--surface-soft); }
+.pending-operation.blocked { border-color: #d7aaa6; background: var(--danger-soft); }
+.pending-operation > div { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.pending-operation > div span { color: var(--muted); font-size: .72rem; font-weight: 800; }
+.pending-operation.blocked > div span { color: var(--danger); }
+.pending-operation small { color: var(--muted); }
+.pending-operation p { margin: 7px 0 0; color: var(--danger); font-size: .74rem; line-height: 1.4; overflow-wrap: anywhere; }
 .sync-log-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 17px; }
 .sync-log-heading h3 { margin: 0; font-size: .92rem; }
 .sync-log-list { display: grid; gap: 8px; max-height: 340px; margin-top: 9px; overflow-y: auto; }

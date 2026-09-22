@@ -42,6 +42,24 @@ describe("reviewed financial operations",()=>{
     expect(Object.values(result.balanceIssues)[0].differenceMinor).toBe(5000);
     expect(mergedExpenses(result,[expense()])).toHaveLength(1);
     expect(Object.keys(result.changeAudits)).toHaveLength(1);
+    const audit = Object.values(result.changeAudits)[0];
+    expect(Array.isArray(audit.before)).toBe(true);
+    expect(Array.isArray(audit.after)).toBe(true);
+    expect((audit.after as Array<{path:string}>).some(entry=>entry.path.startsWith("moneyTransactions/"))).toBe(true);
+    const invalidFirebaseKeys: string[] = [];
+    const scanKeys = (value: unknown, parent = ""): void => {
+      if (!value || typeof value !== "object") return;
+      if (Array.isArray(value)) {
+        value.forEach((entry, index) => scanKeys(entry, `${parent}[${index}]`));
+        return;
+      }
+      for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
+        if (/[.#$\/[\]]/.test(key)) invalidFirebaseKeys.push(parent ? `${parent}.${key}` : key);
+        scanKeys(child, parent ? `${parent}.${key}` : key);
+      }
+    };
+    scanKeys(audit);
+    expect(invalidFirebaseKeys).toEqual([]);
   });
   it("flags a deficit caused later by a backdated expense",async()=>{
     const d=fixture();d.moneyTransactions.later={id:"later",accountId:"cash",currency:"DOP",direction:"out",type:"expense",amountMinor:9000,transactionDate:"2026-08-25",description:"Otro gasto",...meta};

@@ -145,6 +145,7 @@ export interface UseExpensesResult {
   syncState: SyncState;
   syncMessage: string;
   pendingCount: number;
+  canDiscardPendingChanges: boolean;
   createExpense: (input: NewExpenseInput) => Promise<Expense>;
   editExpense: (
     expenseId: string,
@@ -156,14 +157,17 @@ export interface UseExpensesResult {
   discardPendingChanges: () => number;
 }
 
-export const useExpenses = (): UseExpensesResult => {
+export interface UseExpensesOptions { offlineOnly?: boolean }
+
+export const useExpenses = ({ offlineOnly = false }: UseExpensesOptions = {}): UseExpensesResult => {
   const initialState = readLocalState();
   const [expenses, setExpenses] = useState<Expense[]>(() =>
     initialState.expenses.map((expense) => normalizeExpense(expense)),
   );
   const [pendingCount, setPendingCount] = useState(initialState.pendingOperations.length);
-  const [syncState, setSyncState] = useState<SyncState>("connecting");
-  const [syncMessage, setSyncMessage] = useState("Conectando…");
+  const [syncState, setSyncState] = useState<SyncState>(offlineOnly ? "offline" : "connecting");
+  const [syncMessage, setSyncMessage] = useState(offlineOnly ? "Modo sin conexión · datos heredados disponibles en este dispositivo" : "Conectando…");
+  const [canDiscardPendingChanges, setCanDiscardPendingChanges] = useState(false);
 
   const localStateRef = useRef<LocalExpenseState>({
     expenses: initialState.expenses.map((expense) => normalizeExpense(expense)),
@@ -171,6 +175,7 @@ export const useExpenses = (): UseExpensesResult => {
   });
   const remoteExpensesRef = useRef<Expense[]>([]);
   const firebaseConnectedRef = useRef(false);
+  const remoteLoadedRef = useRef(false);
   const mountedRef = useRef(true);
   const syncingRef = useRef(false);
 
@@ -236,11 +241,13 @@ export const useExpenses = (): UseExpensesResult => {
     if (syncingRef.current) return;
     const initialCount = localStateRef.current.pendingOperations.length;
 
-    if (!navigator.onLine || !firebaseConnectedRef.current) {
+    if (offlineOnly || !navigator.onLine || !firebaseConnectedRef.current) {
       setSyncState("offline");
-      const message = navigator.onLine
-        ? "Firebase no ha confirmado conexión. Revisa la sesión o la red y vuelve a intentar."
-        : "El dispositivo no tiene conexión a internet.";
+      const message = offlineOnly
+        ? "Modo sin conexión activo."
+        : navigator.onLine
+          ? "Firebase no ha confirmado conexión. Revisa la sesión o la red y vuelve a intentar."
+          : "El dispositivo no tiene conexión a internet.";
       setSyncMessage(initialCount
         ? `${message} ${initialCount} cambio${initialCount === 1 ? "" : "s"} pendiente${initialCount === 1 ? "" : "s"}.`
         : `${message} Datos disponibles en este dispositivo.`);
@@ -273,11 +280,11 @@ export const useExpenses = (): UseExpensesResult => {
       setSyncMessage("Sincronizado");
       if (initialCount > 0) appendSyncLog("Gastos", "success", `${initialCount} cambio${initialCount === 1 ? "" : "s"} sincronizado${initialCount === 1 ? "" : "s"} correctamente.`);
     }
-  }, [executeOperation]);
+  }, [executeOperation, offlineOnly]);
 
   const discardPendingChanges = useCallback((): number => {
     const count = localStateRef.current.pendingOperations.length;
-    if (!count) return 0;
+    if (!count || !remoteLoadedRef.current) return 0;
     commitState({
       expenses: remoteExpensesRef.current.map((expense) => normalizeExpense(expense)),
       pendingOperations: [],
@@ -305,7 +312,7 @@ export const useExpenses = (): UseExpensesResult => {
 
       commitState(next);
 
-      if (!navigator.onLine || !firebaseConnectedRef.current) {
+      if (offlineOnly || !navigator.onLine || !firebaseConnectedRef.current) {
         setSyncState("offline");
         setSyncMessage("Guardado en este dispositivo · Pendiente de sincronizar");
         return;
@@ -313,7 +320,7 @@ export const useExpenses = (): UseExpensesResult => {
 
       void retrySync();
     },
-    [commitState, retrySync],
+    [commitState, offlineOnly, retrySync],
   );
 
   const createExpense = useCallback(
@@ -399,6 +406,16 @@ export const useExpenses = (): UseExpensesResult => {
 
   useEffect(() => {
     mountedRef.current = true;
+    if (offlineOnly) {
+      firebaseConnectedRef.current = false;
+      remoteLoadedRef.current = false;
+      setCanDiscardPendingChanges(false);
+      setSyncState("offline");
+      setSyncMessage(localStateRef.current.pendingOperations.length
+        ? `Modo sin conexión · ${localStateRef.current.pendingOperations.length} cambio${localStateRef.current.pendingOperations.length === 1 ? "" : "s"} heredado${localStateRef.current.pendingOperations.length === 1 ? "" : "s"} pendiente${localStateRef.current.pendingOperations.length === 1 ? "" : "s"}`
+        : "Modo sin conexión · datos heredados disponibles en este dispositivo");
+      return () => { mountedRef.current = false; };
+    }
     let unsubscribeExpenses: Unsubscribe | undefined;
     let unsubscribeConnection: Unsubscribe | undefined;
 
@@ -445,6 +462,8 @@ export const useExpenses = (): UseExpensesResult => {
         ref(database, "expenses"),
         (snapshot) => {
           remoteExpensesRef.current = recordToExpenses(snapshot.val());
+          remoteLoadedRef.current = true;
+          setCanDiscardPendingChanges(true);
           refreshFromRemote();
         },
         (reason) => {
@@ -471,12 +490,12 @@ export const useExpenses = (): UseExpensesResult => {
       unsubscribeExpenses?.();
       unsubscribeConnection?.();
     };
-  }, [commitState, retrySync]);
+  }, [commitState, offlineOnly, retrySync]);
 
   useEffect(() => {
-    const retryWhenOnline = () => { void retrySync(); };
+    const retryWhenOnline = () => { if (!offlineOnly) void retrySync(); };
     const retryWhenVisible = () => {
-      if (document.visibilityState === "visible") void retrySync();
+      if (!offlineOnly && document.visibilityState === "visible") void retrySync();
     };
     window.addEventListener("online", retryWhenOnline);
     document.addEventListener("visibilitychange", retryWhenVisible);
@@ -484,13 +503,14 @@ export const useExpenses = (): UseExpensesResult => {
       window.removeEventListener("online", retryWhenOnline);
       document.removeEventListener("visibilitychange", retryWhenVisible);
     };
-  }, [retrySync]);
+  }, [offlineOnly, retrySync]);
 
   return {
     expenses: expenses.filter((expense) => !expense.deletedAt),
     syncState,
     syncMessage,
     pendingCount,
+    canDiscardPendingChanges,
     createExpense,
     editExpense,
     deleteExpense,
