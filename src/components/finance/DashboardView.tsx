@@ -1,6 +1,6 @@
 import { useMemo, useState, type FormEvent } from "react";
 import type { Expense } from "../../models/expense";
-import type { CreditCard, FinancialData, MoneyAccountId, MonthlyExpenseOccurrence, NonMonthlyOccurrence } from "../../models/finance";
+import type { CreditCard, Currency, FinancialData, MoneyAccountId, MonthlyExpenseOccurrence, NonMonthlyOccurrence } from "../../models/finance";
 import { formatBudgetCycleRange, formatMonthTitle, formatQuincenaRange, formatShortDate, getMonthKey } from "../../lib/date";
 import { getCurrentFinancialPeriod } from "../../lib/financeDates";
 import {
@@ -20,7 +20,7 @@ import {
   statusLabel,
 } from "../../lib/financialCalculations";
 import { formatCurrency, minorToInput, parseMoneyToCents } from "../../lib/money";
-import { getAccountReservedSavings, getDashboardAvailableBalance, getDashboardEligibleAccounts, getDashboardSelectedAccountIds, getMoneyAccountSpendableBalance, moneyAccountLabel } from "../../lib/moneyLedger";
+import { getAccountReservedSavings, getDashboardAvailableBalance, getDashboardEligibleAccounts, getDashboardSelectedAccountIds, getMoneyAccountBalance, getMoneyAccountSpendableBalance, moneyAccountLabel } from "../../lib/moneyLedger";
 import { wasOriginallyInSelectedPeriod } from "../../lib/obligationPostponement";
 import { CheckboxField, Modal, MoneyField, PageHeading, PayModal, PeriodSelector, PostponeModal, StatusChip, type PayModalValue } from "./Shared";
 
@@ -34,6 +34,7 @@ interface DashboardViewProps {
   onSaveCardPaymentPlan: (financialMonth: string, quincena: 1 | 2, plannedDopMinor: number, plannedUsdMinor: number) => Promise<void>;
   onUpdateDashboardAccounts: (accountIds: MoneyAccountId[]) => Promise<void>;
   onNavigate: (view: "budget" | "future" | "income" | "cards" | "money" | "loans") => void;
+  onOpenBalanceHistory: (target: { kind: "money"; accountId: MoneyAccountId } | { kind: "card"; cardId: string; currency: Currency }) => void;
 }
 
 type CardPlanDraft = Record<1 | 2, { dop: string; usd: string }>;
@@ -135,7 +136,7 @@ function DashboardAccountsModal({ data, onSave, onClose }: {
   </form></Modal>;
 }
 
-export function DashboardView({ data, expenses, onPay, onPostpone, onSaveCardPaymentPlan, onUpdateDashboardAccounts, onNavigate }: DashboardViewProps) {
+export function DashboardView({ data, expenses, onPay, onPostpone, onSaveCardPaymentPlan, onUpdateDashboardAccounts, onNavigate, onOpenBalanceHistory }: DashboardViewProps) {
   const current = getCurrentFinancialPeriod();
   const [monthKey, setMonthKey] = useState(current.financialMonth);
   const [quincena, setQuincena] = useState<"all" | 1 | 2>(current.quincena);
@@ -193,6 +194,10 @@ export function DashboardView({ data, expenses, onPay, onPostpone, onSaveCardPay
   const dashboardAccountsConfigured = dashboardAccountIds.length > 0;
   const dashboardAvailableDop = getDashboardAvailableBalance(data);
   const dashboardSelectedAccounts = dashboardAccountIds.map((id) => data.moneyAccounts[id]).filter(Boolean);
+  const dashboardBalanceAccounts = [...dashboardSelectedAccounts].sort((a, b) => {
+    if (a.kind !== b.kind) return a.kind === "cash" ? 1 : -1;
+    return moneyAccountLabel(a.id, data).localeCompare(moneyAccountLabel(b.id, data), "es");
+  });
   const dashboardCashDop = dashboardSelectedAccounts
     .filter((account) => account.kind === "cash")
     .reduce((total, account) => total + getMoneyAccountSpendableBalance(data, account.id), 0);
@@ -247,6 +252,21 @@ export function DashboardView({ data, expenses, onPay, onPostpone, onSaveCardPay
       <PeriodSelector monthKey={monthKey} onMonthChange={setMonthKey} quincena={quincena} onQuincenaChange={setQuincena} />
       <p className="period-caption">{formatBudgetCycleRange(monthKey)} · La proyección parte del dinero real seleccionado y solo descuenta pagos todavía pendientes.</p>
       {data.settings.trackingStartDate && getMonthKey(data.settings.trackingStartDate) === monthKey && <p className="transition-period-note"><strong>Período de transición.</strong> Los movimientos anteriores al {formatShortDate(data.settings.trackingStartDate)} pueden estar resumidos mediante la reconciliación inicial.</p>}
+
+      <section className="dashboard-current-balances" aria-labelledby="dashboard-current-balances-title">
+        <div className="section-title-row"><div><span className="eyebrow">Saldo actual según la aplicación</span><h2 id="dashboard-current-balances-title">Cuentas y tarjeta</h2></div></div>
+        <div className="account-balance-strip">
+          {dashboardBalanceAccounts.map((account) => <article className="account-balance-card" key={account.id}>
+            <span>{account.kind === "cash" ? "Efectivo" : `${account.bankId && data.banks[account.bankId]?.name ? `${data.banks[account.bankId].name} · ` : ""}${account.name}`}</span>
+            <strong>{formatCurrency(getMoneyAccountBalance(data, account.id), account.currency)}</strong>
+            <button className="text-button" type="button" onClick={() => onOpenBalanceHistory({ kind: "money", accountId: account.id })}>Ver historial</button>
+          </article>)}
+          {card && <>
+            <article className="account-balance-card debt-balance-card"><span>{card.name} · DOP</span><strong>{formatCurrency(cardDebtDop, "DOP")}</strong><button className="text-button" type="button" onClick={() => onOpenBalanceHistory({ kind: "card", cardId: card.id, currency: "DOP" })}>Ver historial</button></article>
+            <article className="account-balance-card debt-balance-card"><span>{card.name} · USD</span><strong>{formatCurrency(cardDebtUsd, "USD")}</strong><button className="text-button" type="button" onClick={() => onOpenBalanceHistory({ kind: "card", cardId: card.id, currency: "USD" })}>Ver historial</button></article>
+          </>}
+        </div>
+      </section>
 
       <div className="summary-strip dashboard-balance-strip">
         <button type="button" onClick={() => setSelectingDashboardAccounts(true)}><span>Disponible real seleccionado</span><strong>{dashboardAccountsConfigured ? formatCurrency(dashboardAvailableDop, "DOP") : "Configurar cuentas"}</strong><small>{dashboardAccountsConfigured ? `Débito ${formatCurrency(dashboardDebitDop, "DOP")} · efectivo ${formatCurrency(dashboardCashDop, "DOP")} · cambiar selección` : "Marca el efectivo y las cuentas que usas para gastos diarios"}</small></button>

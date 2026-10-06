@@ -1,4 +1,4 @@
-import { useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { EXPENSE_CATEGORIES } from "../../config/financeCategories";
 import type { CreditCardInput } from "../../hooks/useFinanceActions";
 import type {
@@ -370,23 +370,36 @@ export function CreditCardsView({
   onSaveMinimum,
   onAddTransaction,
   onReverseTransaction,
+  initialHistory,
+  onInitialHistoryConsumed,
 }: {
   data: FinancialData;
   onSaveCard: (input: CreditCardInput, id?: string) => Promise<void>;
   onSaveMinimum: (statementId: string, minimumPaymentMinor: number) => Promise<void>;
   onAddTransaction: AddCardTransaction;
   onReverseTransaction: (id: string) => Promise<void>;
+  initialHistory?: { cardId: string; currency?: Currency };
+  onInitialHistoryConsumed?: () => void;
 }) {
   const [form, setForm] = useState<CreditCard | "new" | null>(null);
   const [transaction, setTransaction] = useState<{ card: CreditCard; type: CardTransaction["type"] } | null>(null);
   const [minimumStatement, setMinimumStatement] = useState<CardStatement | null>(null);
   const [expanded, setExpanded] = useState<string | null>(null);
+  const [historyCurrency, setHistoryCurrency] = useState<Currency | null>(null);
   const cards = useMemo(
     () => Object.values(data.creditCards).filter((card) => !card.archivedAt).sort((a, b) => a.name.localeCompare(b.name)),
     [data.creditCards],
   );
   const statements = latestStatements(data);
   const today = toLocalDateKey();
+
+  useEffect(() => {
+    if (!initialHistory) return;
+    setExpanded(initialHistory.cardId);
+    setHistoryCurrency(initialHistory.currency || null);
+    onInitialHistoryConsumed?.();
+    window.setTimeout(() => document.getElementById(`card-${initialHistory.cardId}`)?.scrollIntoView({ behavior: "smooth", block: "start" }), 0);
+  }, [initialHistory, onInitialHistoryConsumed]);
 
   return (
     <section className="finance-page">
@@ -405,7 +418,7 @@ export function CreditCardsView({
               .filter((item) => item.cardId === card.id && !item.reversedAt)
               .sort((a, b) => b.transactionDate.localeCompare(a.transactionDate));
             return (
-              <article className="credit-card-panel" key={card.id}>
+              <article className="credit-card-panel" id={`card-${card.id}`} key={card.id}>
                 <header><div><span>{(card.bankId && data.banks[card.bankId]?.name) || card.bank || "Tarjeta"}{card.lastFour ? ` · •••• ${card.lastFour}` : ""}</span><h2>{card.name}</h2></div><StatusChip status={card.active ? "paid" : "cancelled"} label={card.active ? "Activa" : "Inactiva"} /></header>
                 <div className="card-balance-grid">
                   <div><span>Deuda DOP</span><strong>{formatCurrency(dopDebt, "DOP")}</strong>{dopCovered > 0 && <small>{formatCurrency(dopCovered, "DOP")} cubierto por ahorros</small>}</div>
@@ -423,11 +436,13 @@ export function CreditCardsView({
                   <button className="button button-primary" type="button" onClick={() => setTransaction({ card, type: "payment" })}>Registrar pago</button>
                   <button className="button button-secondary" type="button" onClick={() => setTransaction({ card, type: "charge" })}>Movimiento</button>
                   <button className="button button-quiet" type="button" onClick={() => setForm(card)}>Editar</button>
-                  <button className="button button-quiet" type="button" onClick={() => setExpanded(expanded === card.id ? null : card.id)}>Historial ({transactions.length})</button>
+                  <button className="button button-quiet" type="button" onClick={() => { setHistoryCurrency(null); setExpanded(expanded === card.id ? null : card.id); }}>Historial ({transactions.length})</button>
                 </div>
                 {expanded === card.id && (
-                  <div className="ledger-list">
-                    {transactions.length ? transactions.map((item) => {
+                  <div className="card-history-block">
+                    <div className="history-filter-row"><span>Mostrar</span><div><button type="button" className={historyCurrency === null ? "active" : ""} onClick={() => setHistoryCurrency(null)}>Todo</button><button type="button" className={historyCurrency === "DOP" ? "active" : ""} onClick={() => setHistoryCurrency("DOP")}>DOP</button><button type="button" className={historyCurrency === "USD" ? "active" : ""} onClick={() => setHistoryCurrency("USD")}>USD</button></div></div>
+                    <div className="ledger-list">
+                    {transactions.filter((item) => !historyCurrency || item.currency === historyCurrency).length ? transactions.filter((item) => !historyCurrency || item.currency === historyCurrency).map((item) => {
                       const debtIncrease = item.type === "charge" || (item.type === "adjustment" && item.amountMinor > 0);
                       const effectiveRate = getUsdPaymentEffectiveRate(item);
                       return (
@@ -442,7 +457,8 @@ export function CreditCardsView({
                           {item.linkedDailyExpenseId ? <small>Gestionar desde Historial</small> : !item.linkedPaymentId && <button type="button" onClick={() => { if (window.confirm("¿Revertir este movimiento y sus efectos vinculados?")) void onReverseTransaction(item.id); }}>Revertir</button>}
                         </div>
                       );
-                    }) : <p>Sin movimientos.</p>}
+                    }) : <p>Sin movimientos en {historyCurrency || "esta tarjeta"}.</p>}
+                    </div>
                   </div>
                 )}
               </article>

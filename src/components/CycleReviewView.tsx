@@ -103,7 +103,7 @@ export function CycleReviewView({data, actor, synced, onCommit}: {data: Financia
 
   return <section className="finance-page"><div className="finance-heading"><div><span className="eyebrow">Verificación de balances</span><h1>Revisar y cerrar quincena</h1></div></div>
     {legacyPendingClosings.map((closing) => { const preview = previewClosingReconciliation(data, closing); return <article className="balance-review-card closing-reconciliation-card" key={`legacy-${closing.id}`}>
-      <span className="eyebrow">Actualización 2.3.1 · reconciliación pendiente</span>
+      <span className="eyebrow">Reconciliación pendiente</span>
       <h2>{formatMonthTitle(closing.financialMonth)} · Quincena {closing.quincena}</h2>
       <p>Este cierre guardó los saldos reales, pero la versión anterior no los incorporó al ledger. Puedes aplicar ahora los ajustes del {closing.cutoff} sin modificar los pagos, gastos, transferencias o ingresos registrados después.</p>
       <div className="reconciliation-preview-list">{preview.adjustments.map((line) => <p key={line.key}><strong>{line.name}</strong>: {formatCurrency(line.calculatedMinor,line.currency)} → {formatCurrency(line.reportedMinor,line.currency)} · ajuste {line.deltaMinor>0?"+":""}{formatCurrency(line.deltaMinor,line.currency)}</p>)}</div>

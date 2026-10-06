@@ -1,0 +1,16 @@
+ARCHIVOS MODIFICADOS / AGREGADOS EN v2.4.0
+
+package.json
+package-lock.json
+public/sw.js
+src/App.tsx
+src/components/CycleReviewView.tsx
+src/components/finance/CreditCardsView.tsx
+src/components/finance/DashboardView.tsx
+src/components/finance/FinancialHubView.tsx
+src/components/finance/MoneyView.tsx
+src/components/finance/SettingsView.tsx
+src/styles.css
+CAMBIOS_v2.4.0.md
+INSTRUCCIONES_ACTUALIZACION_v2.4.0.md
+ARCHIVOS_v2.4.0.txt

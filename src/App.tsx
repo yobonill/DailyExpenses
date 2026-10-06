@@ -6,7 +6,7 @@ import { ReviewView } from "./components/ReviewView";
 import { SyncStatus } from "./components/SyncStatus";
 import { BudgetView } from "./components/finance/BudgetView";
 import { DashboardView } from "./components/finance/DashboardView";
-import { FinancialHubView, type FinancialHubSection } from "./components/finance/FinancialHubView";
+import { FinancialHubView, type FinancialHubHistoryTarget, type FinancialHubSection } from "./components/finance/FinancialHubView";
 import { FinanceReportView } from "./components/finance/FinanceReportView";
 import { FutureExpensesView } from "./components/finance/FutureExpensesView";
 import { IncomeView } from "./components/finance/IncomeView";
@@ -60,6 +60,7 @@ function AuthenticatedApp({ user, onLogout, offlineSession }: { user: AppUserDef
   const [view, setView] = useState<View>("capture");
   const [notice, setNotice] = useState<NoticeState | null>(null);
   const [movementTarget,setMovementTarget] = useState<MovementTarget|null>(null);
+  const [financialHistoryTarget, setFinancialHistoryTarget] = useState<FinancialHubHistoryTarget | null>(null);
   const [linkedExpense,setLinkedExpense] = useState<Expense|null>(null);
   const reviewScroll = useRef(0);
   const returnToReview = useRef(false);
@@ -89,6 +90,11 @@ function AuthenticatedApp({ user, onLogout, offlineSession }: { user: AppUserDef
   const actions = useFinanceActions({ data: financial.data, user, commitUpdates: financial.commitUpdates });
   const generateRecurring = actions.generateRecurring;
   const { canInstall, install } = usePwaInstall();
+
+  const openBalanceHistory = (target: FinancialHubHistoryTarget) => {
+    setFinancialHistoryTarget(target);
+    setView(target.kind === "card" ? "cards" : "money");
+  };
 
   const activeCard = useMemo(
     () => Object.values(financial.data.creditCards).find((card) => card.active && !card.archivedAt),
@@ -215,6 +221,8 @@ function AuthenticatedApp({ user, onLogout, offlineSession }: { user: AppUserDef
     data={financial.data}
     canReconcileSavingsAccounts={financial.syncState === "synced" && financial.pendingCount === 0}
     initialSection={initialSection}
+    historyTarget={financialHistoryTarget}
+    onHistoryTargetConsumed={() => setFinancialHistoryTarget(null)}
     onSaveBank={actions.saveBank}
     onDeleteBank={actions.deleteEmptyBank}
     onSaveAccount={actions.saveMoneyAccount}
@@ -240,7 +248,7 @@ function AuthenticatedApp({ user, onLogout, offlineSession }: { user: AppUserDef
       case "capture": return <CaptureView data={financial.data} activeCardName={activeCard?.name} transferFeeRatePercent={financial.data.settings.transferFeeRatePercent} onCreate={handleCreateExpense} onSaved={() => showNotice("Gasto registrado en el sistema")} />;
       case "review": return null;
       case "closings": return <CycleReviewView data={financial.data} actor={user.uid} synced={combinedState === "synced" && combinedPendingCount===0} onCommit={financial.commitUpdates} />;
-      case "dashboard": return <DashboardView data={financial.data} expenses={expensesState.expenses} onPay={(value) => actions.payObligation(value)} onPostpone={actions.postponeObligation} onSaveCardPaymentPlan={actions.saveCardPaymentPlan} onUpdateDashboardAccounts={(accountIds) => actions.updateSettings({ ...financial.data.settings, dashboardMoneyAccountIds: accountIds })} onNavigate={setView} />;
+      case "dashboard": return <DashboardView data={financial.data} expenses={expensesState.expenses} onPay={(value) => actions.payObligation(value)} onPostpone={actions.postponeObligation} onSaveCardPaymentPlan={actions.saveCardPaymentPlan} onUpdateDashboardAccounts={(accountIds) => actions.updateSettings({ ...financial.data.settings, dashboardMoneyAccountIds: accountIds })} onNavigate={setView} onOpenBalanceHistory={openBalanceHistory} />;
       case "budget": return <BudgetView data={financial.data} onSaveTemplate={actions.saveMonthlyTemplate} onArchiveTemplate={actions.archiveMonthlyTemplate} onCreateOneTime={actions.createOneTimeMonthly} onUpdateOneTime={actions.updateOneTimeMonthly} onReconcileStartingPoint={actions.reconcileStartingPoint} onPay={(value) => actions.payObligation(value)} onPostpone={(sourceType, sourceId, newDueDate) => actions.postponeObligation(sourceType, sourceId, newDueDate)} onReopen={(id) => actions.reopenObligation("monthly", id)} onCancel={actions.cancelMonthlyOccurrence} />;
       case "income": return <IncomeView data={financial.data} onSaveTemplate={actions.saveIncomeTemplate} onCreateOneTime={actions.createOneTimeIncome} onReceive={actions.receiveIncome} onReopen={actions.reopenIncome} />;
       case "future": return <FutureExpensesView data={financial.data} onSave={actions.saveNonMonthly} onPay={(value) => actions.payObligation(value)} onPostpone={(sourceType, sourceId, newDueDate) => actions.postponeObligation(sourceType, sourceId, newDueDate)} onReopen={(id) => actions.reopenObligation("nonMonthly", id)} onAllocate={actions.allocateSavings} />;

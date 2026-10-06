@@ -1,4 +1,4 @@
-import { useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 import type { BankInput, MoneyAccountInput } from "../../hooks/useFinanceActions";
 import type { Bank, BankAccountType, Currency, FinancialData, MoneyAccount, MoneyAccountId } from "../../models/finance";
 import { formatShortDate, toLocalDateKey } from "../../lib/date";
@@ -185,7 +185,35 @@ function TransferModal({ data, legacyOnly = false, onSave, onClose }: {
 
 const movementLabel = (type: string): string => ({ income: "Ingreso", payment: "Pago", expense: "Gasto", cardPayment: "Pago de tarjeta", loanPayment: "Pago de préstamo", transfer: "Movimiento interno", fee: "Comisión", adjustment: "Ajuste" })[type] || "Movimiento";
 
-export function MoneyView({ data, canReconcile, onSaveBank, onDeleteBank, onSaveAccount, onInitializeCash, onAdjust, onTransfer, onReconcileSavingsAccounts, onOpenSection }: {
+type MoneyHistoryTarget = { kind: "account"; accountId: MoneyAccountId } | { kind: "bank"; bankId: string };
+
+function MoneyHistoryModal({ data, target, onClose }: { data: FinancialData; target: MoneyHistoryTarget; onClose: () => void }) {
+  const accountIds = target.kind === "account"
+    ? [target.accountId]
+    : Object.values(data.moneyAccounts).filter((account) => account.bankId === target.bankId && !account.archivedAt).map((account) => account.id);
+  const transactions = Object.values(data.moneyTransactions)
+    .filter((item) => accountIds.includes(item.accountId) && !item.reversedAt)
+    .sort((a, b) => b.transactionDate.localeCompare(a.transactionDate) || b.createdAt.localeCompare(a.createdAt));
+  const title = target.kind === "account"
+    ? moneyAccountLabel(target.accountId, data)
+    : data.banks[target.bankId]?.name || "Banco";
+  const account = target.kind === "account" ? data.moneyAccounts[target.accountId] : undefined;
+  const bankAccounts = target.kind === "bank" ? accountIds.map((id) => data.moneyAccounts[id]).filter(Boolean) : [];
+  const bankDop = bankAccounts.filter((item) => item.currency === "DOP").reduce((sum, item) => sum + getMoneyAccountBalance(data, item.id), 0);
+  const bankUsd = bankAccounts.filter((item) => item.currency === "USD").reduce((sum, item) => sum + getMoneyAccountBalance(data, item.id), 0);
+
+  return <Modal title={`Historial · ${title}`} onClose={onClose}>
+    <div className="history-current-balance">
+      {account ? <><span>Saldo actual según la aplicación</span><strong>{formatCurrency(getMoneyAccountBalance(data, account.id), account.currency)}</strong></> : <><span>Saldos actuales según la aplicación</span><strong>{formatCurrency(bankDop, "DOP")} · {formatCurrency(bankUsd, "USD")}</strong></>}
+    </div>
+    {transactions.length ? <div className="ledger-list money-history-list">{transactions.map((item) => <div key={item.id}>
+      <span><strong>{item.description}</strong><small>{formatShortDate(item.transactionDate)} · {moneyAccountLabel(item.accountId, data)} · {movementLabel(item.type)}</small>{item.notes && <small>{item.notes}</small>}</span>
+      <b className={item.direction === "in" ? "debt-down" : "debt-up"}>{item.direction === "in" ? "+" : "−"}{formatCurrency(item.amountMinor, item.currency)}</b>
+    </div>)}</div> : <p className="muted-panel">Todavía no hay movimientos posteriores al saldo inicial.</p>}
+  </Modal>;
+}
+
+export function MoneyView({ data, canReconcile, onSaveBank, onDeleteBank, onSaveAccount, onInitializeCash, onAdjust, onTransfer, onReconcileSavingsAccounts, onOpenSection, initialHistoryAccountId, onInitialHistoryConsumed }: {
   data: FinancialData;
   canReconcile: boolean;
   onSaveBank: (input: BankInput, id?: string) => Promise<void>;
@@ -196,6 +224,8 @@ export function MoneyView({ data, canReconcile, onSaveBank, onDeleteBank, onSave
   onTransfer: (from: MoneyAccountId, to: MoneyAccountId, amount: number, date: string, fee: number, notes?: string) => Promise<void>;
   onReconcileSavingsAccounts: (input: SavingsAccountReconciliationInput) => Promise<void>;
   onOpenSection: (section: "savings" | "cards" | "loans") => void;
+  initialHistoryAccountId?: MoneyAccountId;
+  onInitialHistoryConsumed?: () => void;
 }) {
   const [bankForm, setBankForm] = useState<Bank | "new" | null>(null);
   const [accountForm, setAccountForm] = useState<{ bank: Bank; account?: MoneyAccount } | null>(null);
@@ -204,6 +234,7 @@ export function MoneyView({ data, canReconcile, onSaveBank, onDeleteBank, onSave
   const [transferring, setTransferring] = useState(false);
   const [distributing, setDistributing] = useState(false);
   const [reconcilingSavings, setReconcilingSavings] = useState(false);
+  const [historyTarget, setHistoryTarget] = useState<MoneyHistoryTarget | null>(null);
   const center = useMemo(() => buildAccountCenterGroups(data), [data]);
   const banks = center.banks;
   const accounts = useMemo(() => getBankAccounts(data), [data]);
@@ -222,6 +253,12 @@ export function MoneyView({ data, canReconcile, onSaveBank, onDeleteBank, onSave
   const needsSavingsReconciliation = !savingsUnified && Object.values(data.savingsFunds)
     .some((fund) => !fund.archivedAt && getFundBalance(data, fund.id) > 0);
 
+  useEffect(() => {
+    if (!initialHistoryAccountId) return;
+    setHistoryTarget({ kind: "account", accountId: initialHistoryAccountId });
+    onInitialHistoryConsumed?.();
+  }, [initialHistoryAccountId, onInitialHistoryConsumed]);
+
   return <section className="finance-page">
     <PageHeading eyebrow="Dinero, reservas y deudas" title="Resumen por banco" action={<button className="button button-primary heading-action" type="button" onClick={() => setBankForm("new")}>＋ Banco</button>} />
     <div className="projection-grid account-center-summary">
@@ -238,7 +275,7 @@ export function MoneyView({ data, canReconcile, onSaveBank, onDeleteBank, onSave
 
     <article className="bank-panel cash-center-panel"><header><div><span>Disponible fuera de bancos</span><h2>Efectivo</h2></div><div><strong>{cash ? formatCurrency(getMoneyAccountBalance(data, CASH_ACCOUNT_ID), "DOP") : "Sin configurar"}</strong>{cash && savingsUnified && <small>Apartado {formatCurrency(getAccountReservedSavings(data, CASH_ACCOUNT_ID), "DOP")} · Disponible {formatCurrency(getAccountAvailableUnreserved(data, CASH_ACCOUNT_ID), "DOP")}</small>}</div></header>
       {center.cashSavingsFunds.length > 0 && <div className="bank-product-section"><div className="bank-product-heading"><span>Ahorros guardados aquí</span><button type="button" onClick={() => onOpenSection("savings")}>Administrar</button></div>{center.cashSavingsFunds.map((fund) => <div className="bank-product-row" key={fund.id}><span><strong>{fund.name}</strong><small>Fondo de ahorro · {fund.currency}</small></span><b>{formatCurrency(getFundBalance(data, fund.id), fund.currency)}</b></div>)}</div>}
-      <div className="row-actions">{cash ? <button className="button button-secondary" type="button" onClick={() => setAdjusting(CASH_ACCOUNT_ID)}>Ajustar efectivo</button> : <button className="button button-primary" type="button" onClick={() => setCashSetup(true)}>Configurar efectivo</button>}</div>
+      <div className="row-actions">{cash ? <><button className="button button-secondary" type="button" onClick={() => setAdjusting(CASH_ACCOUNT_ID)}>Ajustar efectivo</button><button className="button button-quiet" type="button" onClick={() => setHistoryTarget({ kind: "account", accountId: CASH_ACCOUNT_ID })}>Historial</button></> : <button className="button button-primary" type="button" onClick={() => setCashSetup(true)}>Configurar efectivo</button>}</div>
     </article>
 
     {!banks.length ? <EmptyPanel title="Agrega tus bancos" text="Después podrás crear cuentas y vincularles tus ahorros, tarjeta y préstamos." /> : <div className="bank-grid">{banks.map((group) => {
@@ -247,11 +284,11 @@ export function MoneyView({ data, canReconcile, onSaveBank, onDeleteBank, onSave
       const bankTotalDop = bankAccounts.filter((account) => account.currency === "DOP").reduce((total, account) => total + getMoneyAccountBalance(data, account.id), 0);
       const bankTotalUsd = bankAccounts.filter((account) => account.currency === "USD").reduce((total, account) => total + getMoneyAccountBalance(data, account.id), 0);
       return <article className="bank-panel" key={bank.id}><header><div><span>{bank.active ? "Banco activo" : "Banco inactivo"}</span><h2>{bank.name}</h2></div><div><strong>{formatCurrency(bankTotalDop, "DOP")}</strong><small>{formatCurrency(bankTotalUsd, "USD")}</small></div></header>
-        <div className="bank-account-list">{bankAccounts.length ? bankAccounts.map((account) => { const accountTotal = getMoneyAccountBalance(data, account.id); const accountReserved = getAccountReservedSavings(data, account.id); return <div className="bank-account-row" key={account.id}><span><strong>{account.name}</strong><small>{BANK_ACCOUNT_TYPE_LABELS[account.accountType || "other"]} · {account.currency}{account.lastFour ? ` · •••• ${account.lastFour}` : ""}</small></span><span><b>{formatCurrency(accountTotal, account.currency)}</b><small>{savingsUnified ? `Apartado ${formatCurrency(accountReserved, account.currency)} · Disponible ${formatCurrency(accountTotal - accountReserved, account.currency)}` : account.active ? "Activa" : "Inactiva"}</small>{savingsUnified && <small>{account.active ? "Activa" : "Inactiva"}</small>}</span><div className="inline-actions"><button type="button" onClick={() => setAdjusting(account.id)}>Ajustar</button><button type="button" onClick={() => setAccountForm({ bank, account })}>Editar</button></div></div>; }) : <p className="muted-panel">Este banco todavía no tiene cuentas.</p>}</div>
+        <div className="bank-account-list">{bankAccounts.length ? bankAccounts.map((account) => { const accountTotal = getMoneyAccountBalance(data, account.id); const accountReserved = getAccountReservedSavings(data, account.id); return <div className="bank-account-row" key={account.id}><span><strong>{account.name}</strong><small>{BANK_ACCOUNT_TYPE_LABELS[account.accountType || "other"]} · {account.currency}{account.lastFour ? ` · •••• ${account.lastFour}` : ""}</small></span><span><b>{formatCurrency(accountTotal, account.currency)}</b><small>{savingsUnified ? `Apartado ${formatCurrency(accountReserved, account.currency)} · Disponible ${formatCurrency(accountTotal - accountReserved, account.currency)}` : account.active ? "Activa" : "Inactiva"}</small>{savingsUnified && <small>{account.active ? "Activa" : "Inactiva"}</small>}</span><div className="inline-actions"><button type="button" onClick={() => setHistoryTarget({ kind: "account", accountId: account.id })}>Historial</button><button type="button" onClick={() => setAdjusting(account.id)}>Ajustar</button><button type="button" onClick={() => setAccountForm({ bank, account })}>Editar</button></div></div>; }) : <p className="muted-panel">Este banco todavía no tiene cuentas.</p>}</div>
         {group.savingsFunds.length > 0 && <div className="bank-product-section"><div className="bank-product-heading"><span>Ahorros</span><button type="button" onClick={() => onOpenSection("savings")}>Administrar</button></div>{group.savingsFunds.map((fund) => <div className="bank-product-row" key={fund.id}><span><strong>{fund.name}</strong><small>{fund.moneyAccountId ? moneyAccountLabel(fund.moneyAccountId, data) : "Sin cuenta"}</small></span><b>{formatCurrency(getFundBalance(data, fund.id), fund.currency)}</b></div>)}</div>}
         {group.cards.length > 0 && <div className="bank-product-section"><div className="bank-product-heading"><span>Tarjeta</span><button type="button" onClick={() => onOpenSection("cards")}>Administrar</button></div>{group.cards.map((linkedCard) => <div className="bank-product-row" key={linkedCard.id}><span><strong>{linkedCard.name}</strong><small>Deuda {formatCurrency(getCardCurrentDebt(data, linkedCard.id, "DOP"), "DOP")} · {formatCurrency(getCardCurrentDebt(data, linkedCard.id, "USD"), "USD")}</small></span><StatusChip status={linkedCard.active ? "paid" : "cancelled"} label={linkedCard.active ? "Activa" : "Inactiva"} /></div>)}</div>}
         {group.loans.length > 0 && <div className="bank-product-section"><div className="bank-product-heading"><span>Préstamos</span><button type="button" onClick={() => onOpenSection("loans")}>Administrar</button></div>{group.loans.map((loan) => <div className="bank-product-row" key={loan.id}><span><strong>{loan.name}</strong><small>Capital pendiente</small></span><b>{formatCurrency(getLoanBalance(data, loan.id), loan.currency)}</b></div>)}</div>}
-        <div className="row-actions"><button className="button button-secondary" type="button" onClick={() => setAccountForm({ bank })}>＋ Cuenta</button><button className="button button-quiet" type="button" onClick={() => setBankForm(bank)}>Editar banco</button>{bankAccounts.length === 0 && group.cards.length === 0 && group.loans.length === 0 && <button className="button button-quiet danger-text" type="button" onClick={() => { if (window.confirm(`¿Eliminar el banco vacío “${bank.name}”?`)) void onDeleteBank(bank.id); }}>Eliminar</button>}</div>
+        <div className="row-actions"><button className="button button-secondary" type="button" onClick={() => setAccountForm({ bank })}>＋ Cuenta</button>{bankAccounts.length > 0 && <button className="button button-quiet" type="button" onClick={() => setHistoryTarget({ kind: "bank", bankId: bank.id })}>Historial banco</button>}<button className="button button-quiet" type="button" onClick={() => setBankForm(bank)}>Editar banco</button>{bankAccounts.length === 0 && group.cards.length === 0 && group.loans.length === 0 && <button className="button button-quiet danger-text" type="button" onClick={() => { if (window.confirm(`¿Eliminar el banco vacío “${bank.name}”?`)) void onDeleteBank(bank.id); }}>Eliminar</button>}</div>
       </article>;
     })}</div>}
 
@@ -272,5 +309,6 @@ export function MoneyView({ data, canReconcile, onSaveBank, onDeleteBank, onSave
     {transferring && <TransferModal data={data} onSave={onTransfer} onClose={() => setTransferring(false)} />}
     {distributing && <TransferModal data={data} legacyOnly onSave={onTransfer} onClose={() => setDistributing(false)} />}
     {reconcilingSavings && <SavingsAccountReconciliationModal data={data} canReconcile={canReconcile} onSave={onReconcileSavingsAccounts} onClose={() => setReconcilingSavings(false)} />}
+    {historyTarget && <MoneyHistoryModal data={data} target={historyTarget} onClose={() => setHistoryTarget(null)} />}
   </section>;
 }

@@ -7,6 +7,7 @@ import type {
   SavingsFundInput,
 } from "../../hooks/useFinanceActions";
 import type {
+  Currency,
   FinancialData,
   MoneyAccountId,
   SavingsTransaction,
@@ -20,12 +21,17 @@ import { SourceMovementLinks } from "../SourceMovementLinks";
 import type { MovementTarget } from "../../lib/movementEditing";
 
 export type FinancialHubSection = "overview" | "savings" | "cards" | "loans";
+export type FinancialHubHistoryTarget =
+  | { kind: "money"; accountId: MoneyAccountId }
+  | { kind: "card"; cardId: string; currency: Currency };
 
 interface FinancialHubViewProps {
   data: FinancialData;
   onOpenMovement?: (target:MovementTarget)=>void;
   canReconcileSavingsAccounts: boolean;
   initialSection?: FinancialHubSection;
+  historyTarget?: FinancialHubHistoryTarget | null;
+  onHistoryTargetConsumed?: () => void;
   onSaveBank: (input: BankInput, id?: string) => Promise<void>;
   onDeleteBank: (bankId: string) => Promise<void>;
   onSaveAccount: (input: MoneyAccountInput, id?: string) => Promise<void>;
@@ -58,6 +64,8 @@ export function FinancialHubView({
   onOpenMovement,
   canReconcileSavingsAccounts,
   initialSection = "overview",
+  historyTarget,
+  onHistoryTargetConsumed,
   onSaveBank,
   onDeleteBank,
   onSaveAccount,
@@ -100,9 +108,11 @@ export function FinancialHubView({
       onTransfer={onTransferMoney}
       onReconcileSavingsAccounts={onReconcileSavingsAccounts}
       onOpenSection={setSection}
+      initialHistoryAccountId={historyTarget?.kind === "money" ? historyTarget.accountId : undefined}
+      onInitialHistoryConsumed={historyTarget?.kind === "money" ? onHistoryTargetConsumed : undefined}
     />}
     {section === "savings" && <SavingsView data={data} onSave={onSaveSavingsFund} onAddTransaction={onAddSavingsTransaction} onTransfer={onTransferSavings} onRelease={onReleaseSavings} />}
-    {section === "cards" && <CreditCardsView data={data} onSaveCard={onSaveCard} onSaveMinimum={onSaveCardMinimum} onAddTransaction={onAddCardTransaction} onReverseTransaction={onReverseCardTransaction} />}
+    {section === "cards" && <CreditCardsView data={data} onSaveCard={onSaveCard} onSaveMinimum={onSaveCardMinimum} onAddTransaction={onAddCardTransaction} onReverseTransaction={onReverseCardTransaction} initialHistory={historyTarget?.kind === "card" ? { cardId: historyTarget.cardId, currency: historyTarget.currency } : undefined} onInitialHistoryConsumed={historyTarget?.kind === "card" ? onHistoryTargetConsumed : undefined} />}
     {section === "loans" && <LoansView data={data} onSave={onSaveLoan} onAdjust={onAdjustLoan} onReverseAdjustment={onReverseLoanAdjustment} />}
     {onOpenMovement && <SourceMovementLinks data={data} section={section} onOpen={onOpenMovement} />}
   </div>;
