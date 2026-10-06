@@ -10,6 +10,7 @@ import { toggleFilterSelection } from "./filterSelection";
 import type { AppUserDefinition } from "../config/appUsers";
 import type { Expense } from "../models/expense";
 import { createFinanceActions } from "../hooks/useFinanceActions";
+import { pendingClosingReconciliations, previewClosingReconciliation } from "./cycleClosingReconciliation";
 
 const user = {uid:"tester"} as AppUserDefinition;
 const meta = reviewMeta(user.uid);
@@ -153,6 +154,13 @@ describe.skipIf(!backupPath)("current user backup compatibility",()=>{
     expect(isFinanciallyConsistent(d)).toBe(true);
     expect(Object.values(d.payments).filter(p=>p.reportingMethod)).toHaveLength(19);
     expect(getSpendingTotals(buildSpendingHistory(d,backup.expenses))).toEqual(getSpendingTotals(buildSpendingHistory(normalizeFinancialData(JSON.parse(JSON.stringify(d))),backup.expenses)));
+  });
+  it("can safely preview every legacy closing that still needs balance reconciliation",()=>{
+    const backup=JSON.parse(readFileSync(backupPath!,"utf8"));const d=normalizeFinancialData(backup.financialData);
+    for (const closing of pendingClosingReconciliations(d)) {
+      const preview = previewClosingReconciliation(d, closing);
+      expect(preview.errors).toEqual([]);
+    }
   });
   it("corrects every classified historical payment without altering current balances",async()=>{
     const backup=JSON.parse(readFileSync(backupPath!,"utf8"));const d=normalizeFinancialData(backup.financialData);

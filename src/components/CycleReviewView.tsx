@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { FinancialData } from "../models/finance";
+import type { CycleClosing } from "../models/review";
 import { balancesAt, buildClosing, closingNeedsReview, reviewMeta } from "../lib/financialReview";
 import { formatMonthTitle, getMonthKey, getQuincena, getQuincenaRange, toLocalDateKey } from "../lib/date";
 import { formatCurrency, parseMoneyToCents } from "../lib/money";
@@ -7,8 +8,28 @@ import { createId } from "../lib/id";
 import { MoneyField } from "./finance/Shared";
 import { getLoanBalance } from "../lib/loanLedger";
 import { auditEntries, findAuditValue, isAuditedFinancialPath } from "../lib/changeAudit";
+import {
+  buildClosingReconciliationUpdates,
+  pendingClosingReconciliations,
+  previewClosingReconciliation,
+  type ClosingReconciliationPreview,
+} from "../lib/cycleClosingReconciliation";
 
 const statusNames = { reconciled: "Cerrada y conciliada", differences: "Cerrada con diferencias", incomplete: "Cerrada incompleta" };
+
+const closingStatusLabel = (closing: CycleClosing): string => {
+  if (closing.reconciledAt && closing.status === "differences") return "Saldos conciliados · incidencias pendientes";
+  if (closing.reconciledAt && closing.status === "incomplete") return "Cerrada incompleta · saldos confirmados conciliados";
+  return statusNames[closing.status];
+};
+
+const reconciliationText = (preview: ClosingReconciliationPreview): string => {
+  if (!preview.adjustments.length) return "Los saldos confirmados ya coinciden con el cálculo.";
+  return preview.adjustments
+    .map((line) => `${line.name}: ${formatCurrency(line.calculatedMinor, line.currency)} → ${formatCurrency(line.reportedMinor, line.currency)} (${line.deltaMinor > 0 ? "+" : ""}${formatCurrency(line.deltaMinor, line.currency)})`)
+    .join("\n");
+};
+
 export function CycleReviewView({data, actor, synced, onCommit}: {data: FinancialData; actor: string; synced: boolean; onCommit:(patch:Record<string,unknown>)=>Promise<void>}) {
   const today = toLocalDateKey();
   const [month,setMonth] = useState(getMonthKey(today));
@@ -21,7 +42,21 @@ export function CycleReviewView({data, actor, synced, onCommit}: {data: Financia
   const cutoff = getQuincenaRange(month,quincena).endDateKey;
   const balances = balancesAt(data,cutoff);
   const closings = Object.values(data.cycleClosings).filter(c=>c.financialMonth===month && c.quincena===quincena).sort((a,b)=>b.revision-a.revision);
+  const legacyPendingClosings = pendingClosingReconciliations(data);
   const changePeriod = (m:string,q:1|2) => {setMonth(m);setQuincena(q);setReports({});setError("");};
+
+  const reconcileExistingClosing = async (closing: CycleClosing) => {
+    setError(""); setBusy(true);
+    try {
+      if (!synced) throw new Error("Espera a que la aplicación termine de sincronizar antes de reconciliar un cierre anterior.");
+      const preview = previewClosingReconciliation(data, closing);
+      if (preview.errors.length) throw new Error(preview.errors.join("\n"));
+      if (!window.confirm(`Reconciliar ${formatMonthTitle(closing.financialMonth)} · Quincena ${closing.quincena}, al ${closing.cutoff}.\n\n${reconciliationText(preview)}\n\nLos ajustes se fecharán en el cierre, no contarán como ingreso ni gasto y todos los movimientos posteriores permanecerán intactos. ¿Aplicar reconciliación?`)) return;
+      await onCommit(buildClosingReconciliationUpdates(data, closing, actor));
+    } catch(e) { setError(e instanceof Error ? e.message : "No se pudo reconciliar el cierre."); }
+    finally { setBusy(false); }
+  };
+
   const save = async () => {
     setError("");setBusy(true);
     try {
@@ -33,18 +68,23 @@ export function CycleReviewView({data, actor, synced, onCommit}: {data: Financia
         if (text && parsed == null) throw new Error(`Saldo inválido en ${b.name}.`);
         values[b.key] = parsed == null ? undefined : text?.startsWith("-") ? -parsed : parsed;
       }
-      const c = buildClosing(data,month,quincena,values,notes,actor);
-      if (!window.confirm(`Cerrar ${formatMonthTitle(month)} · Quincena ${quincena}, al ${cutoff}.\n${statusNames[c.status]}.\nLos balances reportados no modificarán el dinero automáticamente. ¿Confirmar?`)) return;
-      await onCommit({[`cycleClosings/${c.id}`]:c});
+      const closing = buildClosing(data,month,quincena,values,notes,actor);
+      const preview = previewClosingReconciliation(data, closing);
+      if (preview.errors.length) throw new Error(preview.errors.join("\n"));
+      const action = preview.adjustments.length ? "Cerrar y reconciliar" : "Cerrar";
+      if (!window.confirm(`${action} ${formatMonthTitle(month)} · Quincena ${quincena}, al ${cutoff}.\n\n${reconciliationText(preview)}\n\nLos ajustes de conciliación no cuentan como ingresos ni gastos y se usarán como base para los balances posteriores. ¿Confirmar?`)) return;
+      await onCommit(buildClosingReconciliationUpdates(data, closing, actor));
+      setReports({}); setNotes("");
     } catch(e) {setError(e instanceof Error?e.message:"No se pudo cerrar.");} finally {setBusy(false);}
   };
+
   const adjust = async (key:string) => {
     const b = balances.find(x=>x.key===key);
     if (!b) return;
     setError("");
     try {
       if (b.unavailable) throw new Error("No se puede ajustar una fecha anterior al saldo inicial. Confirma primero el punto de partida.");
-      if (!notes.trim()) throw new Error("Escribe un motivo obligatorio antes de crear un ajuste.");
+      if (!notes.trim()) throw new Error("Escribe un motivo obligatorio antes de crear un ajuste manual.");
       const raw=reports[key]?.trim();
       const parsed=raw?parseMoneyToCents(raw.replace(/^-/,"")):null;
       if (parsed===null) throw new Error("Indica el saldo real reportado.");
@@ -52,34 +92,43 @@ export function CycleReviewView({data, actor, synced, onCommit}: {data: Financia
       const delta=actual-b.calculatedMinor;
       if (!delta) throw new Error("El saldo ya coincide.");
       if (b.kind==="account" && actual<b.reservedMinor) throw new Error("Primero revisa los ahorros: el saldo real es menor que el dinero apartado.");
-      if (!window.confirm(`${b.name}: calculado ${formatCurrency(b.calculatedMinor,b.currency)} → reportado ${formatCurrency(actual,b.currency)}.\nSe registrará ${formatCurrency(delta,b.currency)} como ajuste al ${cutoff}; también afectará los balances posteriores. No contará como ingreso ni gasto. ¿Confirmar?`)) return;
+      if (!window.confirm(`${b.name}: calculado ${formatCurrency(b.calculatedMinor,b.currency)} → reportado ${formatCurrency(actual,b.currency)}.\nSe registrará ${formatCurrency(delta,b.currency)} como ajuste manual al ${cutoff}; también afectará los balances posteriores. No contará como ingreso ni gasto. ¿Confirmar?`)) return;
       const id=createId();
-      const base={id, currency:b.currency, transactionDate:cutoff,description:`Ajuste de conciliación · ${notes.trim()}`,notes:notes.trim(),...reviewMeta(actor)};
+      const base={id, currency:b.currency, transactionDate:cutoff,description:`Ajuste manual de conciliación · ${notes.trim()}`,notes:notes.trim(),...reviewMeta(actor)};
       await onCommit(b.kind==="account" ? { [`moneyTransactions/${id}`]: {...base,accountId:b.id,type:"adjustment",direction:delta>0?"in":"out",amountMinor:Math.abs(delta)} }
         : { [`cardTransactions/${id}`]: {...base,cardId:b.id,type:"adjustment",amountMinor:delta} });
       setAdjusting(null);
     } catch(e) {setError(e instanceof Error?e.message:"No se pudo ajustar.");}
   };
+
   return <section className="finance-page"><div className="finance-heading"><div><span className="eyebrow">Verificación de balances</span><h1>Revisar y cerrar quincena</h1></div></div>
+    {legacyPendingClosings.map((closing) => { const preview = previewClosingReconciliation(data, closing); return <article className="balance-review-card closing-reconciliation-card" key={`legacy-${closing.id}`}>
+      <span className="eyebrow">Actualización 2.3.0 · reconciliación pendiente</span>
+      <h2>{formatMonthTitle(closing.financialMonth)} · Quincena {closing.quincena}</h2>
+      <p>Este cierre guardó los saldos reales, pero la versión anterior no los incorporó al ledger. Puedes aplicar ahora los ajustes del {closing.cutoff} sin modificar los pagos, gastos, transferencias o ingresos registrados después.</p>
+      <div className="reconciliation-preview-list">{preview.adjustments.map((line) => <p key={line.key}><strong>{line.name}</strong>: {formatCurrency(line.calculatedMinor,line.currency)} → {formatCurrency(line.reportedMinor,line.currency)} · ajuste {line.deltaMinor>0?"+":""}{formatCurrency(line.deltaMinor,line.currency)}</p>)}</div>
+      {preview.errors.map((message) => <p className="form-error" key={message}>{message}</p>)}
+      <button className="button button-primary" type="button" disabled={busy || !synced || preview.errors.length>0} onClick={()=>void reconcileExistingClosing(closing)}>Aplicar reconciliación del cierre</button>
+    </article>; })}
     <div className="review-filter"><label className="field"><span>Mes financiero</span><input type="month" required value={month} onChange={e=>{if(e.target.value)changePeriod(e.target.value,quincena);}} /></label><label className="field"><span>Quincena</span><select value={quincena} onChange={e=>changePeriod(month,Number(e.target.value) as 1|2)}><option value={1}>Quincena 1</option><option value={2}>Quincena 2</option></select></label></div>
     <p className="form-warning">Reporta los balances al finalizar el {cutoff}, no los de hoy si estás cerrando tarde. En banco: saldo total que incluye tus ahorros. En tarjeta: deuda actual; comprueba por separado cargos pendientes de contabilizar para comparar la misma base.</p>
-    <p>Los saldos bancarios al cierre se conservan para la siguiente quincena. El resumen de ingresos y gastos del ciclo es distinto del dinero acumulado en tus cuentas.</p>
-    <div className="balance-review-card"><strong>Cierres de {formatMonthTitle(month)}</strong>{([1,2] as const).map(q=>{const c=Object.values(data.cycleClosings).filter(x=>x.financialMonth===month&&x.quincena===q).sort((a,b)=>b.revision-a.revision)[0];return <p key={q}>Quincena {q}: {c?(closingNeedsReview(data,c)?"Requiere revisión":statusNames[c.status]):"Sin cerrar"}</p>;})}</div>
+    <p>Al confirmar, los saldos reales se concilian mediante ajustes contables fechados en el cierre. Esos ajustes no son ingresos ni gastos y se convierten en la base de los balances posteriores.</p>
+    <div className="balance-review-card"><strong>Cierres de {formatMonthTitle(month)}</strong>{([1,2] as const).map(q=>{const c=Object.values(data.cycleClosings).filter(x=>x.financialMonth===month&&x.quincena===q).sort((a,b)=>b.revision-a.revision)[0];return <p key={q}>Quincena {q}: {c?(closingNeedsReview(data,c)?"Requiere revisión":closingStatusLabel(c)):"Sin cerrar"}</p>;})}</div>
     {cutoff>today && <p className="form-warning">Esta quincena aún no termina. Podrás cerrarla desde su último día.</p>}
     {balances.map(b=>{const parsed=reports[b.key]?.trim()?parseMoneyToCents(reports[b.key].replace(/^-/,"")):null;const value=parsed===null?null:reports[b.key]?.startsWith("-")?-parsed:parsed;return <article className="balance-review-card" key={b.key}>
       <h3>{b.name} · {b.currency}</h3><p>Calculado: <strong>{b.unavailable ? "No reconstruible antes del saldo inicial" : formatCurrency(b.calculatedMinor,b.currency)}</strong></p>
       {b.kind==="account" && <p>Apartado: {formatCurrency(b.reservedMinor,b.currency)} · Disponible sin apartar: {formatCurrency(b.calculatedMinor-b.reservedMinor,b.currency)}</p>}
       <MoneyField label="Saldo real al cierre (vacío = no pude confirmarlo)" value={reports[b.key]||""} onChange={v=>setReports({...reports,[b.key]:v})} currency={b.currency} required={false} />
-      {value!==null && !b.unavailable && <p className={value===b.calculatedMinor?"remaining-value is-positive":"form-error"}>Diferencia: {formatCurrency(value-b.calculatedMinor,b.currency)}</p>}
+      {value!==null && !b.unavailable && <p className={value===b.calculatedMinor?"remaining-value is-positive":"form-error"}>Diferencia / ajuste al confirmar: {formatCurrency(value-b.calculatedMinor,b.currency)}</p>}
       <button type="button" className="text-button" onClick={()=>setAdjusting(adjusting===b.key?null:b.key)}>Revisar diferencias y movimientos</button>
-      {adjusting===b.key && <div><p>Comprueba ingresos omitidos, gastos duplicados, forma de pago, transferencias, comisiones y dinero apartado. Corrige el movimiento original desde su sección antes de usar un ajuste.</p>
+      {adjusting===b.key && <div><p>Comprueba ingresos omitidos, gastos duplicados, forma de pago, transferencias, comisiones y dinero apartado. Corrige el movimiento original desde su sección antes de usar un ajuste manual.</p>
         <ul>{(b.kind==="account" ? Object.values(data.moneyTransactions).filter(t=>t.accountId===b.id && !t.reversedAt && t.transactionDate<=cutoff) : Object.values(data.cardTransactions).filter(t=>t.cardId===b.id && t.currency===b.currency && !t.reversedAt && t.transactionDate<=cutoff)).sort((a,c)=>c.transactionDate.localeCompare(a.transactionDate)).map(t=><li key={t.id}>{t.transactionDate} · {t.description} · {formatCurrency(t.amountMinor,t.currency)}</li>)}</ul>
-        <button className="button button-secondary" type="button" disabled={cutoff>today || !synced} onClick={()=>void adjust(b.key)}>Crear ajuste explicado</button></div>}
+        <button className="button button-secondary" type="button" disabled={cutoff>today || !synced} onClick={()=>void adjust(b.key)}>Crear ajuste manual explicado</button></div>}
     </article>;})}
-    <label className="field"><span>Notas del cierre / motivo del ajuste</span><textarea value={notes} onChange={e=>setNotes(e.target.value)} /></label>
-    {Object.values(data.loans).filter(l=>!l.archivedAt).map(l=><p key={l.id}>{l.name} · Deuda calculada: {formatCurrency(getLoanBalance(data,l.id,cutoff),l.currency)} (confirmación opcional desde Préstamos).</p>)}
-    {error && <p role="alert" className="form-error">{error}</p>}<button className="button button-primary" disabled={busy || cutoff>today || !synced} onClick={()=>void save()}>Confirmar cierre de quincena</button>
-    <h2>Cierres guardados</h2>{closings.map(c=><details className="balance-review-card" key={c.id}><summary>Revisión {c.revision} · {closingNeedsReview(data,c)?"Requiere revisión":statusNames[c.status]} · {new Date(c.createdAt).toLocaleString("es-DO")}</summary><p>{c.notes}</p>{c.balances.map(b=><p key={b.key}>{b.name}: calculado {formatCurrency(b.calculatedMinor,b.currency)} · reportado {b.reportedMinor===undefined?"Sin confirmar":formatCurrency(b.reportedMinor,b.currency)}</p>)}</details>)}
+    <label className="field"><span>Notas del cierre / motivo de un ajuste manual</span><textarea value={notes} onChange={e=>setNotes(e.target.value)} /></label>
+    {Object.values(data.loans).filter(l=>!l.archivedAt).map(l=><p key={l.id}>{l.name} · Deuda calculada: {formatCurrency(getLoanBalance(data,l.id,cutoff),l.currency)} (los préstamos no se ajustan automáticamente desde el cierre).</p>)}
+    {error && <p role="alert" className="form-error">{error}</p>}<button className="button button-primary" disabled={busy || cutoff>today || !synced} onClick={()=>void save()}>{busy?"Procesando…":"Cerrar y reconciliar saldos"}</button>
+    <h2>Cierres guardados</h2>{closings.map(c=><details className="balance-review-card" key={c.id}><summary>Revisión {c.revision} · {closingNeedsReview(data,c)?"Requiere revisión":closingStatusLabel(c)} · {new Date(c.createdAt).toLocaleString("es-DO")}</summary><p>{c.notes}</p>{c.reconciledAt&&<p>Balances incorporados al ledger: {new Date(c.reconciledAt).toLocaleString("es-DO")} · {c.reconciliationTransactionIds?.length||0} ajuste(s).</p>}{c.balances.map(b=><p key={b.key}>{b.name}: calculado {formatCurrency(b.calculatedMinor,b.currency)} · reportado {b.reportedMinor===undefined?"Sin confirmar":formatCurrency(b.reportedMinor,b.currency)}{b.reportedMinor!==undefined&&b.reportedMinor!==b.calculatedMinor?` · diferencia ${formatCurrency(b.reportedMinor-b.calculatedMinor,b.currency)}`:""}</p>)}</details>)}
     <details className="balance-review-card"><summary>Registro de cambios y correcciones</summary>{Object.values(data.changeAudits).sort((a,b)=>b.createdAt.localeCompare(a.createdAt)).map(a=><details key={a.id}><summary>{new Date(a.createdAt).toLocaleString("es-DO")} · {a.description}</summary>{auditEntries(a.after).filter(entry=>isAuditedFinancialPath(entry.path)).map(({path,value})=>{
       const after=value as {description?:string;name?:string;amountMinor?:number;unitPriceCents?:number;quantity?:number;currency?:"DOP"|"USD";reversedAt?:string;notes?:string;deletedAt?:string}|null;
       const before=findAuditValue(a.before,path) as typeof after|undefined;

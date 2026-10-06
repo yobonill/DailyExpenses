@@ -30,6 +30,7 @@ import type { MoneyAccountId, PaymentMethod, PurchaseGoal } from "./models/finan
 import type { Expense, ExpenseEditableFields, SyncState } from "./models/expense";
 import type { NewExpenseInput } from "./hooks/useExpenses";
 import { appendSyncLog } from "./lib/syncLog";
+import { pendingClosingReconciliations } from "./lib/cycleClosingReconciliation";
 
 type View = "capture" | "review" | "dashboard" | "budget" | "future" | "goals" | "savings" | "income" | "cards" | "money" | "loans" | "reports" | "settings" | "more" | "closings";
 
@@ -62,6 +63,7 @@ function AuthenticatedApp({ user, onLogout, offlineSession }: { user: AppUserDef
   const [linkedExpense,setLinkedExpense] = useState<Expense|null>(null);
   const reviewScroll = useRef(0);
   const returnToReview = useRef(false);
+  const closingReconciliationNoticeShown = useRef(false);
   const legacyExpensesState = useExpenses({ offlineOnly: offlineSession });
   const financial = useFinancialData(user, { offlineOnly: offlineSession });
   const allExpenses = useMemo(() => mergedExpenses(financial.data, legacyExpensesState.expenses), [financial.data, legacyExpensesState.expenses]);
@@ -102,6 +104,13 @@ function AuthenticatedApp({ user, onLogout, offlineSession }: { user: AppUserDef
     const timeout = window.setTimeout(() => setNotice(null), notice.action ? 6500 : 3200);
     return () => window.clearTimeout(timeout);
   }, [notice]);
+
+  useEffect(() => {
+    if (!financial.ready || closingReconciliationNoticeShown.current) return;
+    if (!pendingClosingReconciliations(financial.data).length) return;
+    closingReconciliationNoticeShown.current = true;
+    showNotice("Hay un cierre anterior con saldos reales pendientes de reconciliar.", "Revisar cierre", () => setView("closings"));
+  }, [financial.data, financial.ready, showNotice]);
 
   useEffect(() => {
     if (!financial.ready) return;

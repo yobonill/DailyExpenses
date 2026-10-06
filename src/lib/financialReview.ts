@@ -43,12 +43,12 @@ function canonical(value: unknown): string {
   return JSON.stringify(value);
 }
 /** Exact snapshot signature; no probabilistic hash or dependence on object insertion order. */
-export function closingFingerprint(data: FinancialData, cutoff: string): string {
+const closingFingerprintVersioned = (data: FinancialData, cutoff: string, version: number): string => {
   const values: Record<string, unknown> = {};
   for (const group of ["moneyAccounts", "creditCards", "savingsFunds", "loans", "moneyTransactions", "cardTransactions", "savingsTransactions", "loanTransactions", "payments", "monthlyOccurrences", "nonMonthlyOccurrences", "incomeOccurrences", "managedExpenses", "balanceIssues"] as const) {
     values[group] = Object.values(data[group]).filter(item => {
       const r = item as unknown as Record<string, unknown>;
-      const date = r.transactionDate || r.occurredDate || r.paidDate || r.receivedDate || r.dueDate || r.date;
+      const date = r.transactionDate || r.occurredDate || r.paidDate || r.receivedDate || r.dueDate || (version >= 2 ? r.expectedDate : undefined) || r.date;
       if (group === "payments" && r.historical) {
         const o = r.sourceType === "monthly" ? data.monthlyOccurrences[String(r.sourceId)] : data.nonMonthlyOccurrences[String(r.sourceId)];
         return o && ("financialMonth" in o ? getQuincenaRange(o.financialMonth, o.quincena).startDateKey : o.dueDate) <= cutoff;
@@ -57,8 +57,15 @@ export function closingFingerprint(data: FinancialData, cutoff: string): string 
     }).sort((a,b) => a.id.localeCompare(b.id));
   }
   return canonical(values);
+};
+
+/** Current fingerprint. Version 2 dates pending income by expectedDate so future projections do not invalidate old closings. */
+export function closingFingerprint(data: FinancialData, cutoff: string): string {
+  return closingFingerprintVersioned(data, cutoff, 2);
 }
-export const closingNeedsReview = (data: FinancialData, c: CycleClosing): boolean => c.fingerprint !== closingFingerprint(data, c.cutoff);
+
+export const closingNeedsReview = (data: FinancialData, c: CycleClosing): boolean =>
+  c.fingerprint !== closingFingerprintVersioned(data, c.cutoff, c.fingerprintVersion || 1);
 
 export function buildClosing(data: FinancialData, month: string, quincena: 1|2, reports: Record<string, number | undefined>, notes: string, actor: string): CycleClosing {
   const cutoff = getQuincenaRange(month, quincena).endDateKey;
@@ -75,7 +82,7 @@ export function buildClosing(data: FinancialData, month: string, quincena: 1|2, 
   const revision = Math.max(0, ...Object.values(data.cycleClosings).filter(c => c.financialMonth === month && c.quincena === quincena).map(c => c.revision)) + 1;
   return { id: `${month}_q${quincena}_v${revision}`, financialMonth: month, quincena, cutoff, revision,
     status: incomplete ? "incomplete" : differences ? "differences" : "reconciled", balances,
-    fingerprint: closingFingerprint(data, cutoff), notes: notes.trim(), ...reviewMeta(actor) };
+    fingerprint: closingFingerprint(data, cutoff), fingerprintVersion: 2, notes: notes.trim(), ...reviewMeta(actor) };
 }
 
 export function createBalanceIssues(before: FinancialData, updates: Record<string, unknown>, actor: string): BalanceIssue[] {

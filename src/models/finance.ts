@@ -112,6 +112,8 @@ export interface IncomeTemplate extends RecordMetadata {
   notes?: string;
   excelRowLabel?: string;
   exportExpectedWhenPending: boolean;
+  /** Earliest date that may be generated after reactivating a previously inactive source. */
+  generationStartDate?: string;
   reconciledAt?: string;
 }
 
@@ -210,6 +212,8 @@ export interface MoneyTransaction extends RecordMetadata {
   linkedCardTransactionId?: string;
   linkedLoanTransactionId?: string;
   linkedDailyExpenseId?: string;
+  /** Cycle closing that created this reconciliation-only balance adjustment. */
+  closingReconciliationId?: string;
   transferId?: string;
   notes?: string;
   reversedAt?: string;
@@ -347,6 +351,8 @@ export interface CardTransaction extends RecordMetadata {
   moneyTransactionIds?: string[];
   paymentMethod?: Exclude<PaymentMethod, "creditCard">;
   transferFeeMinor?: number;
+  /** Cycle closing that created this reconciliation-only debt adjustment. */
+  closingReconciliationId?: string;
   notes?: string;
   reversedAt?: string;
 }

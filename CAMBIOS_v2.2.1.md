@@ -43,3 +43,6 @@
 - Los archivos TypeScript/TSX modificados pasaron una validación de parseo/transpilación con TypeScript.
 - Se agregó cobertura de regresión para convertir auditorías pendientes 2.2.0 con claves tipo `payments/<id>` a entradas Firebase-safe y comprobar que el contenido serializado no contenga claves inválidas.
 - No fue posible ejecutar `npm ci`, `npm test` ni `npm run build` en este entorno porque la instalación de dependencias requiere acceso a npm y la red del contenedor no está disponible. Esas tres verificaciones son obligatorias antes de publicar.
+
+## Corrección QA posterior
+- Corrección QA: el test de auditoría ahora valida claves Firebase reales sin confundir los `path` almacenados como valores con claves inválidas.

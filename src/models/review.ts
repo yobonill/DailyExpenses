@@ -35,7 +35,13 @@ export interface CycleClosing extends RecordMetadata {
   status: "reconciled" | "differences" | "incomplete";
   balances: ClosingBalance[];
   fingerprint: string;
+  /** Version 1 omitted expectedDate from pending income rows; version 2 fixes that boundary. */
+  fingerprintVersion?: number;
   notes: string;
+  /** Set when reported balances have been incorporated into the ledgers. */
+  reconciledAt?: string;
+  reconciledBy?: string;
+  reconciliationTransactionIds?: string[];
 }
 export interface AuditChangeEntry {
   path: string;

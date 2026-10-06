@@ -1,0 +1,23 @@
+Archivos modificados/agregados en Daily Expenses 2.3.0
+
+package.json
+package-lock.json
+public/sw.js
+src/App.tsx
+src/components/CycleReviewView.tsx
+src/components/finance/IncomeView.tsx
+src/components/finance/SettingsView.tsx
+src/hooks/useFinanceActions.ts
+src/lib/cycleClosingReconciliation.ts
+src/lib/cycleClosingReconciliation.test.ts
+src/lib/financialGeneration.ts
+src/lib/financialReview.ts
+src/lib/financialReview.test.ts
+src/lib/incomeTemplateLifecycle.test.ts
+src/lib/reviewedUpdates.ts
+src/models/finance.ts
+src/models/review.ts
+README.md
+CAMBIOS_v2.3.0.md
+INSTRUCCIONES_ACTUALIZACION_v2.3.0.md
+DEPLOYMENT_CHECKLIST.md

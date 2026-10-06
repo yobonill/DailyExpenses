@@ -70,7 +70,14 @@ export function prepareReviewedUpdates(data: FinancialData, requested: Record<st
     for (const issue of issues) updates[`balanceIssues/${issue.id}`] = issue;
   }
   candidate = applyFinancialUpdates(data, updates);
-  const affected = touchedClosedCycles(data, candidate);
+  const reconciledNow = new Set(Object.entries(updates).flatMap(([path, value]) => {
+    if (!path.startsWith("cycleClosings/") || !value || typeof value !== "object") return [];
+    const id = path.split("/")[1];
+    const beforeClosing = data.cycleClosings[id];
+    const afterClosing = value as { reconciledAt?: string };
+    return !beforeClosing?.reconciledAt && afterClosing.reconciledAt ? [id] : [];
+  }));
+  const affected = touchedClosedCycles(data, candidate).filter((closing) => !reconciledNow.has(closing.id));
   if (affected.length && !prompts.confirm("Este cambio afecta una o más quincenas cerradas y sus balances posteriores. Quedarán marcadas para revisión. ¿Continuar?")) throw new Error("Operación cancelada.");
   if (isEdit) {
     const afterBalances = balancesAt(candidate,toLocalDateKey());

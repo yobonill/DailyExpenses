@@ -89,6 +89,7 @@ export const buildGenerationUpdates = (
     const monthKeys = financialMonthKeys(startMonth, financialMonthDifference(startMonth, current.financialMonth) + 13);
     monthKeys.forEach((financialMonth) => {
       const expectedDate = dateFromFinancialMonthRule(financialMonth, template.dueRule);
+      if (template.generationStartDate && expectedDate < template.generationStartDate) return;
       const id = `${template.id}_${expectedDate}`;
       if (data.incomeOccurrences[id]) return;
       const occurrence: IncomeOccurrence = {

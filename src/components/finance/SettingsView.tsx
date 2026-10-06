@@ -181,7 +181,7 @@ export function SettingsView({
 
     <section className="settings-card">
       <h2>Aplicación</h2>
-      <dl className="settings-details"><div><dt>Versión</dt><dd>2.2.1</dd></div><div><dt>Esquema de datos</dt><dd>1</dd></div>{data.settings.trackingStartDate && <div><dt>Seguimiento exacto desde</dt><dd>{formatShortDate(data.settings.trackingStartDate)}</dd></div>}{Object.values(data.savingsAccountReconciliations).some((item) => item.status === "completed") && <div><dt>Cuentas y ahorros</dt><dd>Unificados</dd></div>}<div><dt>Cambios por sincronizar</dt><dd>{syncPendingCount}</dd></div><div><dt>Desarrollo</dt><dd>Puerto 42871</dd></div><div><dt>Vista previa</dt><dd>Puerto 42872</dd></div></dl>
+      <dl className="settings-details"><div><dt>Versión</dt><dd>2.3.0</dd></div><div><dt>Esquema de datos</dt><dd>1</dd></div>{data.settings.trackingStartDate && <div><dt>Seguimiento exacto desde</dt><dd>{formatShortDate(data.settings.trackingStartDate)}</dd></div>}{Object.values(data.savingsAccountReconciliations).some((item) => item.status === "completed") && <div><dt>Cuentas y ahorros</dt><dd>Unificados</dd></div>}<div><dt>Cambios por sincronizar</dt><dd>{syncPendingCount}</dd></div><div><dt>Desarrollo</dt><dd>Puerto 42871</dd></div><div><dt>Vista previa</dt><dd>Puerto 42872</dd></div></dl>
       <div className="settings-actions">{canInstall && <button className="button button-secondary" type="button" onClick={() => void onInstall()}>Instalar aplicación</button>}<button className="button button-quiet danger-text" type="button" onClick={() => { if (window.confirm("¿Cerrar la sesión guardada en este dispositivo?")) void onLogout(); }}>Cerrar sesión</button></div>
     </section>
 

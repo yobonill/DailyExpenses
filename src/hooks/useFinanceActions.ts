@@ -712,23 +712,43 @@ export const createFinanceActions = ({ data, user, commitUpdates }: ActionDepend
   const saveIncomeTemplate = bindAction(async (input: IncomeTemplateInput, id?: string) => {
     const templateId = id || createId();
     const existing = data.incomeTemplates[templateId];
+    const today = toLocalDateKey();
+    const generationStartDate = existing && !existing.active && input.active ? today : existing?.generationStartDate;
     const template: IncomeTemplate = {
       id: templateId,
       ...input,
       name: input.name.trim(),
       notes: cleanOptional(input.notes),
       excelRowLabel: cleanOptional(input.excelRowLabel),
+      ...(generationStartDate ? { generationStartDate } : {}),
       ...meta(existing),
     };
     const updates: Record<string, unknown> = { [`incomeTemplates/${templateId}`]: template };
-    Object.values(data.incomeOccurrences)
-      .filter((occurrence) => occurrence.templateId === templateId && occurrence.status === "expected")
-      .forEach((occurrence) => {
+    const futureExpected = Object.values(data.incomeOccurrences)
+      .filter((occurrence) => occurrence.templateId === templateId
+        && occurrence.status === "expected"
+        && occurrence.expectedDate >= today);
+
+    if (!template.active) {
+      // Future projections are disposable. Received/cancelled and overdue historical rows stay untouched.
+      for (const occurrence of futureExpected) updates[`incomeOccurrences/${occurrence.id}`] = null;
+    } else {
+      for (const occurrence of futureExpected) {
         const expectedDate = dateFromFinancialMonthRule(occurrence.financialMonth, template.dueRule);
-        const updatedOccurrence = {
+        if (expectedDate < today) {
+          // A schedule edit must never rewrite the past. Drop this projection and let generation continue with later periods.
+          updates[`incomeOccurrences/${occurrence.id}`] = null;
+          continue;
+        }
+        const nextId = `${templateId}_${expectedDate}`;
+        if (nextId !== occurrence.id && data.incomeOccurrences[nextId] && data.incomeOccurrences[nextId].id !== occurrence.id) {
+          throw new Error("La nueva fecha coincide con otro ingreso ya generado. Revisa la programación antes de guardar.");
+        }
+        const updatedOccurrence: IncomeOccurrence = {
           ...occurrence,
-          id: `${templateId}_${expectedDate}`,
+          id: nextId,
           name: template.name,
+          incomeType: template.incomeType,
           expectedAmountMinor: template.expectedAmountMinor,
           currency: template.currency,
           expectedDate,
@@ -738,9 +758,10 @@ export const createFinanceActions = ({ data, user, commitUpdates }: ActionDepend
           exportExpectedWhenPending: template.exportExpectedWhenPending,
           ...meta(occurrence),
         };
-        if (updatedOccurrence.id !== occurrence.id) updates[`incomeOccurrences/${occurrence.id}`] = null;
-        updates[`incomeOccurrences/${updatedOccurrence.id}`] = updatedOccurrence;
-      });
+        if (nextId !== occurrence.id) updates[`incomeOccurrences/${occurrence.id}`] = null;
+        updates[`incomeOccurrences/${nextId}`] = updatedOccurrence;
+      }
+    }
     await commitUpdates(updates);
   }, [commitUpdates, data.incomeOccurrences, data.incomeTemplates, meta]);
 
