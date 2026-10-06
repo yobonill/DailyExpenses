@@ -81,6 +81,22 @@ describe("recurring generation", () => {
     expect(buildGenerationUpdates(applyFinancialUpdates(data, updates), "user-a", new Date("2026-09-02T12:00:00.000Z"))).toEqual({});
   });
 
+  it("creates all bounded weekday therapy sessions up front", () => {
+    const data = createEmptyFinancialData();
+    data.nonMonthlyExpenses.therapy = {
+      id: "therapy", name: "Terapias", category: "Salud", estimatedAmountMinor: 150000, currency: "DOP",
+      nextDueDate: "2026-10-05", recurrenceKind: "weekdays", recurrenceInterval: 1,
+      recurrenceWeekdays: [1, 2, 3, 4, 5], recurrenceEndDate: "2026-10-23",
+      warningMonths: 0, canPayWithCard: true, active: true, ...metadata,
+    };
+    const updates = buildGenerationUpdates(data, "user-a", new Date("2026-10-05T12:00:00.000Z"));
+    const therapyKeys = Object.keys(updates).filter((key) => key.startsWith("nonMonthlyOccurrences/therapy_"));
+    expect(therapyKeys).toHaveLength(15);
+    expect(updates["nonMonthlyOccurrences/therapy_2026-10-05"]).toMatchObject({ dueDate: "2026-10-05", name: "Terapias" });
+    expect(updates["nonMonthlyOccurrences/therapy_2026-10-23"]).toMatchObject({ dueDate: "2026-10-23" });
+    expect(updates["nonMonthlyOccurrences/therapy_2026-10-10"]).toBeUndefined();
+  });
+
   it("does not recreate a postponed source occurrence and still creates the normal destination cycle", () => {
     const data = createEmptyFinancialData();
     data.monthlyTemplates.internet = {

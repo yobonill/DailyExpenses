@@ -4,12 +4,14 @@ import type {
   FinancialData,
   IncomeOccurrence,
   MonthlyExpenseOccurrence,
+  NonMonthlyExpense,
   NonMonthlyOccurrence,
   RecordMetadata,
 } from "../models/finance";
 import { getMonthKey, getQuincena } from "./date";
 import {
   addDaysToDateKey,
+  addMonthsToDateKey,
   dateFromFinancialMonthRule,
   financialMonthKeys,
   financialMonthDifference,
@@ -17,6 +19,7 @@ import {
   getFirstDueDateAfterCut,
   getLatestCutDate,
   getPreviousCutDate,
+  nonMonthlyOccurrenceDates,
 } from "./financeDates";
 import { getCardTransactionEffect } from "./financialCalculations";
 
@@ -27,6 +30,23 @@ const metadata = (actor: string, nowIso: string): RecordMetadata => ({
   updatedBy: actor,
   version: 1,
 });
+
+
+export const isExpandedNonMonthlyPlan = (plan: NonMonthlyExpense): boolean =>
+  Boolean(plan.recurrenceEndDate) || ["days", "weeks", "weekdays"].includes(plan.recurrenceKind);
+
+export const getNonMonthlyPlanOccurrenceDates = (plan: NonMonthlyExpense, todayKey: string): string[] => {
+  if (!isExpandedNonMonthlyPlan(plan)) return [plan.nextDueDate];
+  const rollingHorizon = addMonthsToDateKey(todayKey, 12);
+  const endDate = plan.recurrenceEndDate || (rollingHorizon < plan.nextDueDate ? plan.nextDueDate : rollingHorizon);
+  return nonMonthlyOccurrenceDates({
+    startDate: plan.nextDueDate,
+    recurrenceKind: plan.recurrenceKind,
+    recurrenceInterval: plan.recurrenceInterval,
+    recurrenceWeekdays: plan.recurrenceWeekdays,
+    endDate,
+  });
+};
 
 const statementAmountAtCut = (
   data: FinancialData,
@@ -114,23 +134,25 @@ export const buildGenerationUpdates = (
   });
 
   Object.values(data.nonMonthlyExpenses).filter((plan) => plan.active && !plan.archivedAt).forEach((plan) => {
-    const id = `${plan.id}_${plan.nextDueDate}`;
-    if (data.nonMonthlyOccurrences[id]) return;
-    const occurrence: NonMonthlyOccurrence = {
-      id,
-      planId: plan.id,
-      name: plan.name,
-      category: plan.category,
-      expectedAmountMinor: plan.estimatedAmountMinor,
-      currency: plan.currency,
-      dueDate: plan.nextDueDate,
-      status: "upcoming",
-      canPayWithCard: plan.canPayWithCard,
-      notes: plan.notes,
-      loanId: plan.loanId,
-      ...metadata(actor, nowIso),
-    };
-    updates[`nonMonthlyOccurrences/${id}`] = occurrence;
+    getNonMonthlyPlanOccurrenceDates(plan, current.dateKey).forEach((dueDate) => {
+      const id = `${plan.id}_${dueDate}`;
+      if (data.nonMonthlyOccurrences[id]) return;
+      const occurrence: NonMonthlyOccurrence = {
+        id,
+        planId: plan.id,
+        name: plan.name,
+        category: plan.category,
+        expectedAmountMinor: plan.estimatedAmountMinor,
+        currency: plan.currency,
+        dueDate,
+        status: "upcoming",
+        canPayWithCard: plan.canPayWithCard,
+        notes: plan.notes,
+        loanId: plan.loanId,
+        ...metadata(actor, nowIso),
+      };
+      updates[`nonMonthlyOccurrences/${id}`] = occurrence;
+    });
   });
 
   const todayKey = current.dateKey;

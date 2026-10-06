@@ -4,7 +4,7 @@ import type { AppUserDefinition } from "../config/appUsers";
 import { getMonthKey, getQuincena, toLocalDateKey } from "../lib/date";
 import { dateFromFinancialMonthRule, nextOccurrenceDate } from "../lib/financeDates";
 import { getCardCurrentDebt, getCardPaymentPlanId, getFundAllocated, getFundBalance, getObligationAllocations, getPurchaseGoalReserved, getSavingsTransactionEffect } from "../lib/financialCalculations";
-import { buildGenerationUpdates, buildPausedMonthlyOccurrenceUpdates } from "../lib/financialGeneration";
+import { buildGenerationUpdates, buildPausedMonthlyOccurrenceUpdates, getNonMonthlyPlanOccurrenceDates, isExpandedNonMonthlyPlan } from "../lib/financialGeneration";
 import { buildStartingPointReconciliationUpdates, type StartingPointReconciliationInput } from "../lib/startingPointReconciliation";
 import { createId } from "../lib/id";
 import { BANK_ACCOUNT_ID, CASH_ACCOUNT_ID, LEGACY_BANK_ACCOUNT_ID, getAccountReservedSavings, getLegacyBankBalance, getMoneyAccountBalance, getMoneyAccountSpendableBalance, hasInitializedMoneyAccounts, hasUnifiedSavingsAccounts, isSelectableMoneyAccount } from "../lib/moneyLedger";
@@ -32,6 +32,7 @@ import type {
   MoneyTransaction,
   NonMonthlyExpense,
   NonMonthlyOccurrence,
+  NonMonthlyRecurrenceKind,
   Payment,
   PaymentMethod,
   PurchaseGoal,
@@ -102,8 +103,10 @@ export interface NonMonthlyInput {
   estimatedAmountMinor: number;
   currency: Currency;
   nextDueDate: string;
-  recurrenceKind: "once" | "months" | "years";
+  recurrenceKind: NonMonthlyRecurrenceKind;
   recurrenceInterval: number;
+  recurrenceWeekdays?: number[];
+  recurrenceEndDate?: string;
   warningMonths: number;
   canPayWithCard: boolean;
   active: boolean;
@@ -632,10 +635,25 @@ export const createFinanceActions = ({ data, user, commitUpdates }: ActionDepend
     if (input.sourceType === "nonMonthly") {
       const plan = data.nonMonthlyExpenses[(occurrence as { planId: string }).planId];
       if (plan) {
-        const nextDue = nextOccurrenceDate(plan.nextDueDate, plan.recurrenceKind, plan.recurrenceInterval);
-        updates[`nonMonthlyExpenses/${plan.id}`] = nextDue
-          ? { ...plan, nextDueDate: nextDue, ...meta(plan) }
-          : { ...plan, ...meta(plan), active: false, archivedAt: now };
+        if (isExpandedNonMonthlyPlan(plan)) {
+          // Expanded schedules already have independent occurrences. Paying one session must
+          // never move the whole schedule. A bounded plan completes only after its last
+          // pending occurrence is paid.
+          if (plan.recurrenceEndDate) {
+            const hasOtherPending = Object.values(data.nonMonthlyOccurrences)
+              .some((item) => item.planId === plan.id && item.id !== occurrence.id && item.status === "upcoming");
+            if (!hasOtherPending) updates[`nonMonthlyExpenses/${plan.id}`] = { ...plan, ...meta(plan), active: false, archivedAt: now };
+          }
+        } else {
+          const nextDue = nextOccurrenceDate(
+            plan.nextDueDate,
+            plan.recurrenceKind as Exclude<NonMonthlyRecurrenceKind, "weekdays">,
+            plan.recurrenceInterval,
+          );
+          updates[`nonMonthlyExpenses/${plan.id}`] = nextDue
+            ? { ...plan, nextDueDate: nextDue, ...meta(plan) }
+            : { ...plan, ...meta(plan), active: false, archivedAt: now };
+        }
       }
     }
     await commitUpdates(updates);
@@ -696,14 +714,21 @@ export const createFinanceActions = ({ data, user, commitUpdates }: ActionDepend
     if (!preserveSchedule && sourceType === "nonMonthly" && "planId" in occurrence) {
       const plan = data.nonMonthlyExpenses[occurrence.planId];
       if (plan) {
-        const generatedNext = data.nonMonthlyOccurrences[`${plan.id}_${plan.nextDueDate}`];
-        if (generatedNext && generatedNext.id !== occurrence.id && generatedNext.status === "upcoming") {
-          const hasAllocation = Object.values(data.savingsAllocations)
-            .some((allocation) => allocation.active && allocation.obligationId === generatedNext.id);
-          if (hasAllocation) throw new Error("Libera las asignaciones del siguiente vencimiento antes de reabrir este pago.");
-          updates[`nonMonthlyOccurrences/${generatedNext.id}`] = null;
+        if (isExpandedNonMonthlyPlan(plan)) {
+          // Reopening one session keeps every other scheduled session untouched.
+          if (!plan.active || plan.archivedAt) {
+            updates[`nonMonthlyExpenses/${plan.id}`] = { ...plan, ...meta(plan), active: true, archivedAt: null };
+          }
+        } else {
+          const generatedNext = data.nonMonthlyOccurrences[`${plan.id}_${plan.nextDueDate}`];
+          if (generatedNext && generatedNext.id !== occurrence.id && generatedNext.status === "upcoming") {
+            const hasAllocation = Object.values(data.savingsAllocations)
+              .some((allocation) => allocation.active && allocation.obligationId === generatedNext.id);
+            if (hasAllocation) throw new Error("Libera las asignaciones del siguiente vencimiento antes de reabrir este pago.");
+            updates[`nonMonthlyOccurrences/${generatedNext.id}`] = null;
+          }
+          updates[`nonMonthlyExpenses/${plan.id}`] = { ...plan, ...meta(plan), active: true, archivedAt: null, nextDueDate: occurrence.dueDate };
         }
-        updates[`nonMonthlyExpenses/${plan.id}`] = { ...plan, ...meta(plan), active: true, archivedAt: null, nextDueDate: occurrence.dueDate };
       }
     }
     await commitUpdates(updates);
@@ -854,6 +879,18 @@ export const createFinanceActions = ({ data, user, commitUpdates }: ActionDepend
       const loan = data.loans[input.loanId];
       if (!loan || loan.archivedAt || loan.currency !== input.currency) throw new Error("Revisa el préstamo relacionado y su moneda.");
     }
+    const recurrenceInterval = Math.max(1, input.recurrenceInterval || 1);
+    const recurrenceWeekdays = input.recurrenceKind === "weekdays"
+      ? [...new Set(input.recurrenceWeekdays || [])].filter((day) => Number.isInteger(day) && day >= 0 && day <= 6).sort((a, b) => a - b)
+      : undefined;
+    if (input.recurrenceKind === "weekdays" && !recurrenceWeekdays?.length) {
+      throw new Error("Selecciona al menos un día de la semana.");
+    }
+    const recurrenceEndDate = input.recurrenceKind === "once" ? undefined : cleanOptional(input.recurrenceEndDate);
+    if (recurrenceEndDate && recurrenceEndDate < input.nextDueDate) {
+      throw new Error("La fecha límite no puede ser anterior a la fecha inicial.");
+    }
+
     const planId = id || createId();
     const existing = data.nonMonthlyExpenses[planId];
     if (existing && existing.currency !== input.currency) {
@@ -867,6 +904,9 @@ export const createFinanceActions = ({ data, user, commitUpdates }: ActionDepend
     const plan: NonMonthlyExpense = {
       id: planId,
       ...input,
+      recurrenceInterval,
+      recurrenceWeekdays,
+      recurrenceEndDate,
       name: input.name.trim(),
       category: input.category.trim(),
       notes: cleanOptional(input.notes),
@@ -876,26 +916,73 @@ export const createFinanceActions = ({ data, user, commitUpdates }: ActionDepend
     const updates: Record<string, unknown> = { [`nonMonthlyExpenses/${planId}`]: plan };
     const pending = Object.values(data.nonMonthlyOccurrences)
       .filter((occurrence) => occurrence.planId === planId && occurrence.status === "upcoming")
-      .sort((a, b) => a.dueDate.localeCompare(b.dueDate))[0];
-    if (pending) {
-      const occurrenceId = pending.postponedAt ? pending.id : `${planId}_${input.nextDueDate}`;
-      const updatedOccurrence: NonMonthlyOccurrence = {
-        ...pending,
-        id: occurrenceId,
-        name: plan.name,
-        category: plan.category,
-        expectedAmountMinor: plan.estimatedAmountMinor,
-        currency: plan.currency,
-        dueDate: pending.postponedAt ? pending.dueDate : plan.nextDueDate,
-        canPayWithCard: plan.canPayWithCard,
-        notes: plan.notes,
-        loanId: plan.loanId,
-        ...meta(pending),
-      };
-      if (pending.id !== occurrenceId) updates[`nonMonthlyOccurrences/${pending.id}`] = null;
+      .sort((a, b) => a.dueDate.localeCompare(b.dueDate));
+    const activeAllocationFor = (occurrenceId: string) => Object.values(data.savingsAllocations)
+      .some((allocation) => allocation.obligationType === "nonMonthly" && allocation.obligationId === occurrenceId && allocation.active);
+    const updateOccurrenceFields = (occurrence: NonMonthlyOccurrence, dueDate = occurrence.dueDate): NonMonthlyOccurrence => ({
+      ...occurrence,
+      name: plan.name,
+      category: plan.category,
+      expectedAmountMinor: plan.estimatedAmountMinor,
+      currency: plan.currency,
+      dueDate,
+      canPayWithCard: plan.canPayWithCard,
+      notes: plan.notes,
+      loanId: plan.loanId,
+      ...meta(occurrence),
+    });
+
+    if (isExpandedNonMonthlyPlan(plan)) {
+      const desiredDates = plan.active ? getNonMonthlyPlanOccurrenceDates(plan, toLocalDateKey()) : [];
+      const desiredIds = new Set(desiredDates.map((date) => `${planId}_${date}`));
+      const existingById = new Map(pending.map((occurrence) => [occurrence.id, occurrence]));
+
+      for (const occurrence of pending) {
+        if (occurrence.postponedAt && plan.active) {
+          updates[`nonMonthlyOccurrences/${occurrence.id}`] = updateOccurrenceFields(occurrence);
+          continue;
+        }
+        if (!desiredIds.has(occurrence.id)) {
+          if (activeAllocationFor(occurrence.id)) {
+            throw new Error("Libera las asignaciones de las fechas que saldrán del plan antes de cambiar su calendario.");
+          }
+          updates[`nonMonthlyOccurrences/${occurrence.id}`] = null;
+          continue;
+        }
+        updates[`nonMonthlyOccurrences/${occurrence.id}`] = updateOccurrenceFields(occurrence);
+      }
+
+      for (const dueDate of desiredDates) {
+        const occurrenceId = `${planId}_${dueDate}`;
+        if (existingById.has(occurrenceId) || data.nonMonthlyOccurrences[occurrenceId]) continue;
+        const occurrence: NonMonthlyOccurrence = {
+          id: occurrenceId,
+          planId,
+          name: plan.name,
+          category: plan.category,
+          expectedAmountMinor: plan.estimatedAmountMinor,
+          currency: plan.currency,
+          dueDate,
+          status: "upcoming",
+          canPayWithCard: plan.canPayWithCard,
+          notes: plan.notes,
+          loanId: plan.loanId,
+          ...meta(),
+        };
+        updates[`nonMonthlyOccurrences/${occurrenceId}`] = occurrence;
+      }
+    } else if (pending.length) {
+      const [primary, ...extras] = pending;
+      for (const extra of extras) {
+        if (activeAllocationFor(extra.id)) throw new Error("Libera las asignaciones de las fechas adicionales antes de simplificar el plan.");
+        if (!extra.postponedAt) updates[`nonMonthlyOccurrences/${extra.id}`] = null;
+      }
+      const occurrenceId = primary.postponedAt ? primary.id : `${planId}_${input.nextDueDate}`;
+      const updatedOccurrence = { ...updateOccurrenceFields(primary, primary.postponedAt ? primary.dueDate : plan.nextDueDate), id: occurrenceId };
+      if (primary.id !== occurrenceId) updates[`nonMonthlyOccurrences/${primary.id}`] = null;
       updates[`nonMonthlyOccurrences/${occurrenceId}`] = updatedOccurrence;
       Object.values(data.savingsAllocations)
-        .filter((allocation) => allocation.obligationType === "nonMonthly" && allocation.obligationId === pending.id && allocation.active)
+        .filter((allocation) => allocation.obligationType === "nonMonthly" && allocation.obligationId === primary.id && allocation.active)
         .forEach((allocation) => {
           updates[`savingsAllocations/${allocation.id}`] = { ...allocation, obligationId: occurrenceId, ...meta(allocation) };
         });

@@ -4,7 +4,7 @@ import {
   toLocalDateKey,
   type Quincena,
 } from "./date";
-import type { DueDateRule } from "../models/finance";
+import type { DueDateRule, NonMonthlyRecurrenceKind } from "../models/finance";
 
 export interface LocalDateParts {
   year: number;
@@ -123,11 +123,63 @@ export const getFirstDueDateAfterCut = (cutDateKey: string, dueDay: number): str
 
 export const nextOccurrenceDate = (
   dateKey: string,
-  kind: "once" | "months" | "years",
+  kind: Exclude<NonMonthlyRecurrenceKind, "weekdays">,
   interval: number,
 ): string | null => {
   if (kind === "once") return null;
-  return kind === "months"
-    ? addMonthsToDateKey(dateKey, Math.max(1, interval))
-    : addYearsToDateKey(dateKey, Math.max(1, interval));
+  const safeInterval = Math.max(1, interval);
+  if (kind === "days") return addDaysToDateKey(dateKey, safeInterval);
+  if (kind === "weeks") return addDaysToDateKey(dateKey, safeInterval * 7);
+  if (kind === "months") return addMonthsToDateKey(dateKey, safeInterval);
+  return addYearsToDateKey(dateKey, safeInterval);
+};
+
+export const weekdayForDateKey = (dateKey: string): number => {
+  const { year, month, day } = parseLocalDate(dateKey);
+  return new Date(Date.UTC(year, month - 1, day)).getUTCDay();
+};
+
+/**
+ * Expands a non-monthly recurrence into concrete due dates. The end date is inclusive.
+ * For weekday schedules, recurrenceInterval means "every X weeks" and the first
+ * recurrence week is anchored to startDate.
+ */
+export const nonMonthlyOccurrenceDates = ({
+  startDate,
+  recurrenceKind,
+  recurrenceInterval,
+  recurrenceWeekdays,
+  endDate,
+}: {
+  startDate: string;
+  recurrenceKind: NonMonthlyRecurrenceKind;
+  recurrenceInterval: number;
+  recurrenceWeekdays?: number[];
+  endDate: string;
+}): string[] => {
+  if (!startDate || !endDate || endDate < startDate) return [];
+  const interval = Math.max(1, recurrenceInterval || 1);
+  if (recurrenceKind === "once") return [startDate];
+
+  const dates: string[] = [];
+  const MAX_OCCURRENCES = 800;
+
+  if (recurrenceKind === "weekdays") {
+    const weekdays = new Set((recurrenceWeekdays || []).filter((day) => Number.isInteger(day) && day >= 0 && day <= 6));
+    if (!weekdays.size) return [];
+    let cursor = startDate;
+    while (cursor <= endDate && dates.length < MAX_OCCURRENCES) {
+      const weekIndex = Math.floor(daysBetween(startDate, cursor) / 7);
+      if (weekIndex % interval === 0 && weekdays.has(weekdayForDateKey(cursor))) dates.push(cursor);
+      cursor = addDaysToDateKey(cursor, 1);
+    }
+    return dates;
+  }
+
+  let cursor: string | null = startDate;
+  while (cursor && cursor <= endDate && dates.length < MAX_OCCURRENCES) {
+    dates.push(cursor);
+    cursor = nextOccurrenceDate(cursor, recurrenceKind, interval);
+  }
+  return dates;
 };

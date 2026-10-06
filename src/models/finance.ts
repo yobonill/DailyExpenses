@@ -146,6 +146,8 @@ export interface Bank extends RecordMetadata {
   notes?: string;
 }
 
+export type NonMonthlyRecurrenceKind = "once" | "days" | "weeks" | "weekdays" | "months" | "years";
+
 export interface NonMonthlyExpense extends RecordMetadata {
   id: string;
   name: string;
@@ -153,8 +155,12 @@ export interface NonMonthlyExpense extends RecordMetadata {
   estimatedAmountMinor: number;
   currency: Currency;
   nextDueDate: string;
-  recurrenceKind: "once" | "months" | "years";
+  recurrenceKind: NonMonthlyRecurrenceKind;
   recurrenceInterval: number;
+  /** Weekdays using JavaScript day numbers: 0=Sunday ... 6=Saturday. */
+  recurrenceWeekdays?: number[];
+  /** Inclusive last date for a bounded recurrence. */
+  recurrenceEndDate?: string;
   warningMonths: number;
   canPayWithCard: boolean;
   active: boolean;

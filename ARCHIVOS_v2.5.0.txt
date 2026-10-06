@@ -1,0 +1,20 @@
+ARCHIVOS MODIFICADOS / AGREGADOS EN v2.5.0
+
+package.json
+package-lock.json
+firebase-database-rules.json
+public/sw.js
+src/models/finance.ts
+src/lib/financeDates.ts
+src/lib/financialGeneration.ts
+src/hooks/useFinanceActions.ts
+src/components/finance/FutureExpensesView.tsx
+src/components/finance/SettingsView.tsx
+src/styles.css
+src/lib/financeDates.test.ts
+src/lib/financialGeneration.test.ts
+src/lib/nonMonthlyRecurrenceLifecycle.test.ts
+FIREBASE_RULES_UPDATE.md
+CAMBIOS_v2.5.0.md
+INSTRUCCIONES_ACTUALIZACION_v2.5.0.md
+ARCHIVOS_v2.5.0.txt
