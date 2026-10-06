@@ -28,7 +28,10 @@ export const reconcileVersionedUpdates = (
     const currentVersion = recordVersion(getAtPath(current, path));
     if (incomingVersion !== undefined && currentVersion !== undefined) {
       if (path === "reviewControl" && incomingVersion !== currentVersion + 1) return { updates: {}, conflict: true };
-      if (path.startsWith("cycleClosings/") || path.startsWith("changeAudits/")) return { updates: {}, conflict: true };
+      // Existing cycle closings are legitimately advanced by reconciliation (for example v1 -> v2).
+      // The generic next-version check below provides optimistic concurrency: the first reconciler wins,
+      // while a stale/duplicate reconciliation is rejected once the shared closing version has advanced.
+      if (path.startsWith("changeAudits/")) return { updates: {}, conflict: true };
       if (path.startsWith("savingsAccountReconciliations/")) {
         // The reconciliation marker guards its complete multi-path operation.
         // If another device already created it, none of this queued operation may run.

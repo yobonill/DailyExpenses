@@ -23,6 +23,30 @@ describe("shared financial integrity", () => {
     })).toEqual({ updates: {}, conflict: false });
   });
 
+  it("allows a cycle closing to advance exactly one version for reconciliation", () => {
+    const data = createEmptyFinancialData();
+    data.cycleClosings["2026-09_q1_v1"] = {
+      id: "2026-09_q1_v1", financialMonth: "2026-09", quincena: 1, cutoff: "2026-09-29",
+      revision: 1, status: "differences", balances: [], fingerprint: "before", notes: "",
+      ...metadata,
+    };
+
+    const next = {
+      ...data.cycleClosings["2026-09_q1_v1"],
+      reconciledAt: "2026-10-06T13:00:00.000Z",
+      fingerprint: "after",
+      version: 2,
+    };
+    expect(reconcileVersionedUpdates(data, {
+      "cycleClosings/2026-09_q1_v1": next,
+    }).conflict).toBe(false);
+
+    data.cycleClosings["2026-09_q1_v1"] = next;
+    expect(reconcileVersionedUpdates(data, {
+      "cycleClosings/2026-09_q1_v1": next,
+    }).conflict).toBe(true);
+  });
+
   it("rejects duplicate active payments and savings oversubscription", () => {
     const data = createEmptyFinancialData();
     data.payments.one = { id: "one", sourceType: "monthly", sourceId: "bill", amountMinor: 1000, currency: "DOP", paidDate: "2026-01-18", method: "cash", ...metadata };
