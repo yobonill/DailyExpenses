@@ -1,3 +1,4 @@
+import { AccountHistory } from "./AccountHistory";
 import { useMemo, useState, type FormEvent } from "react";
 import type { LoanInput } from "../../hooks/useFinanceActions";
 import { formatShortDate, toLocalDateKey } from "../../lib/date";
@@ -112,7 +113,8 @@ export function LoansView({ data, onSave, onAdjust, onReverseAdjustment }: {
         <div className="card-balance-grid"><div><span>Capital pendiente</span><strong>{formatCurrency(balance, loan.currency)}</strong></div><div><span>Interés acumulado estimado</span><strong>{formatCurrency(interest, loan.currency)}</strong><small>Tasa anual {loan.annualInterestRate}%</small></div></div>
         <p className="privacy-note">El interés es una estimación. Puedes igualar el capital con el banco en cualquier momento.</p>
         <div className="row-actions"><button className="button button-primary" type="button" onClick={() => setAdjusting(loan)}>Ajustar al banco</button><button className="button button-secondary" type="button" onClick={() => setForm(loan)}>Editar</button><button className="button button-quiet" type="button" onClick={() => setExpanded(expanded === loan.id ? null : loan.id)}>Historial ({transactions.length})</button></div>
-        {expanded === loan.id && <div className="ledger-list">{transactions.length ? transactions.map((item) => <div key={item.id}><span><strong>{transactionLabel(item)}</strong><small>{formatShortDate(item.transactionDate)}</small>{item.type === "payment" && <small>Capital {formatCurrency(item.principalMinor || 0, loan.currency)} · Interés {formatCurrency(item.interestMinor || 0, loan.currency)} · Cargos {formatCurrency(item.chargesMinor || 0, loan.currency)}</small>}{item.notes && <small>{item.notes}</small>}</span><b className={item.type === "adjustment" && (item.adjustmentMinor || 0) > 0 ? "debt-up" : "debt-down"}>{formatCurrency(item.balanceAfterMinor, loan.currency)}</b>{item.type === "adjustment" && !item.linkedPaymentId && <button type="button" onClick={() => { if (window.confirm("¿Revertir este ajuste de balance?")) void onReverseAdjustment(item.id); }}>Revertir</button>}</div>) : <p>Sin movimientos.</p>}</div>}
+        {expanded === loan.id && <AccountHistory scope={{kind:"loan",id:loan.id}} onClose={()=>setExpanded(null)}/>}
+
       </article>;
     })}</div>}
     {form && <LoanForm data={data} loan={form === "new" ? undefined : form} onSave={onSave} onClose={() => setForm(null)} />}

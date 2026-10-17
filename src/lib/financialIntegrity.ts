@@ -1,3 +1,4 @@
+import { assertOpenHistoryUpdates } from "./openCycles";
 import type { FinancialData, RecordMetadata } from "../models/finance";
 import { getCardCurrentDebt, getFundAllocated, getFundBalance, getPurchaseGoalReserved } from "./financialCalculations";
 import { getLoanBalance } from "./loanLedger";
@@ -22,6 +23,7 @@ export const reconcileVersionedUpdates = (
   current: FinancialData,
   requested: Record<string, unknown>,
 ): { updates: Record<string, unknown>; conflict: boolean } => {
+  try { assertOpenHistoryUpdates(current, requested); } catch { return { updates: {}, conflict: true }; }
   const updates: Record<string, unknown> = {};
   for (const [path, value] of Object.entries(requested)) {
     const incomingVersion = recordVersion(value);

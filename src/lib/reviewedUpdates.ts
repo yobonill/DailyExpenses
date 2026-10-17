@@ -1,3 +1,4 @@
+import { assertOpenHistoryUpdates } from "./openCycles";
 import type { FinancialData, RecordMetadata } from "../models/finance";
 import { applyFinancialUpdates } from "./financialState";
 import { balancesAt, createBalanceIssues, reviewMeta, touchedClosedCycles, validatePastDate } from "./financialReview";
@@ -9,6 +10,7 @@ import { auditEntriesFromUpdates, isAuditedFinancialPath } from "./changeAudit";
 
 export interface ReviewPrompts { warn(message: string): void; confirm(message: string): boolean }
 export function prepareReviewedUpdates(data: FinancialData, requested: Record<string, unknown>, actor: string, prompts: ReviewPrompts): Record<string, unknown> {
+  assertOpenHistoryUpdates(data, requested);
   const updates = { ...requested };
   const before: Record<string, unknown> = {};
   let isEdit = false;
@@ -62,6 +64,7 @@ export function prepareReviewedUpdates(data: FinancialData, requested: Record<st
       }
     }
   }
+  assertOpenHistoryUpdates(data, updates);
   const issues = createBalanceIssues(data, updates, actor);
   if (issues.length) {
     const message = issues.map(i => `${i.description}: disponible anterior ${formatCurrency(i.beforeMinor, i.currency)}; después ${formatCurrency(i.afterMinor, i.currency)} (${i.date}).`).join("\n");

@@ -1,3 +1,4 @@
+import { AccountHistory } from "./AccountHistory";
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import type { BankInput, MoneyAccountInput } from "../../hooks/useFinanceActions";
 import type { Bank, BankAccountType, Currency, FinancialData, MoneyAccount, MoneyAccountId } from "../../models/finance";
@@ -187,30 +188,8 @@ const movementLabel = (type: string): string => ({ income: "Ingreso", payment: "
 
 type MoneyHistoryTarget = { kind: "account"; accountId: MoneyAccountId } | { kind: "bank"; bankId: string };
 
-function MoneyHistoryModal({ data, target, onClose }: { data: FinancialData; target: MoneyHistoryTarget; onClose: () => void }) {
-  const accountIds = target.kind === "account"
-    ? [target.accountId]
-    : Object.values(data.moneyAccounts).filter((account) => account.bankId === target.bankId && !account.archivedAt).map((account) => account.id);
-  const transactions = Object.values(data.moneyTransactions)
-    .filter((item) => accountIds.includes(item.accountId) && !item.reversedAt)
-    .sort((a, b) => b.transactionDate.localeCompare(a.transactionDate) || b.createdAt.localeCompare(a.createdAt));
-  const title = target.kind === "account"
-    ? moneyAccountLabel(target.accountId, data)
-    : data.banks[target.bankId]?.name || "Banco";
-  const account = target.kind === "account" ? data.moneyAccounts[target.accountId] : undefined;
-  const bankAccounts = target.kind === "bank" ? accountIds.map((id) => data.moneyAccounts[id]).filter(Boolean) : [];
-  const bankDop = bankAccounts.filter((item) => item.currency === "DOP").reduce((sum, item) => sum + getMoneyAccountBalance(data, item.id), 0);
-  const bankUsd = bankAccounts.filter((item) => item.currency === "USD").reduce((sum, item) => sum + getMoneyAccountBalance(data, item.id), 0);
-
-  return <Modal title={`Historial · ${title}`} onClose={onClose}>
-    <div className="history-current-balance">
-      {account ? <><span>Saldo actual según la aplicación</span><strong>{formatCurrency(getMoneyAccountBalance(data, account.id), account.currency)}</strong></> : <><span>Saldos actuales según la aplicación</span><strong>{formatCurrency(bankDop, "DOP")} · {formatCurrency(bankUsd, "USD")}</strong></>}
-    </div>
-    {transactions.length ? <div className="ledger-list money-history-list">{transactions.map((item) => <div key={item.id}>
-      <span><strong>{item.description}</strong><small>{formatShortDate(item.transactionDate)} · {moneyAccountLabel(item.accountId, data)} · {movementLabel(item.type)}</small>{item.notes && <small>{item.notes}</small>}</span>
-      <b className={item.direction === "in" ? "debt-down" : "debt-up"}>{item.direction === "in" ? "+" : "−"}{formatCurrency(item.amountMinor, item.currency)}</b>
-    </div>)}</div> : <p className="muted-panel">Todavía no hay movimientos posteriores al saldo inicial.</p>}
-  </Modal>;
+function MoneyHistoryModal({ target, onClose }: { data: FinancialData; target: MoneyHistoryTarget; onClose: () => void }) {
+  return <AccountHistory scope={{kind:target.kind,id:target.kind === "account" ? target.accountId : target.bankId}} onClose={onClose}/>;
 }
 
 export function MoneyView({ data, canReconcile, onSaveBank, onDeleteBank, onSaveAccount, onInitializeCash, onAdjust, onTransfer, onReconcileSavingsAccounts, onOpenSection, initialHistoryAccountId, onInitialHistoryConsumed }: {

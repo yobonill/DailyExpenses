@@ -1475,7 +1475,7 @@ export const createFinanceActions = ({ data, user, commitUpdates }: ActionDepend
       });
       const accountId: MoneyAccountId | undefined = expense.paymentMethod === "cash" ? CASH_ACCOUNT_ID : expense.moneyAccountId;
       const financeMethod = expense.paymentMethod === "cash" ? "cash" : expense.paymentMethod === "debit" ? "debitCard" : "bankTransfer";
-      if (!accountId || !isSelectableMoneyAccount(data, accountId, financeMethod)) {
+      if (!accountId || !isSelectableMoneyAccount(data, accountId, financeMethod, expense.currency || "DOP")) {
         throw new Error(expense.paymentMethod === "cash" ? "Configura primero tu saldo en Efectivo." : "Selecciona el banco y la cuenta usados para este gasto.");
       }
       const amountMinor = expense.unitPriceCents * expense.quantity;
@@ -1494,7 +1494,7 @@ export const createFinanceActions = ({ data, user, commitUpdates }: ActionDepend
         direction: "out",
         type: "expense",
         amountMinor,
-        currency: "DOP",
+        currency: expense.currency || "DOP",
         transactionDate: expense.occurredDate,
         description: expense.name,
         linkedDailyExpenseId: expense.id,
@@ -1511,7 +1511,7 @@ export const createFinanceActions = ({ data, user, commitUpdates }: ActionDepend
           direction: "out",
           type: "fee",
           amountMinor: feeMinor,
-          currency: "DOP",
+          currency: expense.currency || "DOP",
           transactionDate: expense.occurredDate,
           description: `Comisión por transferencia · ${expense.name}`,
           linkedDailyExpenseId: expense.id,
@@ -1527,7 +1527,7 @@ export const createFinanceActions = ({ data, user, commitUpdates }: ActionDepend
           updates[`moneyTransactions/${transaction.id}`] = { ...transaction, reversedAt: now, ...meta(transaction) };
         });
     } else {
-      const card = Object.values(data.creditCards).find((item) => item.active && !item.archivedAt);
+      const card = (linkedTransactions[0] ? data.creditCards[linkedTransactions[0].cardId] : undefined) || Object.values(data.creditCards).find((item) => item.active && !item.archivedAt);
       if (!card) throw new Error("Configura una tarjeta activa antes de registrar una compra con crédito.");
       const existing = linkedTransactions[0];
       const transactionId = existing?.id || createId();

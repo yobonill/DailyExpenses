@@ -1,3 +1,4 @@
+import { AccountHistoryProvider } from "./components/finance/AccountHistory";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import "./styles.css";
 import { LoginScreen } from "./components/LoginScreen";
@@ -216,7 +217,7 @@ function AuthenticatedApp({ user, onLogout, offlineSession }: { user: AppUserDef
     await Promise.all([financial.retrySync(), expensesState.retrySync()]);
   }, [combinedPendingCount, expensesState.retrySync, financial.retrySync]);
 
-  const renderFinancialHub = (initialSection: FinancialHubSection) => <FinancialHubView
+  const renderFinancialHub = (initialSection: FinancialHubSection) => <AccountHistoryProvider data={financial.data} expenses={allExpenses} user={user} onCommit={financial.commitUpdates}><FinancialHubView
     onOpenMovement={target=>openMovement(target)}
     data={financial.data}
     canReconcileSavingsAccounts={financial.syncState === "synced" && financial.pendingCount === 0}
@@ -241,7 +242,7 @@ function AuthenticatedApp({ user, onLogout, offlineSession }: { user: AppUserDef
     onSaveLoan={actions.saveLoan}
     onAdjustLoan={actions.adjustLoanBalance}
     onReverseLoanAdjustment={actions.reverseLoanAdjustment}
-  />;
+  /></AccountHistoryProvider>;
 
   const renderView = () => {
     switch (view) {

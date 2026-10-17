@@ -1,3 +1,4 @@
+import { AccountHistory } from "./AccountHistory";
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { EXPENSE_CATEGORIES } from "../../config/financeCategories";
 import type { CreditCardInput } from "../../hooks/useFinanceActions";
@@ -438,29 +439,8 @@ export function CreditCardsView({
                   <button className="button button-quiet" type="button" onClick={() => setForm(card)}>Editar</button>
                   <button className="button button-quiet" type="button" onClick={() => { setHistoryCurrency(null); setExpanded(expanded === card.id ? null : card.id); }}>Historial ({transactions.length})</button>
                 </div>
-                {expanded === card.id && (
-                  <div className="card-history-block">
-                    <div className="history-filter-row"><span>Mostrar</span><div><button type="button" className={historyCurrency === null ? "active" : ""} onClick={() => setHistoryCurrency(null)}>Todo</button><button type="button" className={historyCurrency === "DOP" ? "active" : ""} onClick={() => setHistoryCurrency("DOP")}>DOP</button><button type="button" className={historyCurrency === "USD" ? "active" : ""} onClick={() => setHistoryCurrency("USD")}>USD</button></div></div>
-                    <div className="ledger-list">
-                    {transactions.filter((item) => !historyCurrency || item.currency === historyCurrency).length ? transactions.filter((item) => !historyCurrency || item.currency === historyCurrency).map((item) => {
-                      const debtIncrease = item.type === "charge" || (item.type === "adjustment" && item.amountMinor > 0);
-                      const effectiveRate = getUsdPaymentEffectiveRate(item);
-                      return (
-                        <div key={item.id}>
-                          <span>
-                            <strong>{item.description}</strong>
-                            <small>{formatShortDate(item.transactionDate)} · {item.type === "charge" ? "Cargo" : item.type === "payment" ? "Pago" : item.type === "credit" ? "Crédito" : "Ajuste"}</small>
-                            {item.type === "payment" && item.affectsCurrentBalance === false && <small>Histórico · ya incluido en la deuda actual</small>}
-                            {item.settlementAmountDopMinor && <small>Salida real {formatCurrency(item.settlementAmountDopMinor, "DOP")}{effectiveRate ? ` · Tasa RD$${formatExchangeRate(effectiveRate)}/US$1` : ""}</small>}
-                          </span>
-                          <b className={debtIncrease ? "debt-up" : "debt-down"}>{debtIncrease ? "+" : "−"}{formatCurrency(Math.abs(item.amountMinor), item.currency)}</b>
-                          {item.linkedDailyExpenseId ? <small>Gestionar desde Historial</small> : !item.linkedPaymentId && <button type="button" onClick={() => { if (window.confirm("¿Revertir este movimiento y sus efectos vinculados?")) void onReverseTransaction(item.id); }}>Revertir</button>}
-                        </div>
-                      );
-                    }) : <p>Sin movimientos en {historyCurrency || "esta tarjeta"}.</p>}
-                    </div>
-                  </div>
-                )}
+                {expanded === card.id && <AccountHistory scope={{kind:"card",id:card.id,currency:historyCurrency || undefined}} onClose={()=>setExpanded(null)}/>}
+
               </article>
             );
           })}

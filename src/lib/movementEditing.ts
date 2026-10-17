@@ -49,7 +49,8 @@ export async function buildExpenseUpdates(data: FinancialData, user: AppUserDefi
 
 export async function buildMovementEdit(data: FinancialData, user: AppUserDefinition, target: MovementTarget, input: MovementEdit, reverse = false): Promise<Record<string, unknown>> {
   validatePastDate(input.date);
-  if (!reverse && (!Number.isSafeInteger(input.amountMinor) || input.amountMinor <= 0 || !input.category.trim())) throw new Error("Completa el monto y la categoría.");
+  const signedAdjustment = target.source === "cardTransaction" && data.cardTransactions[target.sourceId]?.type === "adjustment";
+  if (!reverse && (!Number.isSafeInteger(input.amountMinor) || (signedAdjustment ? input.amountMinor === 0 : input.amountMinor <= 0) || !input.category.trim())) throw new Error("Completa el monto y la categoría.");
   const updates: Record<string, unknown> = {};
   let candidate = data;
   const capture = async (patch: Record<string, unknown>) => { Object.assign(updates, patch); candidate = applyFinancialUpdates(candidate, patch); };
