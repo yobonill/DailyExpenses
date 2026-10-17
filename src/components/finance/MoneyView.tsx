@@ -12,6 +12,7 @@ import {
   CASH_ACCOUNT_ID,
   LEGACY_BANK_ACCOUNT_ID,
   calculateTransferFeeMinor,
+  compareMoneyAccounts,
   getAccountAvailableUnreserved,
   getAccountReservedSavings,
   getBankAccounts,
@@ -153,7 +154,7 @@ function TransferModal({ data, legacyOnly = false, onSave, onClose }: {
   const bankAccounts = getBankAccounts(data).filter((account) => account.active && data.banks[account.bankId || ""]?.active);
   const cash = data.moneyAccounts[CASH_ACCOUNT_ID];
   const legacy = data.moneyAccounts[LEGACY_BANK_ACCOUNT_ID];
-  const availableAccounts = [...bankAccounts, ...(cash?.active ? [cash] : [])];
+  const availableAccounts = [...bankAccounts, ...(cash?.active ? [cash] : [])].sort((a,b)=>compareMoneyAccounts(data,a,b));
   const sources = legacyOnly ? (legacy ? [legacy] : []) : availableAccounts;
   const [from, setFrom] = useState<MoneyAccountId>(sources[0]?.id || "");
   const source = data.moneyAccounts[from];

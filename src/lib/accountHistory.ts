@@ -1,3 +1,5 @@
+import { assertMovementCycleDate } from "./historyCycles";
+import { getActiveBankAccounts } from "./moneyLedger";
 import { getLoanBalance } from "./loanLedger";
 import type { FinancialData, Currency } from "../models/finance";
 import type { Expense } from "../models/expense";
@@ -12,7 +14,7 @@ import { createId } from "./id";
 
 export type HistoryScope = { kind: "account" | "bank" | "card" | "loan"; id: string; currency?: Currency };
 export type HistoryTarget = { source: "moneyTransaction" | "cardTransaction" | "loanTransaction" | "payment" | "expense"; sourceId: string };
-export type HistoryInput = MovementEdit & { kind: string; toAccountId: string; direction: "in" | "out"; quantity: number; obligationId: string };
+export type HistoryInput = MovementEdit & { cycleMonth?: string; kind: string; toAccountId: string; direction: "in" | "out"; quantity: number; obligationId: string };
 export function resolveHistoryTarget(data: FinancialData, target: HistoryTarget): HistoryTarget {
   if (target.source === "payment" || target.source === "expense") return target;
   const t = target.source === "moneyTransaction" ? data.moneyTransactions[target.sourceId] : target.source === "cardTransaction" ? data.cardTransactions[target.sourceId] : data.loanTransactions[target.sourceId];
@@ -31,7 +33,11 @@ export function historyInput(data: FinancialData, expenses: Expense[], scope: Hi
   const base: HistoryInput = {date:toLocalDateKey(), name:"", category:"Otros", amountMinor:0, currency:scope.currency || "DOP", method:"bankTransfer", accountId:scope.kind === "account" ? scope.id : "", cardId:scope.kind === "card" ? scope.id : "", fundId:"", feeMinor:0, settlementMinor:0, interestMinor:0, chargesMinor:0, notes:"", kind:scope.kind === "card" ? "charge" : scope.kind === "loan" ? "loanPayment" : "expense", toAccountId:"", direction:"out", quantity:1, obligationId:""};
   if (base.accountId) { base.currency=data.moneyAccounts[base.accountId].currency; base.method=data.moneyAccounts[base.accountId].kind === "cash" ? "cash" : "bankTransfer"; }
   if (scope.kind === "loan") base.currency=data.loans[scope.id].currency;
-  if (!target) return base;
+  if (!target) {
+    // A deliberate account-history context remains selected. Otherwise prefer Nómina.
+    if(!base.accountId) base.accountId=getActiveBankAccounts(data,scope.kind==="loan"||scope.kind==="card"?"DOP":base.currency)[0]?.id || "";
+    return base;
+  }
   const r=resolveHistoryTarget(data,target);
   if(r.source === "expense") {
     const e=expenses.find(x=>x.id===r.sourceId); if(!e) throw new Error("Gasto original no disponible.");
@@ -56,6 +62,7 @@ export function historyInput(data: FinancialData, expenses: Expense[], scope: Hi
 }
 
 export async function buildHistoryUpdates(data: FinancialData, expenses: Expense[], user: AppUserDefinition, scope: HistoryScope, input: HistoryInput, target?: HistoryTarget, remove=false): Promise<Record<string,unknown>> {
+  if(input.cycleMonth !== undefined) assertMovementCycleDate(data,input.cycleMonth,input.date);
   validatePastDate(input.date); assertHistoryDateOpen(data,input.date);
   if (target) assertHistoryDateOpen(data, historyInput(data,expenses,scope,target).date);
   if(!remove && (!input.name.trim() || !Number.isSafeInteger(input.amountMinor) || !input.amountMinor || (input.kind!=="adjustment" && input.amountMinor<0))) throw new Error("Completa descripción y monto válido.");

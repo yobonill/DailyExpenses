@@ -32,7 +32,7 @@ export function CaptureView({ onCreate, onSaved, data, activeCardName, transferF
   const [quantity, setQuantity] = useState(initialDraft.quantity || "1");
   const [category, setCategory] = useState(initialDraft.category);
   const [paymentMethod, setPaymentMethod] = useState<ExpensePaymentMethod | "">(initialDraft.paymentMethod);
-  const [moneyAccountId, setMoneyAccountId] = useState(initialDraft.moneyAccountId || bankAccounts[0]?.id || "");
+  const [moneyAccountId, setMoneyAccountId] = useState(((initialDraft.name.trim() || initialDraft.price) ? initialDraft.moneyAccountId : "") || bankAccounts[0]?.id || "");
   const [currency, setCurrency] = useState<ExpenseCurrency>(initialDraft.currency);
   const [includeTransferFee, setIncludeTransferFee] = useState(initialDraft.includeTransferFee);
   const [transferFee, setTransferFee] = useState(initialDraft.transferFee);

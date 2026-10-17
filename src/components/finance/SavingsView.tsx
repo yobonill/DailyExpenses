@@ -3,7 +3,7 @@ import type { SavingsFundInput } from "../../hooks/useFinanceActions";
 import { formatShortDate, toLocalDateKey } from "../../lib/date";
 import { getFundAllocated, getFundBalance } from "../../lib/financialCalculations";
 import { formatCurrency, minorToInput, parseMoneyToCents } from "../../lib/money";
-import { CASH_ACCOUNT_ID, getActiveBankAccounts, getMoneyAccountSpendableBalance, hasUnifiedSavingsAccounts, moneyAccountLabel } from "../../lib/moneyLedger";
+import { CASH_ACCOUNT_ID, compareMoneyAccounts, getActiveBankAccounts, getMoneyAccountSpendableBalance, hasUnifiedSavingsAccounts, moneyAccountLabel } from "../../lib/moneyLedger";
 import type { Currency, FinancialData, SavingsFund, SavingsTransaction } from "../../models/finance";
 import { CheckboxField, CurrencyField, EmptyPanel, Modal, MoneyField, PageHeading, StatusChip } from "./Shared";
 
@@ -19,14 +19,14 @@ function FundForm({ data, fund, onSave, onClose }: {
   const [target, setTarget] = useState(minorToInput(fund?.targetAmountMinor));
   const [targetDate, setTargetDate] = useState(fund?.targetDate || "");
   const [active, setActive] = useState(fund?.active ?? true);
-  const [moneyAccountId, setMoneyAccountId] = useState(fund?.moneyAccountId || "");
+  const [moneyAccountId, setMoneyAccountId] = useState(fund ? fund.moneyAccountId || "" : getActiveBankAccounts(data, currency)[0]?.id || "");
   const [notes, setNotes] = useState(fund?.notes || "");
   const [error, setError] = useState("");
   const cash = data.moneyAccounts[CASH_ACCOUNT_ID];
   const physicalAccounts = [
     ...getActiveBankAccounts(data, currency),
     ...(currency === "DOP" && cash?.active ? [cash] : []),
-  ];
+  ].sort((a,b)=>compareMoneyAccounts(data,a,b));
   const unified = hasUnifiedSavingsAccounts(data);
 
   const submit = async (event: FormEvent) => {
@@ -56,7 +56,7 @@ function FundForm({ data, fund, onSave, onClose }: {
   return <Modal title={fund ? "Editar fondo" : "Nuevo fondo"} onClose={onClose}>
     <form className="form-grid" onSubmit={submit}>
       <label className="field"><span>Nombre</span><input value={name} onChange={(event) => setName(event.target.value)} placeholder="Ej. Emergencias" /></label>
-      <CurrencyField value={currency} onChange={(value) => { setCurrency(value); const account = data.moneyAccounts[moneyAccountId]; if (account?.currency !== value) setMoneyAccountId(""); }} />
+      <CurrencyField value={currency} onChange={(value) => { setCurrency(value); const account = data.moneyAccounts[moneyAccountId]; if (account?.currency !== value) setMoneyAccountId(getActiveBankAccounts(data,value)[0]?.id || ""); }} />
       {!fund && <MoneyField label="Monto que ya tienes ahorrado" value={initialBalance} onChange={setInitialBalance} currency={currency} required={false} />}
       <label className="field"><span>¿Dónde está guardado?{unified ? "" : " (opcional)"}</span><select value={moneyAccountId} onChange={(event) => setMoneyAccountId(event.target.value)}><option value="">Sin especificar</option>{physicalAccounts.map((account) => <option value={account.id} key={account.id}>{moneyAccountLabel(account.id, data)} · Disponible sin apartar {formatCurrency(getMoneyAccountSpendableBalance(data, account.id), account.currency)}</option>)}</select><small className="field-help">El fondo representa una parte apartada del saldo total de esta cuenta; no se suma como dinero adicional.</small></label>
       <MoneyField label="Cantidad que quieres alcanzar (opcional)" value={target} onChange={setTarget} currency={currency} required={false} />

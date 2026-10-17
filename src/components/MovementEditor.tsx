@@ -7,7 +7,7 @@ import { applyFinancialUpdates } from "../lib/financialState";
 import { toLocalDateKey } from "../lib/date";
 import { EXPENSE_CATEGORIES } from "../config/financeCategories";
 import { formatCurrency, parseMoneyToCents, minorToInput } from "../lib/money";
-import { moneyAccountLabel } from "../lib/moneyLedger";
+import { compareMoneyAccounts, getActiveBankAccounts, moneyAccountLabel } from "../lib/moneyLedger";
 import { Modal, MoneyField } from "./finance/Shared";
 
 export function MovementEditor({data, user, target, onCommit, onClose}: {
@@ -29,7 +29,7 @@ export function MovementEditor({data, user, target, onCommit, onClose}: {
   const [amount, setAmount] = useState(minorToInput(payment?.amountMinor || savings?.amountMinor || card?.amountMinor || money?.amountMinor || 0));
   const [currency, setCurrency] = useState<Currency>(payment?.currency || savings?.currency || card?.currency || money?.currency || "DOP");
   const [method, setMethod] = useState<PaymentMethod>(payment?.reportingMethod || payment?.method || card?.paymentMethod || (card?.type === "charge" ? "creditCard" : "bankTransfer"));
-  const [accountId, setAccountId] = useState(payment?.reportingMoneyAccountId || payment?.moneyAccountId || card?.moneyAccountId || money?.accountId || "");
+  const [accountId, setAccountId] = useState(payment?.reportingMoneyAccountId || payment?.moneyAccountId || card?.moneyAccountId || money?.accountId || getActiveBankAccounts(data)[0]?.id || "");
   const [cardId, setCardId] = useState(payment?.reportingCardId || payment?.cardId || card?.cardId || "");
   const [fundId, setFundId] = useState(savedFund || savings?.fundId || "");
   const [fee, setFee] = useState(minorToInput(payment?.transferFeeMinor || card?.transferFeeMinor || 0));
@@ -78,7 +78,7 @@ export function MovementEditor({data, user, target, onCommit, onClose}: {
       {!savings && <label className="field"><span>Categoría de este movimiento</span><select required value={category} onChange={e=>setCategory(e.target.value)}><option value="">Seleccionar categoría</option>{[...new Set([...EXPENSE_CATEGORIES,category])].filter(Boolean).map(c=><option key={c}>{c}</option>)}</select></label>}
       {isSavings && !historical ? <label className="field"><span>Fondo y cuenta de destino</span><select required value={fundId} onChange={e=>setFundId(e.target.value)}><option value="">Seleccionar fondo</option>{Object.values(data.savingsFunds).filter(f=>f.currency===currency).map(f=><option key={f.id} value={f.id}>{f.name} · {f.moneyAccountId ? moneyAccountLabel(f.moneyAccountId,data) : "Sin cuenta"}</option>)}</select></label> : <>
         <label className="field"><span>Forma de pago</span><select value={method} onChange={e=>setMethod(e.target.value as PaymentMethod)}><option value="cash">Efectivo</option><option value="debitCard">Tarjeta de débito</option><option value="bankTransfer">Transferencia</option>{card?.type !== "payment" && <option value="creditCard">Tarjeta de crédito</option>}</select></label>
-        {method !== "cash" && method !== "creditCard" && <label className="field"><span>Cuenta utilizada</span><select required value={accountId} onChange={e=>setAccountId(e.target.value)}><option value="">Seleccionar cuenta</option>{Object.values(data.moneyAccounts).filter(a=>a.kind==="bank").map(a=><option key={a.id} value={a.id}>{moneyAccountLabel(a.id,data)}</option>)}</select></label>}
+        {method !== "cash" && method !== "creditCard" && <label className="field"><span>Cuenta utilizada</span><select required value={accountId} onChange={e=>setAccountId(e.target.value)}><option value="">Seleccionar cuenta</option>{Object.values(data.moneyAccounts).filter(a=>a.kind==="bank").sort((a,b)=>compareMoneyAccounts(data,a,b)).map(a=><option key={a.id} value={a.id}>{moneyAccountLabel(a.id,data)}</option>)}</select></label>}
         {(method === "creditCard" || card) && <label className="field"><span>Tarjeta</span><select required value={cardId} onChange={e=>setCardId(e.target.value)}><option value="">Seleccionar tarjeta</option>{Object.values(data.creditCards).map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select></label>}
         {method === "bankTransfer" && !historical && <MoneyField label="Comisión de transferencia (opcional)" required={false} value={fee} onChange={setFee} />}
         {currency === "USD" && method !== "creditCard" && !historical && <MoneyField label="Monto realmente retirado en DOP" value={settlement} onChange={setSettlement} />}

@@ -1,3 +1,4 @@
+import { historyCycleMonths, movementCycleBounds, cycleStatus, assertMovementCycleDate } from "../../lib/historyCycles";
 import { createContext, useContext, useMemo, useRef, useState, type ReactNode } from "react";
 import type { FinancialData, Currency } from "../../models/finance";
 import type { Expense } from "../../models/expense";
@@ -7,9 +8,9 @@ import { isHistoryDateLocked, assertOpenHistoryUpdates } from "../../lib/openCyc
 import { balancesAt } from "../../lib/financialReview";
 import { getLoanBalance } from "../../lib/loanLedger";
 import { applyFinancialUpdates } from "../../lib/financialState";
-import { moneyAccountLabel } from "../../lib/moneyLedger";
+import { compareMoneyAccounts, getActiveBankAccounts, moneyAccountLabel } from "../../lib/moneyLedger";
 import { formatCurrency, minorToInput, parseMoneyToCents } from "../../lib/money";
-import { getBudgetCycleRange, getMonthKey, toLocalDateKey } from "../../lib/date";
+import { getBudgetCycleRange, getMonthKey, formatMonthTitle, formatBudgetCycleRange, toLocalDateKey } from "../../lib/date";
 import { EXPENSE_CATEGORIES } from "../../config/financeCategories";
 import { Modal, MoneyField } from "./Shared";
 
@@ -54,8 +55,11 @@ export function AccountHistory({scope,onClose}:{scope:HistoryScope;onClose:()=>v
   return <HistoryWorkspace {...context} scope={scope} onClose={onClose}/>;
 }
 function HistoryWorkspace({data,expenses,user,onCommit,scope,onClose}:HistoryContextValue & {scope:HistoryScope;onClose:()=>void}) {
-  const initial=getBudgetCycleRange(getMonthKey(toLocalDateKey()));
-  const [start,setStart]=useState(initial.startDateKey), [end,setEnd]=useState(toLocalDateKey());
+  const today=toLocalDateKey();
+  const [month,setMonth]=useState(getMonthKey(today));
+  const months=historyCycleMonths(data,today);
+  const {startDateKey:start,endDateKey:end}=getBudgetCycleRange(month);
+  const canAdd=Boolean(movementCycleBounds(data,month,today));
   const [currency,setCurrency]=useState<Currency|"">(scope.currency||"");
   const [account,setAccount]=useState(""); const [reported,setReported]=useState("");
   const [editing,setEditing]=useState<{target?:HistoryTarget;remove:boolean;input:HistoryInput}|null>(null);
@@ -64,7 +68,7 @@ function HistoryWorkspace({data,expenses,user,onCommit,scope,onClose}:HistoryCon
   const rows=useMemo(()=>rowsFor(data,scope),[data,scope.kind,scope.id]);
   const visible=rows.filter(r=>(!start||r.date>=start)&&(!end||r.date<=end)&&(!currency||r.currency===currency)&&(!account||r.key===account)).sort((a,b)=>b.date.localeCompare(a.date)||b.createdAt.localeCompare(a.createdAt)||b.id.localeCompare(a.id));
   const name=scope.kind==="bank"?data.banks[scope.id]?.name:scope.kind==="account"?moneyAccountLabel(scope.id,data):scope.kind==="card"?data.creditCards[scope.id]?.name:data.loans[scope.id]?.name;
-  const accounts=scope.kind==="bank"?Object.values(data.moneyAccounts).filter(a=>a.bankId===scope.id):[];
+  const accounts=scope.kind==="bank"?Object.values(data.moneyAccounts).filter(a=>a.bankId===scope.id).sort((a,b)=>compareMoneyAccounts(data,a,b)):[];
   const summaries=useMemo(()=>{
     const keys=scope.kind==="bank"?accounts.filter(a=>!account||a.id===account).map(a=>({key:a.id,currency:a.currency,name:moneyAccountLabel(a.id,data),opening:a.openingBalanceMinor,openingDate:a.openingDate})):
       scope.kind==="account"?[{key:scope.id,currency:data.moneyAccounts[scope.id].currency,name:name||"",opening:data.moneyAccounts[scope.id].openingBalanceMinor,openingDate:data.moneyAccounts[scope.id].openingDate}]:
@@ -73,41 +77,43 @@ function HistoryWorkspace({data,expenses,user,onCommit,scope,onClose}:HistoryCon
     return keys.filter(k=>!currency||k.currency===currency).map(k=>({...k,before:k.opening+rows.filter(r=>r.key===k.key&&start&&r.date<start).reduce((s,r)=>s+r.delta,0),after:k.opening+rows.filter(r=>r.key===k.key&&(!end||r.date<=end)).reduce((s,r)=>s+r.delta,0)}));
   },[data,scope.kind,scope.id,start,end,currency,account,rows]);
   const open=(target?:HistoryTarget,remove=false)=>{
-    setError(""); try {const input=historyInput(data,expenses,scope,target); if(!target&&account) {input.accountId=account;input.currency=data.moneyAccounts[account].currency;} if(target&&isHistoryDateLocked(data,input.date)) throw new Error("Este movimiento pertenece a un ciclo cerrado."); scroll.current=list.current?.scrollTop||0; setEditing({target,remove,input});} catch(e){setError(e instanceof Error?e.message:"No se pudo abrir.");}
+    setError(""); try {const input=historyInput(data,expenses,scope,target); input.cycleMonth=target?getMonthKey(input.date):month; if(!target) {const bounds=movementCycleBounds(data,month,today);if(!bounds)throw new Error("No hay fechas abiertas en este ciclo.");input.date=today>=bounds.startDateKey&&today<=bounds.endDateKey?today:"";} if(!target&&account) {input.accountId=account;input.currency=data.moneyAccounts[account].currency;} if(target&&isHistoryDateLocked(data,input.date)) throw new Error("Este movimiento pertenece a un ciclo cerrado."); scroll.current=list.current?.scrollTop||0; setEditing({target,remove,input});} catch(e){setError(e instanceof Error?e.message:"No se pudo abrir.");}
   };
   const back=()=>{setEditing(null);requestAnimationFrame(()=>{if(list.current)list.current.scrollTop=scroll.current;});};
   if(editing) return <HistoryForm {...{data,expenses,user,onCommit,scope}} initial={editing.input} target={editing.target} remove={editing.remove} onClose={back}/>;
   const report=parseHistoryMoney(reported);
   return <Modal title={`Historial · ${name}`} onClose={onClose} wide>
     <div className="history-workspace-filters">
-      <label className="field"><span>Desde</span><input type="date" value={start} onChange={e=>setStart(e.target.value)}/></label>
-      <label className="field"><span>Hasta</span><input type="date" max={toLocalDateKey()} value={end} onChange={e=>setEnd(e.target.value)}/></label>
+      <label className="field"><span>Ciclo</span><select value={month} onChange={e=>{setMonth(e.target.value);setReported("");}}>{months.map(m=><option key={m} value={m}>{formatMonthTitle(m)} · {cycleStatus(data,m)}</option>)}</select><small>{formatBudgetCycleRange(month)}</small></label>
       <label className="field"><span>Moneda</span><select value={currency} onChange={e=>{setCurrency(e.target.value as Currency|"");setReported("");}}><option value="">Todas</option><option>DOP</option><option>USD</option></select></label>
       {scope.kind==="bank"&&<label className="field"><span>Cuenta</span><select value={account} onChange={e=>{setAccount(e.target.value);setReported("");}}><option value="">Todas las cuentas</option>{accounts.map(a=><option key={a.id} value={a.id}>{moneyAccountLabel(a.id,data)}</option>)}</select></label>}
     </div>
-    {start&&end&&start>end?<p role="alert">La fecha inicial debe ser anterior a la final.</p>:<>
-    <div className="history-balance-summaries">{summaries.map(s=><div className="form-summary" key={s.key}><strong>{s.name}</strong>{start&&start<s.openingDate?<span>El rango comienza antes del saldo inicial ({s.openingDate}); el historial anterior puede estar incompleto.</span>:null}<span>Inicial: {formatCurrency(s.before,s.currency)}</span><strong>Final: {formatCurrency(s.after,s.currency)}</strong></div>)}</div>
+    <>
+    <div className="history-balance-summaries">{summaries.map(s=><div className="form-summary" key={s.key}><strong>{s.name}</strong>{start&&start<s.openingDate?<span>El ciclo comienza antes del saldo inicial ({s.openingDate}); el historial anterior puede estar incompleto.</span>:null}<span>Inicial: {formatCurrency(s.before,s.currency)}</span><strong>Final: {formatCurrency(s.after,s.currency)}</strong></div>)}</div>
     {summaries.length===1&&<div className="history-statement-compare"><MoneyField label="Saldo final según el banco (opcional)" value={reported} onChange={setReported} currency={summaries[0].currency} required={false}/>{report!==null&&reported!==""&&<strong>Diferencia (banco − aplicación): {formatCurrency(report-summaries[0].after,summaries[0].currency)}</strong>}</div>}
-    </>}
-    <div className="row-actions"><button className="button button-primary" onClick={()=>open()}>＋ Agregar movimiento</button><button className="button button-secondary" onClick={()=>{setStart("");setEnd(toLocalDateKey());}}>Todo el historial</button></div>
+    </>
+    <div className="row-actions"><button className="button button-primary" disabled={!canAdd} onClick={()=>open()}>＋ Agregar movimiento</button></div>
     <p className="privacy-note">Los ciclos cerrados son de solo lectura. Eliminar anula la operación y sus efectos vinculados; se conserva la auditoría.</p>
-    <div className="history-workspace-list" ref={list}>{visible.map(r=><article className="history-movement" key={r.id}><div><strong>{r.name}</strong><small>{r.date} · {r.label}</small><small>{scope.kind==="card"?"Deuda":scope.kind==="loan"?"Capital":"Saldo"} después: {formatCurrency(r.balance,r.currency)}</small></div><div><strong>{r.delta>0?"+":""}{formatCurrency(r.delta,r.currency)}</strong><div className="inline-actions">{r.locked?<small>Ciclo cerrado</small>:<><button onClick={()=>open(r.target)}>Editar</button><button className="danger-text" onClick={()=>open(r.target,true)}>Eliminar</button></>}</div></div></article>)}{!visible.length&&<p className="muted-panel">Sin movimientos en este rango.</p>}</div>
+    <div className="history-workspace-list" ref={list}>{visible.map(r=><article className="history-movement" key={r.id}><div><strong>{r.name}</strong><small>{r.date} · {r.label}</small><small>{scope.kind==="card"?"Deuda":scope.kind==="loan"?"Capital":"Saldo"} después: {formatCurrency(r.balance,r.currency)}</small></div><div><strong>{r.delta>0?"+":""}{formatCurrency(r.delta,r.currency)}</strong><div className="inline-actions">{r.locked?<small>Ciclo cerrado</small>:<><button onClick={()=>open(r.target)}>Editar</button><button className="danger-text" onClick={()=>open(r.target,true)}>Eliminar</button></>}</div></div></article>)}{!visible.length&&<p className="muted-panel">Sin movimientos en este ciclo.</p>}</div>
     {error&&<p role="alert" className="form-error">{error}</p>}
   </Modal>;
 }
 
 function HistoryForm({data,expenses,user,onCommit,scope,initial,target,remove,onClose}:HistoryContextValue & {scope:HistoryScope;initial:HistoryInput;target?:HistoryTarget;remove:boolean;onClose:()=>void}) {
-  const [input,setInput]=useState(initial); const [preview,setPreview]=useState<Record<string,unknown>|null>(null); const [base,setBase]=useState(data);
+  const [input,setInput]=useState({...initial,cycleMonth:initial.cycleMonth || getMonthKey(initial.date)});
+  const openMonths=historyCycleMonths(data).filter(m=>movementCycleBounds(data,m));
+  const dateBounds=movementCycleBounds(data,input.cycleMonth);
+ const [preview,setPreview]=useState<Record<string,unknown>|null>(null); const [base,setBase]=useState(data);
   const [error,setError]=useState(""); const [busy,setBusy]=useState(false);
   const set=<K extends keyof HistoryInput>(key:K,value:HistoryInput[K])=>{setInput(x=>({...x,[key]:value}));};
   const resolved=target?resolveHistoryTarget(data,target):undefined;
   const isCard=resolved?.source==="cardTransaction"||(!target&&scope.kind==="card");
   const isLoanAdjustment=resolved?.source==="loanTransaction"||(!target&&scope.kind==="loan"&&input.kind==="adjustment");
   const needsAccount=!isLoanAdjustment&&!(isCard&&input.kind!=="payment")&&input.method!=="creditCard";
-  const accounts=Object.values(data.moneyAccounts).filter(a=>!a.archivedAt&&(a.active||a.id===input.accountId));
+  const accounts=Object.values(data.moneyAccounts).filter(a=>!a.archivedAt&&(a.active||a.id===input.accountId)).sort((a,b)=>compareMoneyAccounts(data,a,b));
   const historical=resolved?.source==="expense"?expenses.find(e=>e.id===resolved.sourceId)?.includedInOpeningBalance:resolved?.source==="payment"?data.payments[resolved.sourceId]?.historical:resolved?.source==="cardTransaction"?data.cardTransactions[resolved.sourceId]?.affectsCurrentBalance===false:false;
   const build=async()=>{setError("");setBusy(true);try{const patch=await buildHistoryUpdates(data,expenses,user,scope,input,target,remove);setPreview(patch);setBase(data);}catch(e){setError(e instanceof Error?e.message:"No se pudo preparar.");}finally{setBusy(false);}};
-  const save=async()=>{if(!preview)return;setError(""); if(base!==data){setPreview(null);setError("Los datos cambiaron. Revisa nuevamente la vista previa.");return;}setBusy(true);try{assertOpenHistoryUpdates(data,preview);await onCommit(preview);onClose();}catch(e){setError(e instanceof Error?e.message:"No se pudo guardar.");}finally{setBusy(false);}};
+  const save=async()=>{if(!preview)return;setError(""); if(base!==data){setPreview(null);setError("Los datos cambiaron. Revisa nuevamente la vista previa.");return;}setBusy(true);try{assertMovementCycleDate(data,input.cycleMonth,input.date);assertOpenHistoryUpdates(data,preview);await onCommit(preview);onClose();}catch(e){setError(e instanceof Error?e.message:"No se pudo guardar.");}finally{setBusy(false);}};
   const after=preview?applyFinancialUpdates(data,preview):data;
   const changes=balancesAt(data,toLocalDateKey()).flatMap(b=>{const a=balancesAt(after,toLocalDateKey()).find(x=>x.key===b.key);return a&&(a.calculatedMinor!==b.calculatedMinor||a.reservedMinor!==b.reservedMinor)?[`${b.name}: ${formatCurrency(b.calculatedMinor,b.currency)} → ${formatCurrency(a.calculatedMinor,b.currency)} (apartado: ${formatCurrency(b.reservedMinor,b.currency)} → ${formatCurrency(a.reservedMinor,b.currency)})`]:[];});
   for(const loan of Object.values(data.loans)){const before=getLoanBalance(data,loan.id),next=getLoanBalance(after,loan.id);if(before!==next)changes.push(`${loan.name} · capital: ${formatCurrency(before,loan.currency)} → ${formatCurrency(next,loan.currency)}`);}
@@ -116,15 +122,18 @@ function HistoryForm({data,expenses,user,onCommit,scope,initial,target,remove,on
     {preview?<><p><strong>{input.name}</strong> · {remove?"Se anulará la operación completa y sus movimientos vinculados.":"Revisa los efectos antes de guardar."}</p>{changes.length?<ul>{changes.map(s=><li key={s}>{s}</li>)}</ul>:<p>Sin cambio en los balances actuales.</p>}<p>Se conservará la versión anterior en la auditoría.</p><div className="modal-actions"><button disabled={busy} onClick={()=>setPreview(null)}>Volver</button><button className="button button-primary" disabled={busy} onClick={()=>void save()}>{busy?"Guardando…":remove?"Confirmar eliminación":"Confirmar cambios"}</button></div></>:
     remove?<><p>¿Eliminar <strong>{input.name}</strong> del {input.date}, por {formatCurrency(input.amountMinor,input.currency)}?</p><p>Se revertirán también sus efectos en cuentas, tarjetas, préstamos y pagos vinculados.</p><button className="button button-primary" disabled={busy} onClick={()=>void build()}>Ver efectos</button></>:
     <form className="form-grid" onSubmit={e=>{e.preventDefault();void build();}}>
+      <label className="field"><span>Ciclo</span><select required value={openMonths.includes(input.cycleMonth)?input.cycleMonth:""} onChange={e=>{const cycleMonth=e.target.value,bounds=movementCycleBounds(data,cycleMonth);setInput(x=>({...x,cycleMonth,date:bounds&&x.date>=bounds.startDateKey&&x.date<=bounds.endDateKey?x.date:""}));}}><option value="" disabled>Seleccionar ciclo abierto</option>{openMonths.map(m=><option key={m} value={m}>{formatMonthTitle(m)} · {formatBudgetCycleRange(m)}</option>)}</select></label>
+      <label className="field"><span>Fecha del movimiento</span><input type="date" required disabled={!dateBounds} min={dateBounds?.startDateKey} max={dateBounds?.endDateKey} value={input.date} onChange={e=>set("date",e.target.value)}/><small>{dateBounds?`Fechas disponibles: ${dateBounds.startDateKey} al ${dateBounds.endDateKey}`:"No hay fechas abiertas en este ciclo."}</small></label>
+
       {!target&&<label className="field"><span>Tipo de movimiento</span><select value={input.kind} onChange={e=>set("kind",e.target.value)}>{(scope.kind==="card"?[["charge","Cargo / compra"],["payment","Pago de tarjeta"],["credit","Devolución / cashback"],["adjustment","Ajuste de deuda (diferencia)"]]:scope.kind==="loan"?[["loanPayment","Pago de préstamo"],["adjustment","Ajuste de capital (diferencia)"]]:[["expense","Gasto"],["income","Ingreso"],["transfer","Transferencia entre cuentas"],["cardPayment","Pago de tarjeta"],["fee","Comisión / impuesto bancario"],["adjustment","Ajuste de saldo (diferencia)"]]).map(([v,l])=><option value={v} key={v}>{l}</option>)}</select></label>}
       {historical&&<p className="form-warning">Movimiento ya incluido en el saldo inicial: la corrección conservará ese tratamiento para evitar contabilizarlo dos veces.</p>}
-      <label className="field"><span>Fecha real</span><input type="date" required max={toLocalDateKey()} value={input.date} onChange={e=>set("date",e.target.value)}/></label>
+
       <label className="field"><span>Descripción</span><input required value={input.name} onChange={e=>set("name",e.target.value)}/></label>
       {isCard&&<label className="field"><span>Moneda</span><select value={input.currency} onChange={e=>set("currency",e.target.value as Currency)}><option>DOP</option><option>USD</option></select></label>}
       {money("amountMinor",input.kind==="adjustment"?isCard||isLoanAdjustment?"Diferencia (+ aumenta deuda, − reduce)":"Diferencia de saldo":"Monto total")}
       {input.kind==="expense"&&<label className="field"><span>Cantidad</span><input type="number" min="1" step="1" value={input.quantity} onChange={e=>set("quantity",Number(e.target.value))}/></label>}
       <label className="field"><span>Categoría</span><select value={input.category} onChange={e=>set("category",e.target.value)}>{[...new Set([...EXPENSE_CATEGORIES,input.category])].map(c=><option key={c}>{c}</option>)}</select></label>
-      {(resolved?.source==="payment"||input.kind==="expense")&&<label className="field"><span>Forma de pago</span><select value={input.method} onChange={e=>{const method=e.target.value as HistoryInput["method"];setInput(x=>({...x,method,accountId:method==="cash"?"cash":x.accountId}));}}><option value="cash">Efectivo</option><option value="debitCard">Débito</option><option value="bankTransfer">Transferencia</option>{input.kind!=="loanPayment"&&<option value="creditCard">Tarjeta de crédito</option>}</select></label>}
+      {(resolved?.source==="payment"||input.kind==="expense")&&<label className="field"><span>Forma de pago</span><select value={input.method} onChange={e=>{const method=e.target.value as HistoryInput["method"];setInput(x=>({...x,method,accountId:method==="cash"?"cash":method!=="creditCard"&&(x.accountId==="cash"||!x.accountId)?getActiveBankAccounts(data,x.currency)[0]?.id||"":x.accountId}));}}><option value="cash">Efectivo</option><option value="debitCard">Débito</option><option value="bankTransfer">Transferencia</option>{input.kind!=="loanPayment"&&<option value="creditCard">Tarjeta de crédito</option>}</select></label>}
       {input.method==="creditCard"&&resolved?.source==="payment"&&<label className="field"><span>Tarjeta</span><select required value={input.cardId} onChange={e=>set("cardId",e.target.value)}><option value="">Seleccionar tarjeta</option>{Object.values(data.creditCards).filter(c=>!c.archivedAt).map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select></label>}
       {needsAccount&&<label className="field"><span>{input.kind==="transfer"?"Cuenta de origen":"Cuenta utilizada"}</span><select required value={input.accountId} onChange={e=>{const a=data.moneyAccounts[e.target.value];setInput(x=>({...x,accountId:e.target.value,method:a?.kind==="cash"?"cash":"bankTransfer",currency:!target&&scope.kind!=="card"&&scope.kind!=="loan"&&x.kind!=="cardPayment"?a?.currency||x.currency:x.currency}));}}><option value="">Seleccionar cuenta</option>{accounts.map(a=><option key={a.id} value={a.id}>{moneyAccountLabel(a.id,data)} · {a.currency}</option>)}</select></label>}
       {input.kind==="transfer"&&<label className="field"><span>Cuenta de destino</span><select required value={input.toAccountId} onChange={e=>set("toAccountId",e.target.value)}><option value="">Seleccionar cuenta</option>{accounts.filter(a=>a.id!==input.accountId&&a.currency===input.currency).map(a=><option key={a.id} value={a.id}>{moneyAccountLabel(a.id,data)}</option>)}</select></label>}

@@ -30,11 +30,21 @@ export const getBankAccounts = (data: FinancialData, includeLegacy = false): Mon
     .filter((account) => account.kind === "bank"
       && !account.archivedAt
       && (includeLegacy || account.id !== LEGACY_BANK_ACCOUNT_ID))
-    .sort((a, b) => {
-      const bankA = a.bankId ? data.banks[a.bankId]?.name || "" : "";
-      const bankB = b.bankId ? data.banks[b.bankId]?.name || "" : "";
-      return bankA.localeCompare(bankB, "es") || a.name.localeCompare(b.name, "es");
-    });
+    .sort((a, b) => compareMoneyAccounts(data, a, b));
+
+const normalizedAccountText = (text: string): string => text.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+/** One ordering for every account picker; never changes a saved selection. */
+export function compareMoneyAccounts(data: FinancialData, a: MoneyAccount, b: MoneyAccount): number {
+  const priority = (account: MoneyAccount) => {
+    const bank = normalizedAccountText(data.banks[account.bankId || ""]?.name || "");
+    const name = normalizedAccountText(account.name);
+    if (/\balcanza\b/.test(name)) return 3;
+    if (/\bpopular\b/.test(bank) && (account.accountType === "payroll" || /\bnomina\b/.test(name))) return 0;
+    return account.kind === "cash" ? 2 : 1;
+  };
+  return priority(a)-priority(b) || moneyAccountLabel(a.id,data).localeCompare(moneyAccountLabel(b.id,data),"es") || a.id.localeCompare(b.id);
+}
+
 
 export const getActiveBankAccounts = (data: FinancialData, currency: Currency = "DOP"): MoneyAccount[] =>
   getBankAccounts(data).filter((account) => account.currency === currency
