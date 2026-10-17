@@ -9,6 +9,7 @@ import { getLoanBalance } from "./loanLedger";
 import { getCardCurrentDebt } from "./financialCalculations";
 import { buildSpendingHistory } from "./spendingHistory";
 import { assertOpenHistoryUpdates } from "./openCycles";
+import { createFinanceActions } from "../hooks/useFinanceActions";
 import type { AppUserDefinition } from "../config/appUsers";
 import type { FinancialData } from "../models/finance";
 const user={uid:"tester"} as AppUserDefinition, meta=reviewMeta("tester");
@@ -17,6 +18,44 @@ function fixture(){const d=createEmptyFinancialData();d.banks.b={id:"b",name:"Ba
 const input=(d:FinancialData,s=scope)=>({...historyInput(d,[],s),date:"2026-09-20",name:"Movimiento",amountMinor:10000,category:"Otros",accountId:"a"});
 function commit(d:FinancialData,p:Record<string,unknown>){const next=applyFinancialUpdates(d,prepareReviewedUpdates(d,p,user.uid,{warn:()=>{},confirm:()=>true}));expect(isFinanciallyConsistent(next)).toBe(true);return next;}
 describe("account history corrections",()=>{
+ it.each(["payment","loan","expense","card","transfer"] as const)("edits/deletes only the commission of a %s",async(kind)=>{
+  let d=fixture();
+  if(kind==="payment") {
+   const actions=()=>createFinanceActions({data:d,user,commitUpdates:async p=>{d=commit(d,p);}});
+   await actions().createOneTimeMonthly({name:"Diezmar",category:"Otros",estimatedAmountMinor:10000,currency:"DOP",dueDate:"2026-09-20",dueRule:{kind:"day",day:20},plannedQuincena:1,variableAmount:true,canPayWithCard:false,active:true});
+   await actions().payObligation({sourceType:"monthly",sourceId:Object.keys(d.monthlyOccurrences)[0],amountMinor:10000,currency:"DOP",paidDate:"2026-09-20",method:"bankTransfer",moneyAccountId:"a",transferFeeMinor:757});
+  } else {
+   const s:HistoryScope=kind==="loan"?{kind:"loan",id:"l"}:kind==="card"?{kind:"card",id:"c"}:scope;
+   d=commit(d,await buildHistoryUpdates(d,[],user,s,{...input(d,s),kind:kind==="loan"?"loanPayment":kind==="card"?"payment":kind,feeMinor:757,toAccountId:"b"}));
+  }
+  const original=d;
+  const fee=Object.values(d.moneyTransactions).find(t=>t.type==="fee"&&!t.reversedAt)!;
+  const target={source:"moneyTransaction" as const,sourceId:fee.id};
+  expect(resolveHistoryTarget(d,target)).toEqual(target);
+  const form=historyInput(d,Object.values(d.managedExpenses),scope,target);
+  expect(form.kind).toBe("fee");expect(form.amountMinor).toBe(757);
+  d=commit(d,await buildHistoryUpdates(d,Object.values(d.managedExpenses),user,scope,{...form,amountMinor:300,date:"2026-09-21",name:"Comisión corregida"},target));
+  expect(getMoneyAccountBalance(d,"a")-getMoneyAccountBalance(original,"a")).toBe(457);
+  expect(d.moneyTransactions[fee.id]).toMatchObject({amountMinor:300,transactionDate:"2026-09-21",description:"Comisión corregida"});
+  d=commit(d,await buildHistoryUpdates(d,Object.values(d.managedExpenses),user,scope,historyInput(d,Object.values(d.managedExpenses),scope,target),target,true));
+  expect(getMoneyAccountBalance(d,"a")-getMoneyAccountBalance(original,"a")).toBe(757);
+  for(const t of Object.values(original.moneyTransactions).filter(t=>t.type!=="fee")) expect(d.moneyTransactions[t.id]).toEqual(t);
+  expect(d.monthlyOccurrences).toEqual(original.monthlyOccurrences);
+  expect(d.loanTransactions).toEqual(original.loanTransactions);
+  expect(getLoanBalance(d,"l")).toBe(getLoanBalance(original,"l"));
+  expect(getCardCurrentDebt(d,"c","DOP")).toBe(getCardCurrentDebt(original,"c","DOP"));
+  const p=Object.values(d.payments).find(p=>!p.reversedAt);
+  if(p) {expect(p).toMatchObject({amountMinor:10000,paidDate:"2026-09-20",transferFeeMinor:0});expect(p.feeMoneyTransactionId).toBeUndefined();}
+  if(kind==="expense") expect(Object.values(d.managedExpenses)[0]).toMatchObject({transferFeeCents:0,unitPriceCents:10000,occurredDate:"2026-09-20"});
+  if(kind==="card") expect(Object.values(d.cardTransactions)[0]).toMatchObject({transferFeeMinor:0,amountMinor:10000,transactionDate:"2026-09-20"});
+  // A later edit to the parent must not recreate the removed fee.
+  const main=Object.values(d.moneyTransactions).find(t=>t.type!=="fee"&&t.direction==="out"&&!t.reversedAt)!;
+  const parent={source:"moneyTransaction" as const,sourceId:main.id};
+  const parentInput=historyInput(d,Object.values(d.managedExpenses),scope,parent);
+  expect(parentInput.feeMinor).toBe(0);
+  d=commit(d,await buildHistoryUpdates(d,Object.values(d.managedExpenses),user,scope,{...parentInput,name:"Descripción corregida"},parent));
+  expect(Object.values(d.moneyTransactions).filter(t=>t.type==="fee"&&!t.reversedAt)).toHaveLength(0);
+ });
  it("creates, edits and deletes an expense without duplicating its ledger entry",async()=>{
   let d=fixture();d=commit(d,await buildHistoryUpdates(d,[],user,scope,input(d)));
   const t=Object.values(d.moneyTransactions).find(t=>t.type==="expense")!;const target={source:"moneyTransaction" as const,sourceId:t.id};

@@ -19,6 +19,8 @@ export function resolveHistoryTarget(data: FinancialData, target: HistoryTarget)
   if (target.source === "payment" || target.source === "expense") return target;
   const t = target.source === "moneyTransaction" ? data.moneyTransactions[target.sourceId] : target.source === "cardTransaction" ? data.cardTransactions[target.sourceId] : data.loanTransactions[target.sourceId];
   if (!t) throw new Error("Movimiento no disponible.");
+  // A commission is independently correctable, even when its parent operation is linked.
+  if (target.source === "moneyTransaction" && t.type === "fee") return target;
   if ("linkedDailyExpenseId" in t && t.linkedDailyExpenseId) return { source: "expense", sourceId: t.linkedDailyExpenseId };
   if (t.linkedPaymentId) return { source: "payment", sourceId: t.linkedPaymentId };
   if ("linkedCardTransactionId" in t && t.linkedCardTransactionId) return resolveHistoryTarget(data, {source:"cardTransaction", sourceId:t.linkedCardTransactionId});
@@ -103,7 +105,30 @@ export async function buildHistoryUpdates(data: FinancialData, expenses: Expense
     await capture({[`loanTransactions/${t.id}`]:{...t,adjustmentMinor:input.amountMinor,transactionDate:input.date,notes:input.notes,reversedAt:remove?now:undefined,...meta(t)}});
   } else if(r?.source === "moneyTransaction") {
     const t=data.moneyTransactions[r.sourceId];
-    if(t.linkedIncomeOccurrenceId) {
+    if(t.reversedAt) throw new Error("Este movimiento ya fue anulado.");
+    if(t.type === "fee") {
+      if(!remove) requireAccount();
+      await capture({[`moneyTransactions/${t.id}`]:remove
+        ? {...t,reversedAt:now,...meta(t)}
+        : {...t,accountId:input.accountId,amountMinor:input.amountMinor,currency:input.currency,direction:"out",transactionDate:input.date,description:input.name,notes:input.notes,...meta(t)}});
+      const fee=remove?0:input.amountMinor;
+      // Update only the parent's fee metadata; never reopen or recreate its payment.
+      if(t.linkedPaymentId) {
+        const p=data.payments[t.linkedPaymentId];
+        if(!p || p.reversedAt) throw new Error("Pago original no disponible.");
+        await capture({[`payments/${p.id}`]:{...p,transferFeeMinor:fee,feeMoneyTransactionId:remove?undefined:t.id,...meta(p)}});
+      }
+      if(t.linkedDailyExpenseId) {
+        const e=data.managedExpenses[t.linkedDailyExpenseId] || expenses.find(e=>e.id===t.linkedDailyExpenseId);
+        if(!e || e.deletedAt) throw new Error("Gasto original no disponible.");
+        await capture({[`managedExpenses/${e.id}`]:{...e,transferFeeCents:fee,...meta(data.managedExpenses[e.id])}});
+      }
+      if(t.linkedCardTransactionId) {
+        const c=data.cardTransactions[t.linkedCardTransactionId];
+        if(!c || c.reversedAt) throw new Error("Pago de tarjeta original no disponible.");
+        await capture({[`cardTransactions/${c.id}`]:{...c,transferFeeMinor:fee,moneyTransactionIds:remove?c.moneyTransactionIds?.filter(id=>id!==t.id):c.moneyTransactionIds,...meta(c)}});
+      }
+    } else if(t.linkedIncomeOccurrenceId) {
       await actions().reopenIncome(t.linkedIncomeOccurrenceId);
       if(!remove) {
         requireAccount();
@@ -116,9 +141,9 @@ export async function buildHistoryUpdates(data: FinancialData, expenses: Expense
       for(const x of pair) await capture({[`moneyTransactions/${x.id}`]:{...x,reversedAt:now,...meta(x)}});
       if(!remove) {requireAccount(); await actions().transferMoney(input.accountId,input.toAccountId,input.amountMinor,input.date,input.feeMinor,input.notes);}
     } else {
-      if(!["fee","adjustment"].includes(t.type)) throw new Error("No se encontró la operación original vinculada.");
+      if(t.type!=="adjustment") throw new Error("No se encontró la operación original vinculada.");
       if(!remove) requireAccount();
-      await capture({[`moneyTransactions/${t.id}`]:{...t,accountId:input.accountId,amountMinor:Math.abs(input.amountMinor),direction:t.type==="fee"?"out":input.direction,transactionDate:input.date,description:input.name,notes:input.notes,reversedAt:remove?now:undefined,...meta(t)}});
+      await capture({[`moneyTransactions/${t.id}`]:{...t,accountId:input.accountId,amountMinor:Math.abs(input.amountMinor),direction:input.direction,transactionDate:input.date,description:input.name,notes:input.notes,reversedAt:remove?now:undefined,...meta(t)}});
     }
   } else if(scope.kind === "loan" && input.kind === "adjustment") {
     await actions().adjustLoanBalance(scope.id,getLoanBalance(data,scope.id)+input.amountMinor,input.date,input.notes);
