@@ -1,3 +1,4 @@
+import { BalanceIssuePanel } from "./BalanceIssuePanel";
 import { useState } from "react";
 import type { FinancialData } from "../models/finance";
 import type { CycleClosing } from "../models/review";
@@ -140,6 +141,7 @@ export function CycleReviewView({data, actor, synced, syncMessage, pendingCount 
       </>}
     </div>}
     <button className="button button-primary" aria-describedby={busy || cutoff>today || !synced?"closing-block-reasons":undefined} disabled={busy || cutoff>today || !synced} onClick={()=>void save()}>{busy?"Procesando…":"Cerrar y reconciliar saldos"}</button>
+    <BalanceIssuePanel data={data} actor={actor} onCommit={onCommit} period={{month,quincena}} />
     <h2>Cierres guardados</h2>{closings.map(c=><details className="balance-review-card" key={c.id}><summary>Revisión {c.revision} · {closingNeedsReview(data,c)?"Requiere revisión":closingStatusLabel(c)} · {new Date(c.createdAt).toLocaleString("es-DO")}</summary><p>{c.notes}</p>{c.reconciledAt&&<p>Balances incorporados al ledger: {new Date(c.reconciledAt).toLocaleString("es-DO")} · {c.reconciliationTransactionIds?.length||0} ajuste(s).</p>}{c.balances.map(b=><p key={b.key}>{b.name}: calculado {formatCurrency(b.calculatedMinor,b.currency)} · reportado {b.reportedMinor===undefined?"Sin confirmar":formatCurrency(b.reportedMinor,b.currency)}{b.reportedMinor!==undefined&&b.reportedMinor!==b.calculatedMinor?` · diferencia ${formatCurrency(b.reportedMinor-b.calculatedMinor,b.currency)}`:""}</p>)}</details>)}
     <details className="balance-review-card"><summary>Registro de cambios y correcciones</summary>{Object.values(data.changeAudits).sort((a,b)=>b.createdAt.localeCompare(a.createdAt)).map(a=><details key={a.id}><summary>{new Date(a.createdAt).toLocaleString("es-DO")} · {a.description}</summary>{auditEntries(a.after).filter(entry=>isAuditedFinancialPath(entry.path)).map(({path,value})=>{
       const after=value as {description?:string;name?:string;amountMinor?:number;unitPriceCents?:number;quantity?:number;currency?:"DOP"|"USD";reversedAt?:string;notes?:string;deletedAt?:string}|null;
@@ -150,10 +152,5 @@ export function CycleReviewView({data, actor, synced, syncMessage, pendingCount 
   </section>;
 }
 
-export function BalanceIssuePanel({data,actor,onCommit}: {data:FinancialData;actor:string;onCommit:(patch:Record<string,unknown>)=>Promise<void>}) {
-  const [error,setError]=useState("");
-  const issues=Object.values(data.balanceIssues).sort((a,b)=>b.createdAt.localeCompare(a.createdAt));
-  if (!issues.length) return null;
-  const resolve=async(id:string)=>{const i=data.balanceIssues[id];const resolution=window.prompt("Explica qué corregiste o por qué das esta incidencia por revisada. Un ingreso posterior no explica por sí solo el saldo anterior.");if(!resolution?.trim())return;try{await onCommit({[`balanceIssues/${id}`]:{...i,status:"reviewed",resolution:resolution.trim(),...reviewMeta(actor,i)}});}catch(e){setError(e instanceof Error?e.message:"No se pudo guardar.");}};
-  return <details className="balance-review-card"><summary>Incidencias: {issues.filter(i=>i.status==="pending").length} pendientes</summary>{issues.map(i=><article key={i.id}><strong>{i.description}</strong><p>{i.date} · Diferencia {formatCurrency(i.differenceMinor,i.currency)} · {i.status==="pending"?"Pendiente de revisar":"Revisada"}</p>{i.accountId && <p>{data.moneyAccounts[i.accountId]?.name}</p>}{i.resolution && <p>{i.resolution}</p>}{i.status==="pending" && <button className="text-button" onClick={()=>void resolve(i.id)}>Resolver con explicación</button>}</article>)}{error&&<p className="form-error">{error}</p>}</details>;
-}
+
+export { BalanceIssuePanel } from "./BalanceIssuePanel";

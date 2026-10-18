@@ -1,5 +1,5 @@
 const CACHE_PREFIX = "daily-expenses-budget-shell-";
-const CACHE_NAME = `${CACHE_PREFIX}v23`;
+const CACHE_NAME = `${CACHE_PREFIX}v24`;
 const APP_ROOT = self.registration.scope;
 const INDEX_URL = new URL("index.html", APP_ROOT).toString();
 const STATIC_SHELL_URLS = [

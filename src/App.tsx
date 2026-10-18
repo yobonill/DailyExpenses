@@ -272,7 +272,7 @@ function AuthenticatedApp({ user, onLogout, offlineSession }: { user: AppUserDef
         <SyncStatus state={combinedState} message={combinedMessage} pendingCount={combinedPendingCount} onRetry={retryCombinedSync} />
       </header>
       <main className="app-content">
-        {["dashboard","money","loans","cards","savings","closings"].includes(view) && <BalanceIssuePanel data={financial.data} actor={user.uid} onCommit={financial.commitUpdates} />}
+        {["dashboard","money","loans","cards","savings"].includes(view) && <BalanceIssuePanel data={financial.data} actor={user.uid} onCommit={financial.commitUpdates} />}
         {view === "dashboard" && <button className="button button-secondary" onClick={()=>setView("closings")}>Revisar y cerrar quincena</button>}
         <div hidden={view !== "review"}><ReviewView data={financial.data} expenses={expensesState.expenses} activeCardName={activeCard?.name} transferFeeRatePercent={financial.data.settings.transferFeeRatePercent} onEdit={handleEditExpense} onDelete={handleDeleteExpense} onRestore={handleRestoreExpense} onClassifyHistorical={actions.classifyHistoricalPayment} onNotice={showNotice} onOpenMovement={target=>{
           openMovement(target,true);
