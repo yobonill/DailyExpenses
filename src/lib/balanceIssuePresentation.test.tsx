@@ -50,4 +50,30 @@ describe("incidences by financial cycle", () => {
     const html = renderToStaticMarkup(<BalanceIssuePanel data={fixture()} actor="user" period={{ month: "2026-08", quincena: 1 }} onCommit={async()=>{}}/>);
     expect(html).toContain("Sin incidencias registradas en esta quincena");
   });
+  it("keeps reviewed issues out of the pending list, including mixed-status quincenas", () => {
+    const data = fixture();
+    data.balanceIssues.old = { ...data.balanceIssues.old, status: "reviewed", description: "Solo historial septiembre", resolution: "Verificada" };
+    data.balanceIssues.samePeriod = { ...issue("samePeriod", "2026-10-16"), status: "reviewed", description: "Revisada octubre", resolution: "Correcta" };
+    const html = renderToStaticMarkup(<BalanceIssuePanel data={data} actor="user" onCommit={async()=>{}}/>);
+    const historyStart = html.indexOf('<details class="balance-review-card" data-issue-list="reviewed">');
+    expect(historyStart).toBeGreaterThan(0);
+    const pendingHtml = html.slice(0, historyStart), historyHtml = html.slice(historyStart);
+    expect(pendingHtml).toContain("Problema detectado al 2026-10-16");
+    expect(pendingHtml).not.toContain("Solo historial septiembre");
+    expect(pendingHtml).not.toContain("Revisada octubre");
+    expect(historyHtml).toContain("Solo historial septiembre");
+    expect(historyHtml).toContain("Revisada octubre");
+    expect(historyHtml).toContain("Ver historial de incidencias revisadas (3)");
+    expect(historyHtml).not.toContain("Marcar como revisada con explicación");
+  });
+  it("shows no pending issues after reviewing the last one and retains collapsed history", () => {
+    const data = fixture();
+    for (const value of Object.values(data.balanceIssues)) { value.status = "reviewed";value.resolution = "Revisada transacción por transacción"; }
+    const html = renderToStaticMarkup(<BalanceIssuePanel data={data} actor="user" period={{ month: "2026-09", quincena: 2 }} onCommit={async()=>{}}/>);
+    expect(html).toContain("No hay incidencias pendientes en esta quincena");
+    expect(html).not.toContain('data-issue-list="pending"');
+    expect(html).toContain('<details class="balance-review-card" data-issue-list="reviewed">');
+    expect(html).toContain("Revisada transacción por transacción");
+    expect(html).not.toContain('open=""');
+  });
 });
