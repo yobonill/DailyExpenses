@@ -45,9 +45,9 @@ describe("account history corrections",()=>{
   expect(getLoanBalance(d,"l")).toBe(getLoanBalance(original,"l"));
   expect(getCardCurrentDebt(d,"c","DOP")).toBe(getCardCurrentDebt(original,"c","DOP"));
   const p=Object.values(d.payments).find(p=>!p.reversedAt);
-  if(p) {expect(p).toMatchObject({amountMinor:10000,paidDate:"2026-09-20",transferFeeMinor:0});expect(p.feeMoneyTransactionId).toBeUndefined();}
+  if(p) {expect(p).toMatchObject({amountMinor:10000,paidDate:"2026-09-20"});expect(p.feeMoneyTransactionId).toBeUndefined();expect(p.transferFeeMinor).toBeUndefined();}
   if(kind==="expense") expect(Object.values(d.managedExpenses)[0]).toMatchObject({transferFeeCents:0,unitPriceCents:10000,occurredDate:"2026-09-20"});
-  if(kind==="card") expect(Object.values(d.cardTransactions)[0]).toMatchObject({transferFeeMinor:0,amountMinor:10000,transactionDate:"2026-09-20"});
+  if(kind==="card") {expect(Object.values(d.cardTransactions)[0]).toMatchObject({amountMinor:10000,transactionDate:"2026-09-20"});expect(Object.values(d.cardTransactions)[0].transferFeeMinor).toBeUndefined();}
   // A later edit to the parent must not recreate the removed fee.
   const main=Object.values(d.moneyTransactions).find(t=>t.type!=="fee"&&t.direction==="out"&&!t.reversedAt)!;
   const parent={source:"moneyTransaction" as const,sourceId:main.id};

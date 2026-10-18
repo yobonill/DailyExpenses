@@ -30,7 +30,7 @@ const reconciliationText = (preview: ClosingReconciliationPreview): string => {
     .join("\n");
 };
 
-export function CycleReviewView({data, actor, synced, onCommit}: {data: FinancialData; actor: string; synced: boolean; onCommit:(patch:Record<string,unknown>)=>Promise<void>}) {
+export function CycleReviewView({data, actor, synced, syncMessage, pendingCount = 0, blockedCount = 0, onRetrySync, onCommit}: {data: FinancialData; actor: string; synced: boolean; syncMessage?: string; pendingCount?: number; blockedCount?: number; onRetrySync?:()=>Promise<void>; onCommit:(patch:Record<string,unknown>)=>Promise<void>}) {
   const today = toLocalDateKey();
   const [month,setMonth] = useState(getMonthKey(today));
   const [quincena,setQuincena] = useState<1|2>(getQuincena(today));
@@ -127,7 +127,19 @@ export function CycleReviewView({data, actor, synced, onCommit}: {data: Financia
     </article>;})}
     <label className="field"><span>Notas del cierre / motivo de un ajuste manual</span><textarea value={notes} onChange={e=>setNotes(e.target.value)} /></label>
     {Object.values(data.loans).filter(l=>!l.archivedAt).map(l=><p key={l.id}>{l.name} · Deuda calculada: {formatCurrency(getLoanBalance(data,l.id,cutoff),l.currency)} (los préstamos no se ajustan automáticamente desde el cierre).</p>)}
-    {error && <p role="alert" className="form-error">{error}</p>}<button className="button button-primary" disabled={busy || cutoff>today || !synced} onClick={()=>void save()}>{busy?"Procesando…":"Cerrar y reconciliar saldos"}</button>
+    {error && <p role="alert" className="form-error">{error}</p>}
+    {(busy || cutoff>today || !synced) && <div id="closing-block-reasons" role="status" className="form-warning">
+      {busy && <p>Hay una operación en proceso. Espera a que termine.</p>}
+      {cutoff>today && <p>La quincena seleccionada termina el {cutoff}. Podrás cerrarla desde esa fecha.</p>}
+      {!synced && <>
+        <p><strong>El cierre está bloqueado hasta que Gastos y Presupuesto estén completamente sincronizados.</strong></p>
+        {pendingCount>0 && <p>Cambios pendientes: {pendingCount}.{blockedCount>0?` Bloqueados en Presupuesto: ${blockedCount}. Los cambios posteriores esperan a que se resuelva el primero.`:""}</p>}
+        {syncMessage && <p>{syncMessage}</p>}
+        <p>Revisa los detalles en Más → Configuración. Conserva los pendientes para mantener tus ajustes locales.</p>
+        {onRetrySync && <button type="button" className="button button-secondary" disabled={busy} onClick={()=>{void onRetrySync().catch(e=>setError(e instanceof Error?e.message:"No se pudo reintentar la sincronización."));}}>Reintentar sincronización</button>}
+      </>}
+    </div>}
+    <button className="button button-primary" aria-describedby={busy || cutoff>today || !synced?"closing-block-reasons":undefined} disabled={busy || cutoff>today || !synced} onClick={()=>void save()}>{busy?"Procesando…":"Cerrar y reconciliar saldos"}</button>
     <h2>Cierres guardados</h2>{closings.map(c=><details className="balance-review-card" key={c.id}><summary>Revisión {c.revision} · {closingNeedsReview(data,c)?"Requiere revisión":closingStatusLabel(c)} · {new Date(c.createdAt).toLocaleString("es-DO")}</summary><p>{c.notes}</p>{c.reconciledAt&&<p>Balances incorporados al ledger: {new Date(c.reconciledAt).toLocaleString("es-DO")} · {c.reconciliationTransactionIds?.length||0} ajuste(s).</p>}{c.balances.map(b=><p key={b.key}>{b.name}: calculado {formatCurrency(b.calculatedMinor,b.currency)} · reportado {b.reportedMinor===undefined?"Sin confirmar":formatCurrency(b.reportedMinor,b.currency)}{b.reportedMinor!==undefined&&b.reportedMinor!==b.calculatedMinor?` · diferencia ${formatCurrency(b.reportedMinor-b.calculatedMinor,b.currency)}`:""}</p>)}</details>)}
     <details className="balance-review-card"><summary>Registro de cambios y correcciones</summary>{Object.values(data.changeAudits).sort((a,b)=>b.createdAt.localeCompare(a.createdAt)).map(a=><details key={a.id}><summary>{new Date(a.createdAt).toLocaleString("es-DO")} · {a.description}</summary>{auditEntries(a.after).filter(entry=>isAuditedFinancialPath(entry.path)).map(({path,value})=>{
       const after=value as {description?:string;name?:string;amountMinor?:number;unitPriceCents?:number;quantity?:number;currency?:"DOP"|"USD";reversedAt?:string;notes?:string;deletedAt?:string}|null;

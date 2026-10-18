@@ -116,7 +116,7 @@ export async function buildHistoryUpdates(data: FinancialData, expenses: Expense
       if(t.linkedPaymentId) {
         const p=data.payments[t.linkedPaymentId];
         if(!p || p.reversedAt) throw new Error("Pago original no disponible.");
-        await capture({[`payments/${p.id}`]:{...p,transferFeeMinor:fee,feeMoneyTransactionId:remove?undefined:t.id,...meta(p)}});
+        await capture({[`payments/${p.id}`]:{...p,transferFeeMinor:fee || undefined,feeMoneyTransactionId:remove?undefined:t.id,...meta(p)}});
       }
       if(t.linkedDailyExpenseId) {
         const e=data.managedExpenses[t.linkedDailyExpenseId] || expenses.find(e=>e.id===t.linkedDailyExpenseId);
@@ -126,7 +126,7 @@ export async function buildHistoryUpdates(data: FinancialData, expenses: Expense
       if(t.linkedCardTransactionId) {
         const c=data.cardTransactions[t.linkedCardTransactionId];
         if(!c || c.reversedAt) throw new Error("Pago de tarjeta original no disponible.");
-        await capture({[`cardTransactions/${c.id}`]:{...c,transferFeeMinor:fee,moneyTransactionIds:remove?c.moneyTransactionIds?.filter(id=>id!==t.id):c.moneyTransactionIds,...meta(c)}});
+        await capture({[`cardTransactions/${c.id}`]:{...c,transferFeeMinor:fee || undefined,moneyTransactionIds:remove?c.moneyTransactionIds?.filter(id=>id!==t.id):c.moneyTransactionIds,...meta(c)}});
       }
     } else if(t.linkedIncomeOccurrenceId) {
       await actions().reopenIncome(t.linkedIncomeOccurrenceId);
